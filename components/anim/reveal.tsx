@@ -74,9 +74,8 @@ export function Reveal({
     return () => ctx.revert()
   }, [y, x, delay, duration, stagger, scale, start])
 
-  // @ts-expect-error - polymorphic ref
   return (
-    <Tag ref={ref} id={id} className={className}>
+    <Tag ref={ref as React.Ref<never>} id={id} className={className}>
       {children}
     </Tag>
   )

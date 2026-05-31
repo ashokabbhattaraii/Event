@@ -186,3 +186,51 @@ export const ticketTypes = [
   { name: "Paid", value: 680, fill: "#00c9a7" },
   { name: "VIP", value: 120, fill: "#ff6b35" },
 ]
+
+export const iamUsers = [
+  { name: "Jordan Reyes", email: "jordan@apexlabs.io", role: "Administrator", org: "Apex Labs", mfa: true, status: "Active", last: "Now" },
+  { name: "Riku Tanaka", email: "riku@apexlabs.io", role: "Organizer", org: "Apex Labs", mfa: true, status: "Active", last: "2m ago" },
+  { name: "Sade Okoye", email: "sade@velocity.co", role: "Organizer", org: "Velocity", mfa: true, status: "Active", last: "18m ago" },
+  { name: "Lucia Fernandez", email: "lucia@meridian.org", role: "Organizer", org: "Meridian", mfa: false, status: "Active", last: "1h ago" },
+  { name: "James Park", email: "james@northwind.io", role: "Attendee", org: "Northwind", mfa: false, status: "Invited", last: "—" },
+  { name: "Mara Ahmed", email: "mara@coreflow.app", role: "Organizer", org: "Coreflow", mfa: true, status: "Suspended", last: "3d ago" },
+]
+
+export const roles = [
+  { name: "Administrator", users: 27, color: "bg-primary/12 text-primary", desc: "Full platform control, billing, and IAM." },
+  { name: "Organizer", users: 178, color: "bg-secondary/15 text-secondary", desc: "Create events, manage teams and check-in." },
+  { name: "Attendee", users: 12642, color: "bg-flame/12 text-flame", desc: "Browse, register, and manage tickets." },
+]
+
+export const permissionMatrix = [
+  { feature: "Create & publish events", admin: true, organizer: true, attendee: false },
+  { feature: "Manage IAM & roles", admin: true, organizer: false, attendee: false },
+  { feature: "View platform analytics", admin: true, organizer: false, attendee: false },
+  { feature: "View own event analytics", admin: true, organizer: true, attendee: false },
+  { feature: "Invite collaborators", admin: true, organizer: true, attendee: false },
+  { feature: "Check-in attendees", admin: true, organizer: true, attendee: false },
+  { feature: "Register & buy tickets", admin: true, organizer: true, attendee: true },
+  { feature: "Access AI assistant", admin: true, organizer: true, attendee: true },
+]
+
+export const auditLog = [
+  { actor: "Jordan Reyes", action: "Granted Administrator role to R. Tanaka", ip: "10.4.21.8", time: "2m ago", level: "info" },
+  { actor: "System", action: "Blocked 3 failed login attempts", ip: "203.0.113.42", time: "9m ago", level: "warn" },
+  { actor: "Sade Okoye", action: "Enabled MFA on account", ip: "10.4.18.2", time: "26m ago", level: "info" },
+  { actor: "System", action: "Suspended Coreflow tenant (policy violation)", ip: "internal", time: "1h ago", level: "danger" },
+  { actor: "Lucia Fernandez", action: "Exported attendee PII (consented)", ip: "10.4.30.1", time: "2h ago", level: "info" },
+  { actor: "System", action: "Rotated API signing keys", ip: "internal", time: "5h ago", level: "info" },
+]
+
+export const sessions = [
+  { device: "MacBook Pro · Chrome", location: "San Francisco, US", ip: "10.4.21.8", current: true, time: "Active now" },
+  { device: "iPhone 15 · Safari", location: "San Francisco, US", ip: "10.4.21.9", current: false, time: "1h ago" },
+  { device: "Windows · Edge", location: "Austin, US", ip: "198.51.100.7", current: false, time: "Yesterday" },
+]
+
+export const securityScore = [
+  { label: "MFA Adoption", value: 86 },
+  { label: "Password Health", value: 92 },
+  { label: "Session Hygiene", value: 78 },
+  { label: "Access Reviews", value: 64 },
+]

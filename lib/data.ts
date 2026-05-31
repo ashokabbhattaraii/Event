@@ -125,6 +125,13 @@ export type Organization = {
   status: "Active" | "Suspended" | "Pending"
 }
 
+export const platformKpis = {
+  revenue: 284900,
+  events: 26,
+  attendees: 12847,
+  fillRate: 84,
+}
+
 export const organizations: Organization[] = [
   { name: "Apex Labs", tenantId: "TNT-1024", admin: "R. Tanaka", activeEvents: 8, users: 342, status: "Active" },
   { name: "Velocity", tenantId: "TNT-1025", admin: "S. Okoye", activeEvents: 5, users: 211, status: "Active" },

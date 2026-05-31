@@ -13,8 +13,10 @@ import {
   Pie,
   Cell,
   Legend,
+  BarChart,
+  Bar,
 } from "recharts"
-import { platformActivity, roleDistribution } from "@/lib/data"
+import { platformActivity, roleDistribution, predictedVsActual } from "@/lib/data"
 
 const ranges = ["Daily", "Weekly", "Monthly"]
 
@@ -113,6 +115,41 @@ export function RoleDonut() {
             formatter={(v) => <span className="text-xs text-muted-foreground">{v}</span>}
           />
         </PieChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+// Revenue / activity area chart used as the primary admin chart
+export function AdminRevenueChart() {
+  return <PlatformActivityChart />
+}
+
+export function AdminCategoryChart() {
+  return <RoleDonut />
+}
+
+// Predicted vs actual attendance, full width
+export function AdminAttendanceChart() {
+  return (
+    <div className="rounded-2xl border border-border bg-card p-5 shadow-[0_2px_24px_rgba(0,0,0,0.04)]">
+      <div className="mb-4">
+        <h3 className="font-display text-base font-bold text-ink">AI Predicted vs. Actual Attendance</h3>
+        <p className="text-xs text-muted-foreground">Forecast accuracy across recent events</p>
+      </div>
+      <ResponsiveContainer width="100%" height={280}>
+        <BarChart data={predictedVsActual} margin={{ left: -18, right: 8, top: 8 }} barGap={6}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e7e5df" vertical={false} />
+          <XAxis dataKey="event" stroke="#6b7280" fontSize={12} tickLine={false} axisLine={false} />
+          <YAxis stroke="#6b7280" fontSize={12} tickLine={false} axisLine={false} />
+          <Tooltip
+            cursor={{ fill: "rgba(91,76,245,0.05)" }}
+            contentStyle={{ borderRadius: 12, border: "1px solid #e7e5df", fontSize: 12 }}
+          />
+          <Legend iconType="circle" formatter={(v) => <span className="text-xs text-muted-foreground">{v}</span>} />
+          <Bar dataKey="predicted" name="Predicted" fill="#5b4cf5" radius={[6, 6, 0, 0]} animationDuration={1200} />
+          <Bar dataKey="actual" name="Actual" fill="#00c9a7" radius={[6, 6, 0, 0]} animationDuration={1400} />
+        </BarChart>
       </ResponsiveContainer>
     </div>
   )

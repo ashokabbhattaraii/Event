@@ -6,6 +6,7 @@ import { ensureGsap, prefersReducedMotion } from "@/lib/gsap"
 type RevealProps = {
   children: ReactNode
   className?: string
+  id?: string
   /** initial vertical offset in px */
   y?: number
   /** initial horizontal offset in px */
@@ -24,6 +25,7 @@ type RevealProps = {
 export function Reveal({
   children,
   className,
+  id,
   y = 32,
   x = 0,
   delay = 0,
@@ -74,7 +76,7 @@ export function Reveal({
 
   // @ts-expect-error - polymorphic ref
   return (
-    <Tag ref={ref} className={className}>
+    <Tag ref={ref} id={id} className={className}>
       {children}
     </Tag>
   )

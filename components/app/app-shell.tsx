@@ -20,20 +20,21 @@ export type NavItem = { label: string; href: string; icon: LucideIcon; badge?: n
 type AppShellProps = {
   children: ReactNode
   nav: NavItem[]
-  roleLabel: string
-  roleColor: string
+  role: "Administrator" | "Organizer" | "Attendee"
   userName: string
-  greeting?: string
+  title?: string
 }
 
-export function AppShell({
-  children,
-  nav,
-  roleLabel,
-  roleColor,
-  userName,
-  greeting = "Welcome back",
-}: AppShellProps) {
+const roleColorMap: Record<string, string> = {
+  Administrator: "bg-primary/12 text-primary",
+  Organizer: "bg-secondary/15 text-secondary",
+  Attendee: "bg-flame/12 text-flame",
+}
+
+export function AppShell({ children, nav, role, userName, title = "Welcome back" }: AppShellProps) {
+  const roleLabel = role
+  const roleColor = roleColorMap[role]
+  const greeting = title
   const pathname = usePathname()
   const [botOpen, setBotOpen] = useState(false)
   const aside = useRef<HTMLElement>(null)

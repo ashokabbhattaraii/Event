@@ -10,6 +10,9 @@ import {
   Network,
   Ticket,
   Sparkles,
+  Compass,
+  Heart,
+  QrCode,
 } from "lucide-react"
 import type { NavItem } from "@/components/app/app-shell"
 
@@ -32,4 +35,13 @@ export const organizerNav: NavItem[] = [
   { label: "AI Insights", href: "/organizer#ai", icon: Sparkles },
   { label: "Tickets", href: "/attendee/tickets", icon: Ticket },
   { label: "Notifications", href: "/organizer#notifications", icon: Bell, badge: 3 },
+]
+
+export const attendeeNav: NavItem[] = [
+  { label: "Discover", href: "/attendee", icon: Compass },
+  { label: "My Tickets", href: "/attendee/tickets", icon: Ticket },
+  { label: "Saved", href: "/attendee#saved", icon: Heart },
+  { label: "Check-in", href: "/attendee/tickets", icon: QrCode },
+  { label: "Recommendations", href: "/attendee#ai", icon: Sparkles },
+  { label: "Notifications", href: "/attendee#notifications", icon: Bell, badge: 2 },
 ]

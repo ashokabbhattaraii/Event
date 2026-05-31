@@ -151,11 +151,23 @@
   -webkit-backdrop-filter: blur(16px);
 }
 
-/* hide content until GSAP reveals it to avoid FOUC */
-.gsap-init [data-reveal] {
-  opacity: 0;
-}
-
 html {
   scroll-behavior: smooth;
+}
+
+/* GSAP reveal: only hide when JS has taken over (class added by provider).
+   If JS is disabled/slow, content stays fully visible. */
+html.gsap-ready [data-reveal] {
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+::selection {
+  background: rgba(91, 76, 245, 0.18);
+}
+
+/* thin elegant scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #c8c5bd transparent;
 }

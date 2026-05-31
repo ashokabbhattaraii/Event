@@ -1,4 +1,6 @@
+import Link from "next/link"
 import { Hexagon, ArrowRight } from "lucide-react"
+import { Reveal } from "@/components/anim/reveal"
 
 const columns = [
   { title: "Product", links: ["Features", "Pricing", "Integrations", "Changelog"] },
@@ -11,7 +13,7 @@ export function Footer() {
   return (
     <footer id="about" className="bg-ink text-white">
       {/* CTA band */}
-      <div className="mx-auto max-w-7xl px-6 py-20" data-reveal>
+      <Reveal scale={0.97} className="mx-auto max-w-7xl px-6 py-20">
         <div className="bg-brand-gradient relative overflow-hidden rounded-3xl px-8 py-14 text-center shadow-2xl">
           <h2 className="font-display mx-auto max-w-2xl text-balance text-3xl font-bold leading-tight sm:text-4xl">
             Ready to run smarter events, together?
@@ -19,15 +21,15 @@ export function Footer() {
           <p className="mx-auto mt-4 max-w-xl text-pretty text-white/80">
             Join the teams using EventNexus to automate, secure, and scale their events.
           </p>
-          <a
-            href="#"
+          <Link
+            href="/register"
             className="group mt-8 inline-flex items-center gap-2 rounded-full bg-white px-7 py-3.5 text-sm font-semibold text-ink transition-transform hover:-translate-y-0.5"
           >
             Get Started Free
             <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" />
-          </a>
+          </Link>
         </div>
-      </div>
+      </Reveal>
 
       {/* links */}
       <div className="mx-auto max-w-7xl px-6 pb-12">

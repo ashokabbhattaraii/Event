@@ -1,4 +1,9 @@
+"use client"
+
+import { useEffect, useRef } from "react"
 import { Settings2, Sparkles, BarChart3 } from "lucide-react"
+import { Reveal } from "@/components/anim/reveal"
+import { ensureGsap, prefersReducedMotion } from "@/lib/gsap"
 
 const steps = [
   {
@@ -22,27 +27,46 @@ const steps = [
 ]
 
 export function HowItWorks() {
+  const lineRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const gsap = ensureGsap()
+    const el = lineRef.current
+    if (!el || prefersReducedMotion()) return
+    const ctx = gsap.context(() => {
+      gsap.fromTo(
+        el,
+        { scaleX: 0 },
+        {
+          scaleX: 1,
+          ease: "none",
+          scrollTrigger: { trigger: "#how", start: "top 60%", end: "bottom 75%", scrub: 1 },
+        },
+      )
+    })
+    return () => ctx.revert()
+  }, [])
+
   return (
     <section id="how" className="py-24">
       <div className="mx-auto max-w-7xl px-6">
-        <div className="mx-auto max-w-2xl text-center" data-reveal>
+        <Reveal className="mx-auto max-w-2xl text-center">
           <span className="inline-block rounded-full bg-flame/10 px-4 py-1.5 text-xs font-medium text-flame">
             How It Works
           </span>
           <h2 className="font-display mt-5 text-balance text-4xl font-bold tracking-tight text-ink">
             From setup to insight in three steps
           </h2>
-        </div>
+        </Reveal>
 
         <div className="relative mt-16">
-          {/* connecting line */}
           <div className="absolute left-0 right-0 top-7 hidden h-0.5 bg-border lg:block">
-            <div className="timeline-progress h-full origin-left bg-brand-gradient" />
+            <div ref={lineRef} className="h-full origin-left bg-brand-gradient" />
           </div>
 
-          <div className="grid gap-10 lg:grid-cols-3">
+          <Reveal stagger={0.15} y={30} className="grid gap-10 lg:grid-cols-3">
             {steps.map((s) => (
-              <div key={s.n} data-reveal className="relative text-center lg:text-left">
+              <div key={s.n} className="relative text-center lg:text-left">
                 <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-brand-gradient text-white shadow-lg lg:mx-0">
                   <s.icon className="size-6" />
                 </div>
@@ -53,7 +77,7 @@ export function HowItWorks() {
                 <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{s.desc}</p>
               </div>
             ))}
-          </div>
+          </Reveal>
         </div>
       </div>
     </section>

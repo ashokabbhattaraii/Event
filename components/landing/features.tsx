@@ -1,4 +1,5 @@
 import { Sparkles, LineChart, QrCode, ShieldCheck, Activity, MessageSquareText, ArrowRight } from "lucide-react"
+import { Reveal } from "@/components/anim/reveal"
 
 const features = [
   {
@@ -40,20 +41,19 @@ export function Features() {
   return (
     <section id="features" className="bg-card/40 py-24">
       <div className="mx-auto max-w-7xl px-6">
-        <div className="mx-auto max-w-2xl text-center" data-reveal>
+        <Reveal className="mx-auto max-w-2xl text-center">
           <span className="inline-block rounded-full bg-secondary/10 px-4 py-1.5 text-xs font-medium text-secondary">
             Features
           </span>
           <h2 className="font-display mt-5 text-balance text-4xl font-bold tracking-tight text-ink">
             Everything you need, intelligently connected
           </h2>
-        </div>
+        </Reveal>
 
-        <div className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        <Reveal stagger={0.09} scale={0.97} y={30} className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {features.map((f) => (
             <div
               key={f.title}
-              data-reveal
               className="group relative rounded-2xl border border-border bg-card p-6 shadow-[0_2px_24px_rgba(0,0,0,0.04)] transition-all hover:-translate-y-1.5 hover:border-primary/40 hover:shadow-[0_20px_48px_-24px_rgba(91,76,245,0.4)]"
             >
               {f.ai && (
@@ -75,7 +75,7 @@ export function Features() {
               </a>
             </div>
           ))}
-        </div>
+        </Reveal>
       </div>
     </section>
   )

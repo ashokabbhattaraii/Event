@@ -1,21 +1,66 @@
 "use client"
 
+import { useEffect, useRef } from "react"
+import Link from "next/link"
 import { ArrowRight, Play, Zap, ChevronDown, TrendingUp, Users, Calendar } from "lucide-react"
+import { ensureGsap, prefersReducedMotion } from "@/lib/gsap"
 
 export function Hero() {
+  const root = useRef<HTMLElement>(null)
+
+  useEffect(() => {
+    const gsap = ensureGsap()
+    const el = root.current
+    if (!el) return
+    if (prefersReducedMotion()) return
+
+    const ctx = gsap.context((self) => {
+      const q = self.selector!
+      const tl = gsap.timeline({ defaults: { ease: "power3.out" } })
+
+      tl.from(q(".hero-line"), { y: 40, opacity: 0, duration: 0.8, stagger: 0.12, delay: 0.1 })
+        .from(q(".hero-visual"), { opacity: 0, scale: 0.94, y: 30, duration: 1 }, "-=0.5")
+        .from(q(".bar"), { scaleY: 0, transformOrigin: "bottom", duration: 0.7, stagger: 0.04 }, "-=0.4")
+        .from(q(".hero-chip"), { opacity: 0, x: -20, scale: 0.9, duration: 0.6 }, "-=0.5")
+
+      gsap.to(q(".ai-chip"), {
+        scale: 1.04,
+        duration: 1.4,
+        ease: "sine.inOut",
+        repeat: -1,
+        yoyo: true,
+      })
+      gsap.to(q(".scroll-chevron"), {
+        y: 8,
+        duration: 0.9,
+        ease: "sine.inOut",
+        repeat: -1,
+        yoyo: true,
+      })
+      gsap.to(q(".hero-glow"), {
+        scale: 1.15,
+        opacity: 0.28,
+        duration: 6,
+        ease: "sine.inOut",
+        repeat: -1,
+        yoyo: true,
+      })
+    }, root)
+
+    return () => ctx.revert()
+  }, [])
+
   return (
-    <section className="relative overflow-hidden pt-28 pb-20 lg:pt-36">
-      {/* abstract gradient blob */}
+    <section ref={root} className="relative overflow-hidden pt-28 pb-16 lg:pt-36">
       <div
         aria-hidden
-        className="pointer-events-none absolute -top-32 left-1/2 -z-10 h-[520px] w-[820px] -translate-x-1/2 rounded-full opacity-[0.18] blur-3xl"
+        className="hero-glow pointer-events-none absolute -top-32 left-1/2 -z-10 h-[520px] w-[820px] -translate-x-1/2 rounded-full opacity-[0.18] blur-3xl"
         style={{ background: "linear-gradient(135deg, #5b4cf5 0%, #00c9a7 100%)" }}
       />
 
       <div className="mx-auto grid max-w-7xl items-center gap-12 px-6 lg:grid-cols-[1.05fr_0.95fr]">
-        {/* Left */}
         <div>
-          <div className="hero-line inline-flex items-center gap-2 rounded-full border border-border bg-card/70 px-4 py-1.5 text-xs font-medium text-ink shadow-sm backdrop-blur">
+          <div className="hero-line hero-chip inline-flex items-center gap-2 rounded-full border border-border bg-card/70 px-4 py-1.5 text-xs font-medium text-ink shadow-sm backdrop-blur">
             <Zap className="size-3.5 text-flame" />
             AI-Powered · Cloud-Native · Multi-Org
           </div>
@@ -33,12 +78,7 @@ export function Hero() {
                   preserveAspectRatio="none"
                   aria-hidden
                 >
-                  <path
-                    d="M2 9C50 3 150 3 198 9"
-                    stroke="url(#ug)"
-                    strokeWidth="4"
-                    strokeLinecap="round"
-                  />
+                  <path d="M2 9C50 3 150 3 198 9" stroke="url(#ug)" strokeWidth="4" strokeLinecap="round" />
                   <defs>
                     <linearGradient id="ug" x1="0" y1="0" x2="200" y2="0">
                       <stop stopColor="#5b4cf5" />
@@ -57,20 +97,20 @@ export function Hero() {
           </p>
 
           <div className="hero-line mt-9 flex flex-wrap items-center gap-4">
-            <a
-              href="#"
+            <Link
+              href="/register"
               className="group inline-flex items-center gap-2 rounded-full bg-primary px-7 py-3.5 text-sm font-semibold text-primary-foreground shadow-[0_12px_32px_-10px_rgba(91,76,245,0.8)] transition-transform hover:-translate-y-0.5"
             >
               Start for Free
               <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" />
-            </a>
-            <a
-              href="#"
+            </Link>
+            <Link
+              href="/attendee"
               className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-7 py-3.5 text-sm font-semibold text-ink transition-colors hover:bg-muted"
             >
               <Play className="size-4 fill-current" />
               Watch Demo
-            </a>
+            </Link>
           </div>
         </div>
 
@@ -82,7 +122,6 @@ export function Hero() {
             style={{ background: "linear-gradient(135deg, #5b4cf5 0%, #00c9a7 100%)" }}
           />
           <div className="rounded-[24px] border border-border bg-card p-4 shadow-[0_30px_80px_-30px_rgba(26,26,46,0.35)] [transform:perspective(1600px)_rotateY(-10deg)_rotateX(4deg)]">
-            {/* mock header */}
             <div className="flex items-center justify-between border-b border-border pb-3">
               <div className="flex items-center gap-2">
                 <span className="bg-brand-gradient size-6 rounded-md" />
@@ -95,7 +134,6 @@ export function Hero() {
               </div>
             </div>
 
-            {/* mock KPIs */}
             <div className="mt-4 grid grid-cols-3 gap-3">
               {[
                 { icon: Calendar, label: "Events", value: "38", c: "text-flame" },
@@ -110,7 +148,6 @@ export function Hero() {
               ))}
             </div>
 
-            {/* mock chart */}
             <div className="mt-3 rounded-xl bg-muted/60 p-4">
               <div className="mb-3 flex items-center justify-between">
                 <span className="text-xs font-medium text-ink">Platform Activity</span>
@@ -120,17 +157,12 @@ export function Hero() {
               </div>
               <div className="flex h-24 items-end gap-1.5">
                 {[40, 55, 35, 70, 50, 80, 62, 90, 75, 95, 68, 88].map((h, i) => (
-                  <div
-                    key={i}
-                    className="bar flex-1 rounded-t bg-brand-gradient"
-                    style={{ height: `${h}%` }}
-                  />
+                  <div key={i} className="bar flex-1 rounded-t bg-brand-gradient" style={{ height: `${h}%` }} />
                 ))}
               </div>
             </div>
           </div>
 
-          {/* floating AI chip */}
           <div className="ai-chip glass absolute -left-4 bottom-10 flex items-center gap-2 rounded-2xl border border-border px-4 py-3 shadow-lg">
             <span className="bg-brand-gradient flex size-8 items-center justify-center rounded-full text-white">
               <Zap className="size-4" />
@@ -143,8 +175,7 @@ export function Hero() {
         </div>
       </div>
 
-      {/* scroll indicator */}
-      <div className="mt-16 flex justify-center">
+      <div className="mt-14 flex justify-center">
         <ChevronDown className="scroll-chevron size-6 text-muted-foreground" />
       </div>
     </section>

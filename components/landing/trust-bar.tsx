@@ -1,8 +1,10 @@
+import { Reveal } from "@/components/anim/reveal"
+
 export function TrustBar() {
   const logos = ["Northwind", "Apex Labs", "Velocity", "Meridian", "Coreflow"]
   return (
-    <section className="border-y border-border bg-card/50 py-10" data-reveal>
-      <div className="mx-auto max-w-7xl px-6">
+    <section className="border-y border-border bg-card/50 py-10">
+      <Reveal className="mx-auto max-w-7xl px-6">
         <p className="text-center text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">
           Trusted by event teams across industries
         </p>
@@ -18,7 +20,7 @@ export function TrustBar() {
           <span className="font-mono font-semibold text-ink">72</span> survey respondents validated
           this platform
         </p>
-      </div>
+      </Reveal>
     </section>
   )
 }

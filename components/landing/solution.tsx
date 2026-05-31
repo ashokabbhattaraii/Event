@@ -1,4 +1,5 @@
 import { Check, Cloud } from "lucide-react"
+import { Reveal } from "@/components/anim/reveal"
 
 const bullets = [
   "AI-driven automation for recommendations & forecasting",
@@ -11,7 +12,7 @@ export function Solution() {
     <section id="solution" className="py-24">
       <div className="mx-auto grid max-w-7xl items-center gap-14 px-6 lg:grid-cols-2">
         {/* Left text */}
-        <div data-reveal>
+        <Reveal x={-30} y={0}>
           <span className="inline-block rounded-full bg-primary/10 px-4 py-1.5 text-xs font-medium text-primary">
             EventNexus Solution
           </span>
@@ -33,10 +34,10 @@ export function Solution() {
               </li>
             ))}
           </ul>
-        </div>
+        </Reveal>
 
         {/* Right isometric-ish hub illustration */}
-        <div data-reveal className="relative flex justify-center">
+        <Reveal x={30} y={0} className="relative flex justify-center">
           <div className="relative aspect-square w-full max-w-md">
             {/* connecting lines */}
             <svg className="absolute inset-0 h-full w-full" viewBox="0 0 400 400" fill="none" aria-hidden>
@@ -66,7 +67,7 @@ export function Solution() {
               </div>
             ))}
           </div>
-        </div>
+        </Reveal>
       </div>
     </section>
   )

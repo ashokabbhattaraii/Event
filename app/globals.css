@@ -80,7 +80,7 @@
 
 @theme inline {
   --font-sans: var(--font-inter), 'Geist Fallback';
-  --font-display: var(--font-syne), var(--font-inter);
+  --font-display: var(--font-inter), 'Geist Fallback';
   --font-mono: var(--font-jetbrains), 'Geist Mono Fallback';
   --color-teal: var(--teal);
   --color-flame: var(--flame);
@@ -125,11 +125,15 @@
 }
 
 @layer base {
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 4rem; /* Accounts for fixed header */
+  }
   * {
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
   }
 }
 

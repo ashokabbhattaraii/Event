@@ -1,41 +1,63 @@
-import { Bot, Link2Off, ShieldAlert, TrendingDown, Unplug } from "lucide-react"
-import { Reveal } from "@/components/anim/reveal"
+"use client"
 
-const problems = [
-  { icon: Bot, title: "No Intelligent Automation", desc: "Manual workflows that don't scale or learn." },
-  { icon: Link2Off, title: "Siloed Collaboration", desc: "Organizations can't work together easily." },
-  { icon: ShieldAlert, title: "Weak Security", desc: "Outdated access models leave data exposed." },
-  { icon: TrendingDown, title: "Poor Scalability", desc: "Platforms buckle under peak registration loads." },
-  { icon: Unplug, title: "No Modern Integration", desc: "Disconnected from the tools teams already use." },
+import { Bot, Link2Off, ShieldAlert, TrendingDown, Unplug, AlertOctagon } from "lucide-react"
+import { CategoryList, Category } from "@/components/ui/category-list"
+
+const problems: Category[] = [
+  { 
+    id: "automation", 
+    title: "No Intelligent Automation", 
+    subtitle: "Manual, sluggish pipelines that don't scale or learn from attendee behaviors.", 
+    icon: <Bot className="size-6" />,
+    featured: true
+  },
+  { 
+    id: "collaboration", 
+    title: "Siloed Collaboration", 
+    subtitle: "Organizations lock key details away, making cross-org workflows complex and slow.", 
+    icon: <Link2Off className="size-6" /> 
+  },
+  { 
+    id: "security", 
+    title: "Weak Security & Identity", 
+    subtitle: "Outdated, static ticketing links and loose access rights leave sensitive data exposed.", 
+    icon: <ShieldAlert className="size-6" /> 
+  },
+  { 
+    id: "scalability", 
+    title: "Fragile Peak Scalability", 
+    subtitle: "High ticket sales demand can cause ticketing checkout flow to bottleneck and freeze.", 
+    icon: <TrendingDown className="size-6" /> 
+  },
+  { 
+    id: "integration", 
+    title: "No Modern Tool Integrations", 
+    subtitle: "Completely disconnected from CRM tools, communication channels, and pipelines teams already run.", 
+    icon: <Unplug className="size-6" /> 
+  },
 ]
 
 export function ProblemStrip() {
   return (
-    <section className="bg-ink py-24 text-white">
-      <div className="mx-auto max-w-7xl px-6">
-        <Reveal className="mx-auto max-w-2xl text-center">
-          <span className="inline-block rounded-full bg-white/10 px-4 py-1.5 text-xs font-medium text-secondary">
-            The Problem
-          </span>
-          <h2 className="font-display mt-5 text-balance text-4xl font-bold tracking-tight">
-            Why Current Platforms Fall Short
-          </h2>
-        </Reveal>
-
-        <Reveal stagger={0.1} y={28} className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-          {problems.map((p) => (
-            <div
-              key={p.title}
-              className="group rounded-2xl border-l-2 border-transparent bg-white/[0.04] p-5 backdrop-blur transition-all hover:-translate-y-1.5 hover:border-secondary hover:bg-white/[0.07]"
-            >
-              <span className="flex size-11 items-center justify-center rounded-xl bg-white/10 text-secondary">
-                <p.icon className="size-5" />
-              </span>
-              <h3 className="font-display mt-4 text-base font-semibold">{p.title}</h3>
-              <p className="mt-2 text-sm leading-relaxed text-white/60">{p.desc}</p>
-            </div>
-          ))}
-        </Reveal>
+    <section id="problems" className="bg-ink py-20 text-white overflow-hidden relative border-y border-white/5">
+      {/* Top and bottom subtle separating borders */}
+      <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent pointer-events-none" />
+      <div className="absolute bottom-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent pointer-events-none" />
+      
+      {/* Visual background gradient glows */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute top-10 left-1/2 -translate-x-1/2 -z-10 h-[500px] w-[800px] rounded-full opacity-[0.06] blur-[120px]"
+        style={{ background: "linear-gradient(135deg, #ff6b35 0%, #5b4cf5 100%)" }}
+      />
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <CategoryList
+          title="Why Current Platforms"
+          subtitle="Fall Short Under Load"
+          categories={problems}
+          headerIcon={<AlertOctagon className="size-7 text-[#00c9a7]" />}
+          className="bg-zinc-950/40 border border-white/5"
+        />
       </div>
     </section>
   )

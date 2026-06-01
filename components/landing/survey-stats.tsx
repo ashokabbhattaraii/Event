@@ -10,7 +10,11 @@ const stats = [
 
 export function SurveyStats() {
   return (
-    <section className="bg-[#eef0ff] py-24">
+    <section className="bg-[#eef0ff]/40 py-24 relative overflow-hidden border-y border-border/40">
+      {/* Top and bottom subtle separating borders */}
+      <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-primary/10 to-transparent pointer-events-none" />
+      <div className="absolute bottom-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-primary/10 to-transparent pointer-events-none" />
+      
       <div className="mx-auto max-w-7xl px-6">
         <Reveal className="mx-auto max-w-2xl text-center">
           <span className="inline-block rounded-full bg-primary/10 px-4 py-1.5 text-xs font-medium text-primary">

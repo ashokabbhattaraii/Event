@@ -31,61 +31,60 @@ export const CategoryList = ({
   const [hoveredItem, setHoveredItem] = useState<string | number | null>(null);
 
   return (
-    <div className={cn("w-full bg-[#13141f] text-white p-8 rounded-3xl border border-white/5", className)}>
-      <div className="max-w-4xl mx-auto">
+    <div className={cn("relative isolate w-full overflow-hidden rounded-[2rem] border border-white/8 bg-[linear-gradient(180deg,rgba(17,19,32,0.96),rgba(10,11,21,0.94))] p-6 text-white shadow-[0_30px_120px_-48px_rgba(0,0,0,0.75)] sm:p-8 lg:p-10", className)}>
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/15 to-transparent" />
+      <div aria-hidden className="pointer-events-none absolute -left-24 top-10 h-56 w-56 rounded-full bg-[#5b4cf5]/12 blur-3xl" />
+      <div aria-hidden className="pointer-events-none absolute bottom-0 right-0 h-64 w-64 rounded-full bg-[#00c9a7]/10 blur-3xl" />
+
+      <div className="relative mx-auto max-w-5xl">
         {/* Header Section */}
-        <div className="text-center mb-12 md:mb-16">
+        <div className="text-center mb-10 md:mb-14">
           {headerIcon && (
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-primary/80 to-primary mb-6 text-primary-foreground shadow-lg shadow-primary/20 animate-pulse">
+            <div className="mb-6 inline-flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] text-primary-foreground shadow-[0_20px_50px_-24px_rgba(91,76,245,0.6)] backdrop-blur">
               {headerIcon}
             </div>
           )}
-          <h1 className="text-4xl md:text-5xl font-extrabold mb-2 tracking-tight font-display text-white">{title}</h1>
+          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.28em] text-white/55">
+            Platform Friction Points
+          </div>
+          <h2 className="mt-5 text-balance text-4xl font-extrabold tracking-tight font-display text-white md:text-5xl">{title}</h2>
           {subtitle && (
-            <h2 className="text-4xl md:text-5xl font-bold text-muted-foreground font-display">{subtitle}</h2>
+            <p className="mx-auto mt-3 max-w-2xl text-balance text-2xl font-semibold text-white/55 font-display md:text-3xl">{subtitle}</p>
           )}
         </div>
 
         {/* Categories List */}
-        <div className="space-y-4">
-          {categories.map((category) => (
+        <div className="grid gap-4 md:grid-cols-2 xl:gap-5">
+          {categories.map((category, index) => (
             <div
               key={category.id}
-              className="relative group"
+              className={cn("relative group", category.featured && "md:col-span-2")}
               onMouseEnter={() => setHoveredItem(category.id)}
               onMouseLeave={() => setHoveredItem(null)}
               onClick={category.onClick}
             >
               <div
                 className={cn(
-                  "relative overflow-hidden border bg-zinc-950/60 transition-all duration-300 ease-in-out cursor-pointer rounded-2xl",
-                  // Hover state styles
+                  "relative h-full overflow-hidden rounded-[1.75rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.035),rgba(255,255,255,0.015))] p-6 transition-all duration-300 ease-out cursor-pointer backdrop-blur-sm",
                   hoveredItem === category.id
-                    ? 'h-32 border-[#00c9a7] shadow-lg shadow-[#00c9a7]/10 bg-[#00c9a7]/5'
-                    : 'h-24 border-white/5 hover:border-[#00c9a7]/40'
+                    ? 'border-[#00c9a7]/45 bg-[linear-gradient(180deg,rgba(0,201,167,0.12),rgba(255,255,255,0.02))] shadow-[0_24px_60px_-32px_rgba(0,201,167,0.35)] -translate-y-1'
+                    : 'hover:border-white/15 hover:-translate-y-0.5'
                 )}
               >
-                {/* Corner brackets that appear on hover */}
-                {hoveredItem === category.id && (
-                  <>
-                    <div className="absolute top-4 left-4 w-6 h-6">
-                      <div className="absolute top-0 left-0 w-4 h-0.5 bg-[#00c9a7]" />
-                      <div className="absolute top-0 left-0 w-0.5 h-4 bg-[#00c9a7]" />
-                    </div>
-                    <div className="absolute bottom-4 right-4 w-6 h-6">
-                      <div className="absolute bottom-0 right-0 w-4 h-0.5 bg-[#00c9a7]" />
-                      <div className="absolute bottom-0 right-0 w-0.5 h-4 bg-[#00c9a7]" />
-                    </div>
-                  </>
-                )}
+                <div aria-hidden className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-white/12 to-transparent" />
+                <div aria-hidden className={cn("pointer-events-none absolute -right-10 -top-10 h-28 w-28 rounded-full blur-2xl transition-opacity duration-300", hoveredItem === category.id ? "bg-[#00c9a7]/14 opacity-100" : "bg-[#5b4cf5]/10 opacity-70")} />
 
                 {/* Content */}
-                <div className="flex items-center justify-between h-full px-6 md:px-8">
+                <div className="flex h-full flex-col gap-5 md:flex-row md:items-start md:justify-between">
                   <div className="flex-1">
+                    <div className="mb-4 flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">
+                      <span>{`Issue 0${index + 1}`}</span>
+                      {category.featured && <span className="rounded-full border border-[#00c9a7]/25 bg-[#00c9a7]/10 px-2.5 py-1 text-[10px] tracking-[0.18em] text-[#00c9a7]">Priority</span>}
+                    </div>
                     <h3
                       className={cn(
-                        "font-bold transition-colors duration-300 font-display",
-                        category.featured ? 'text-2xl md:text-3xl' : 'text-xl md:text-2xl',
+                        "font-bold transition-colors duration-300 font-display text-balance",
+                        category.featured ? 'text-2xl md:text-[2rem]' : 'text-xl md:text-2xl',
                         hoveredItem === category.id ? 'text-[#00c9a7]' : 'text-white'
                       )}
                     >
@@ -94,8 +93,8 @@ export const CategoryList = ({
                     {category.subtitle && (
                       <p
                         className={cn(
-                          "mt-1.5 transition-colors duration-300 text-xs md:text-sm",
-                           hoveredItem === category.id ? 'text-white/95' : 'text-white/60'
+                          "mt-3 max-w-xl transition-colors duration-300 text-sm leading-relaxed md:text-[15px]",
+                          hoveredItem === category.id ? 'text-white/88' : 'text-white/60'
                         )}
                       >
                         {category.subtitle}
@@ -103,13 +102,13 @@ export const CategoryList = ({
                     )}
                   </div>
 
-                  {/* Icon appears on the right on hover */}
+                  {/* Icon */}
                   {category.icon && (
                     <div className={cn(
-                      "transition-all duration-300 p-2 rounded-xl",
+                      "flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-white/10 transition-all duration-300",
                       hoveredItem === category.id 
-                        ? 'text-[#00c9a7] bg-[#00c9a7]/10 scale-110 opacity-100' 
-                        : 'text-white/40 opacity-40'
+                        ? 'text-[#00c9a7] bg-[#00c9a7]/12 scale-105 opacity-100 shadow-[0_12px_32px_-18px_rgba(0,201,167,0.6)]' 
+                        : 'bg-white/[0.03] text-white/45 opacity-100'
                     )}>
                       {category.icon}
                     </div>

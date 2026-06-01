@@ -2,7 +2,6 @@
 
 import { useState } from "react"
 import { AppShell } from "@/components/app/app-shell"
-import { adminNav } from "@/components/app/nav-configs"
 import { Reveal } from "@/components/anim/reveal"
 import { CountUp } from "@/components/anim/count-up"
 import { iamUsers, roles, permissionMatrix, auditLog, sessions, securityScore } from "@/lib/data"
@@ -30,7 +29,7 @@ export default function SecurityPage() {
   )
 
   return (
-    <AppShell nav={adminNav} role="Administrator" userName="Jordan Reyes" title="Security & IAM">
+    <AppShell role="Administrator" userName="Jordan Reyes" title="Security & IAM">
       <div className="space-y-8">
         <Reveal className="flex flex-col gap-1">
           <div className="flex items-center gap-2">

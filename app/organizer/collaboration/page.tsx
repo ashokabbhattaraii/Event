@@ -1,7 +1,6 @@
 "use client"
 
 import { AppShell } from "@/components/app/app-shell"
-import { organizerNav } from "@/components/app/nav-configs"
 import { Reveal } from "@/components/anim/reveal"
 import { organizations } from "@/lib/data"
 import { Check, X, Network, UserPlus, Crown, Shield, Eye, Clock } from "lucide-react"
@@ -31,7 +30,7 @@ const orgStatusStyle: Record<string, string> = {
 
 export default function CollaborationPage() {
   return (
-    <AppShell nav={organizerNav} role="Organizer" userName="Marcus Reid" title="Collaboration Hub">
+    <AppShell role="Organizer" userName="Marcus Reid" title="Collaboration Hub">
       <div className="space-y-8">
         <Reveal y={16}>
           <div className="bg-brand-gradient relative overflow-hidden rounded-2xl p-6 text-white">

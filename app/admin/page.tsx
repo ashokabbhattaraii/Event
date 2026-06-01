@@ -1,7 +1,6 @@
 "use client"
 
 import { AppShell } from "@/components/app/app-shell"
-import { adminNav } from "@/components/app/nav-configs"
 import { StatCard } from "@/components/app/stat-card"
 import { AdminRevenueChart, AdminAttendanceChart, AdminCategoryChart } from "@/components/app/admin-charts"
 import { Reveal } from "@/components/anim/reveal"
@@ -16,7 +15,7 @@ const statusStyle: Record<string, string> = {
 
 export default function AdminDashboardPage() {
   return (
-    <AppShell nav={adminNav} role="Administrator" userName="Sarah Chen" title="Platform Overview">
+    <AppShell role="Administrator" userName="Sarah Chen" title="Platform Overview">
       <div className="space-y-8">
         <Reveal stagger={0.08} y={24} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard

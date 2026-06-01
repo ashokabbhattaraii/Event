@@ -2,7 +2,6 @@
 
 import { useState, useMemo } from "react"
 import { AppShell } from "@/components/app/app-shell"
-import { attendeeNav } from "@/components/app/nav-configs"
 import { EventCard } from "@/components/app/event-card"
 import { Reveal } from "@/components/anim/reveal"
 import { events } from "@/lib/data"
@@ -28,7 +27,7 @@ export default function AttendeeDiscoverPage() {
   const recommended = [...events].sort((a, b) => b.matchScore - a.matchScore).slice(0, 3)
 
   return (
-    <AppShell nav={attendeeNav} role="Attendee" userName="Ava Lindqvist" title="Discover Events">
+    <AppShell role="Attendee" userName="Ava Lindqvist" title="Discover Events">
       <div className="space-y-8">
         {/* Hero search */}
         <Reveal y={16}>

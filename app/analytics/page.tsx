@@ -1,7 +1,6 @@
 "use client"
 
 import { AppShell } from "@/components/app/app-shell"
-import { adminNav } from "@/components/app/nav-configs"
 import { StatCard } from "@/components/app/stat-card"
 import { Reveal } from "@/components/anim/reveal"
 import { FunnelTrend, PredictionAccuracy, EngagementRadar, ChannelBars } from "@/components/app/analytics-charts"
@@ -30,7 +29,7 @@ const insights = [
 
 export default function AnalyticsPage() {
   return (
-    <AppShell nav={adminNav} role="Administrator" userName="Jordan Reyes" title="Analytics & Insights">
+    <AppShell role="Administrator" userName="Jordan Reyes" title="Analytics & Insights">
       <div className="space-y-8">
         <Reveal className="flex flex-col gap-1">
           <div className="flex items-center gap-2">

@@ -13,13 +13,13 @@ import {
   type LucideIcon,
 } from "lucide-react"
 import { EventBot } from "@/components/chatbot/event-bot"
+import { adminNav, attendeeNav, organizerNav } from "@/components/app/nav-configs"
 import { ensureGsap, prefersReducedMotion } from "@/lib/gsap"
 
 export type NavItem = { label: string; href: string; icon: LucideIcon; badge?: number }
 
 type AppShellProps = {
   children: ReactNode
-  nav: NavItem[]
   role: "Administrator" | "Organizer" | "Attendee"
   userName: string
   title?: string
@@ -31,13 +31,42 @@ const roleColorMap: Record<string, string> = {
   Attendee: "bg-flame/12 text-flame",
 }
 
-export function AppShell({ children, nav, role, userName, title = "Welcome back" }: AppShellProps) {
-  const roleLabel = role
-  const roleColor = roleColorMap[role]
+const roleNavMap: Record<AppShellProps["role"], NavItem[]> = {
+  Administrator: adminNav,
+  Organizer: organizerNav,
+  Attendee: attendeeNav,
+}
+
+function resolveShellFromPath(pathname: string, fallbackRole: AppShellProps["role"]) {
+  if (pathname.startsWith("/admin")) {
+    return { nav: adminNav, role: "Administrator" as const }
+  }
+  if (pathname.startsWith("/organizer")) {
+    return { nav: organizerNav, role: "Organizer" as const }
+  }
+  if (pathname.startsWith("/attendee")) {
+    return { nav: attendeeNav, role: "Attendee" as const }
+  }
+  return { nav: roleNavMap[fallbackRole], role: fallbackRole }
+}
+
+function matchesRoute(pathname: string, href: string) {
+  return pathname === href || pathname.startsWith(`${href}/`)
+}
+
+export function AppShell({ children, role, userName, title = "Welcome back" }: AppShellProps) {
   const greeting = title
   const pathname = usePathname()
   const [botOpen, setBotOpen] = useState(false)
   const aside = useRef<HTMLElement>(null)
+  const resolvedShell = resolveShellFromPath(pathname, role)
+  const resolvedNav = resolvedShell.nav
+  const roleLabel = resolvedShell.role
+  const roleColor = roleColorMap[roleLabel]
+  const activeHref =
+    resolvedNav
+      .filter((item) => matchesRoute(pathname, item.href))
+      .sort((left, right) => right.href.length - left.href.length)[0]?.href ?? null
 
   useEffect(() => {
     if (prefersReducedMotion()) return
@@ -76,8 +105,8 @@ export function AppShell({ children, nav, role, userName, title = "Welcome back"
         </div>
 
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
-          {nav.map((item) => {
-            const active = pathname === item.href
+          {resolvedNav.map((item) => {
+            const active = item.href === activeHref
             return (
               <Link
                 key={item.label}

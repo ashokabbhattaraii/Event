@@ -2,7 +2,6 @@
 
 import { useState } from "react"
 import { AppShell } from "@/components/app/app-shell"
-import { attendeeNav } from "@/components/app/nav-configs"
 import { Reveal } from "@/components/anim/reveal"
 import { QrCode } from "@/components/app/qr-code"
 import { events } from "@/lib/data"
@@ -24,7 +23,7 @@ export default function MyTicketsPage() {
   const list = myTickets.filter((e) => (tab === "Upcoming" ? e.status !== "Past" : e.status === "Past"))
 
   return (
-    <AppShell nav={attendeeNav} role="Attendee" userName="Ava Lindqvist" title="My Tickets">
+    <AppShell role="Attendee" userName="Ava Lindqvist" title="My Tickets">
       <div className="space-y-6">
         <Reveal y={14} className="flex items-center gap-1 rounded-xl border border-border bg-card p-1">
           {tabs.map((t) => (

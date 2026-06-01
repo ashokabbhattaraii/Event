@@ -2,7 +2,6 @@
 
 import Link from "next/link"
 import { AppShell } from "@/components/app/app-shell"
-import { organizerNav } from "@/components/app/nav-configs"
 import { StatCard } from "@/components/app/stat-card"
 import { EventCard } from "@/components/app/event-card"
 import { RegistrationTrendChart, TicketMixChart } from "@/components/app/organizer-charts"
@@ -32,7 +31,7 @@ const aiInsights = [
 
 export default function OrganizerDashboardPage() {
   return (
-    <AppShell nav={organizerNav} role="Organizer" userName="Marcus Reid" title="My Events">
+    <AppShell role="Organizer" userName="Marcus Reid" title="My Events">
       <div className="space-y-8">
         {/* Header action */}
         <Reveal y={16} className="flex flex-wrap items-center justify-between gap-4">
@@ -100,7 +99,7 @@ export default function OrganizerDashboardPage() {
           </Reveal>
           <Reveal stagger={0.1} y={28} className="mt-5 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {myEvents.map((e) => (
-              <EventCard key={e.id} event={e} href={`/attendee/${e.id}`} />
+              <EventCard key={e.id} event={e} href={`/organizer/events/${e.id}`} />
             ))}
           </Reveal>
         </div>

@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { Eye, EyeOff, ShieldCheck } from "lucide-react"
 import { AuthShell } from "@/components/auth/auth-shell"
 
@@ -13,14 +14,70 @@ function detectRole(email: string) {
   return { label: "Attendee", color: "bg-flame/12 text-flame" }
 }
 
+const demoAccounts = [
+  {
+    label: "Admin Demo",
+    email: "admin@eventnexus.app",
+    href: "/admin",
+    tone: "bg-primary text-primary-foreground shadow-[0_12px_30px_-14px_rgba(91,76,245,0.9)]",
+  },
+  {
+    label: "Organizer Demo",
+    email: "organizer@eventnexus.app",
+    href: "/organizer",
+    tone: "bg-secondary text-secondary-foreground shadow-[0_12px_30px_-14px_rgba(0,201,167,0.9)]",
+  },
+  {
+    label: "Attendee Demo",
+    email: "attendee@eventnexus.app",
+    href: "/attendee",
+    tone: "bg-flame text-white shadow-[0_12px_30px_-14px_rgba(255,107,53,0.9)]",
+  },
+] as const
+
+function getRoleHref(email: string) {
+  if (!email.includes("@")) return "/attendee"
+  if (email.startsWith("admin")) return "/admin"
+  if (email.startsWith("organizer") || email.startsWith("org")) return "/organizer"
+  return "/attendee"
+}
+
 export default function LoginPage() {
   const [email, setEmail] = useState("")
   const [show, setShow] = useState(false)
+  const router = useRouter()
   const role = detectRole(email)
+
+  const handleLogin = () => {
+    router.push(getRoleHref(email))
+  }
 
   return (
     <AuthShell heading="Welcome back" sub="Log in to your EventNexus workspace.">
       <form className="space-y-5" onSubmit={(e) => e.preventDefault()}>
+        <div className="auth-field space-y-3">
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <span className="h-px flex-1 bg-border" />
+            quick demo access
+            <span className="h-px flex-1 bg-border" />
+          </div>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {demoAccounts.map((account) => (
+              <button
+                key={account.label}
+                type="button"
+                onClick={() => {
+                  setEmail(account.email)
+                  router.push(account.href)
+                }}
+                className={`rounded-xl px-4 py-3 text-sm font-semibold transition-transform hover:-translate-y-0.5 ${account.tone}`}
+              >
+                {account.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="auth-field">
           <label htmlFor="email" className="text-sm font-medium text-ink">
             Email
@@ -72,12 +129,13 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <Link
-          href="/admin"
+        <button
+          type="button"
+          onClick={handleLogin}
           className="auth-field flex w-full items-center justify-center rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-[0_12px_32px_-12px_rgba(91,76,245,0.8)] transition-transform hover:-translate-y-0.5"
         >
           Log In
-        </Link>
+        </button>
 
         <div className="auth-field flex items-center gap-3 text-xs text-muted-foreground">
           <span className="h-px flex-1 bg-border" />

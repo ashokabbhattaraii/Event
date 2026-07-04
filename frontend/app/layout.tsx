@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Inter, JetBrains_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
+import { QueryProvider } from '@/components/providers/query-provider'
 import './globals.css'
 
 const inter = Inter({
@@ -37,7 +38,9 @@ export default function RootLayout({
       className={`${inter.variable} ${jetbrainsMono.variable} bg-background`}
     >
       <body className="font-sans antialiased">
-        {children}
+        <QueryProvider>
+          {children}
+        </QueryProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>

@@ -50,8 +50,9 @@ const eventSchema = new mongoose.Schema(
       required: true,
     },
     organization: {
-      type: String,
-      trim: true,
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Organization",
+      required: true,
     },
     registered: {
       type: Number,

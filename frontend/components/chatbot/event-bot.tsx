@@ -1,20 +1,14 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { Sparkles, X, Send, Mic, QrCode } from "lucide-react"
+import { Sparkles, X, Send, Mic } from "lucide-react"
 import { ensureGsap, prefersReducedMotion } from "@/lib/gsap"
+import { chatbotApi } from "@/lib/api/chatbot"
 
-type Msg = { from: "bot" | "user"; text: string; qr?: boolean }
+type Msg = { from: "bot" | "user"; text: string }
 
 const seed: Msg[] = [
-  { from: "bot", text: "Hi, I'm EventBot. Ask me about events, tickets, or registrations." },
-  { from: "user", text: "What events are happening this week?" },
-  {
-    from: "bot",
-    text: "3 events this week: Growth Marketing Live (today), Founder Mixer (Tue), and Cloud Security Day previews. Want to register for any?",
-  },
-  { from: "user", text: "I need my ticket QR code for DevSummit." },
-  { from: "bot", text: "Here's your DevSummit 2026 ticket. Show this at entry:", qr: true },
+  { from: "bot", text: "Hi, I'm EventBot. Ask me about your tickets or upcoming events." },
 ]
 
 const quickReplies = ["View my tickets", "Find events near me", "Check registration status"]
@@ -42,18 +36,22 @@ export function EventBot({ open, onClose }: { open: boolean; onClose: () => void
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" })
   }, [messages, typing])
 
-  function send(text: string) {
+  async function send(text: string) {
     if (!text.trim()) return
     setMessages((m) => [...m, { from: "user", text }])
     setInput("")
     setTyping(true)
-    setTimeout(() => {
-      setTyping(false)
+    try {
+      const { reply } = await chatbotApi.query(text)
+      setMessages((m) => [...m, { from: "bot", text: reply }])
+    } catch {
       setMessages((m) => [
         ...m,
-        { from: "bot", text: "Got it — here's what I found based on live event data. Anything else?" },
+        { from: "bot", text: "I couldn't reach the server just now — please try again." },
       ])
-    }, 1100)
+    } finally {
+      setTyping(false)
+    }
   }
 
   if (!open) return null
@@ -96,17 +94,6 @@ export function EventBot({ open, onClose }: { open: boolean; onClose: () => void
                 }`}
               >
                 {m.text}
-                {m.qr && (
-                  <div className="mt-3 flex items-center gap-3 rounded-xl bg-card p-3">
-                    <div className="flex size-16 items-center justify-center rounded-lg bg-ink text-white">
-                      <QrCode className="size-10" />
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      <div className="font-mono font-semibold text-ink">TKT-DS26-0847</div>
-                      DevSummit 2026 · Valid
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
           ))}

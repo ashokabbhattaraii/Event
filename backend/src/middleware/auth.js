@@ -38,4 +38,34 @@ const authorize = (...roles) => {
   };
 };
 
-module.exports = { protect, authorize };
+// Permission matrix: which actions each role may perform. requireRole checks the
+// role itself; requirePermission checks intent (action on a resource), which is
+// more resilient to a role gaining/losing a capability without touching every route.
+const ROLE_PERMISSIONS = {
+  admin: [
+    "org:manage",
+    "user:manage",
+    "security:view",
+    "event:manage",
+    "analytics:view",
+    "ticket:verify",
+  ],
+  organizer: ["event:manage", "analytics:view", "ticket:verify"],
+  attendee: ["event:register", "ticket:view", "feedback:submit"],
+};
+
+const requireRole = (...roles) => authorize(...roles);
+
+const requirePermission = (permission) => {
+  return (req, res, next) => {
+    const allowed = ROLE_PERMISSIONS[req.user.role] || [];
+    if (!allowed.includes(permission)) {
+      return res
+        .status(403)
+        .json({ message: "Not authorized for this action" });
+    }
+    next();
+  };
+};
+
+module.exports = { protect, authorize, requireRole, requirePermission };

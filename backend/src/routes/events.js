@@ -8,8 +8,12 @@ const {
   deleteEvent,
   getAllEvents,
 } = require("../controllers/eventController");
-const { protect, authorize } = require("../middleware/auth");
+const { registerForEvent } = require("../controllers/ticketController");
+const { protect, authorize, requireRole } = require("../middleware/auth");
 const validate = require("../middleware/validate");
+const rateLimit = require("../middleware/rateLimit");
+
+const registerLimiter = rateLimit({ windowMs: 60_000, max: 15 });
 
 const router = express.Router();
 
@@ -41,5 +45,13 @@ router.post(
 router.put("/:id", protect, authorize("organizer", "admin"), updateEvent);
 
 router.delete("/:id", protect, authorize("organizer", "admin"), deleteEvent);
+
+router.post(
+  "/:id/register",
+  protect,
+  requireRole("attendee"),
+  registerLimiter,
+  registerForEvent
+);
 
 module.exports = router;

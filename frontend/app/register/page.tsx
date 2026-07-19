@@ -5,6 +5,7 @@ import Link from "next/link"
 import { Check, Loader2 } from "lucide-react"
 import { AuthShell } from "@/components/auth/auth-shell"
 import { useRegister } from "@/lib/queries/auth"
+import { useOrganizations } from "@/lib/queries/organizations"
 
 const roles = [
   { id: "admin", label: "Admin" },
@@ -29,16 +30,34 @@ export default function RegisterPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
-  const [organization, setOrganization] = useState("")
+  const [organizationName, setOrganizationName] = useState("")
+  const [organizationId, setOrganizationId] = useState("")
   const [role, setRole] = useState("organizer")
 
   const registerMutation = useRegister()
+  const { data: orgData, isLoading: orgsLoading } = useOrganizations()
+  const organizations = orgData?.organizations ?? []
+
+  const isAdmin = role === "admin"
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (password !== confirmPassword) return
-    registerMutation.mutate({ name, email, password, role, organization })
+    registerMutation.mutate({
+      name,
+      email,
+      password,
+      role,
+      ...(isAdmin ? { organizationName } : { organizationId }),
+    })
   }
+
+  const canSubmit =
+    !!name &&
+    !!email &&
+    !!password &&
+    password === confirmPassword &&
+    (isAdmin ? !!organizationName : !!organizationId)
 
   return (
     <AuthShell heading="Create your account" sub="Set up your EventNexus workspace in minutes.">
@@ -61,7 +80,6 @@ export default function RegisterPage() {
           <Field label="Password" type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} />
           <Field label="Confirm Password" type="password" placeholder="••••••••" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
         </div>
-        <Field label="Organization Name" placeholder="Asia Pacific University" value={organization} onChange={(e) => setOrganization(e.target.value)} />
 
         <div className="auth-field">
           <label className="text-sm font-medium text-ink">Role</label>
@@ -83,9 +101,36 @@ export default function RegisterPage() {
           </div>
         </div>
 
+        {isAdmin ? (
+          <Field
+            label="Organization Name"
+            placeholder="Asia Pacific University"
+            value={organizationName}
+            onChange={(e) => setOrganizationName(e.target.value)}
+          />
+        ) : (
+          <div className="auth-field">
+            <label className="text-sm font-medium text-ink">Organization</label>
+            <select
+              value={organizationId}
+              onChange={(e) => setOrganizationId(e.target.value)}
+              className="mt-1.5 w-full rounded-xl border border-border bg-card px-4 py-3 text-sm text-ink outline-none transition-all focus:border-primary focus:ring-4 focus:ring-primary/10"
+            >
+              <option value="">
+                {orgsLoading ? "Loading organizations..." : "Select an organization"}
+              </option>
+              {organizations.map((org) => (
+                <option key={org._id} value={org._id}>
+                  {org.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         <button
           type="submit"
-          disabled={registerMutation.isPending || !name || !email || !password || password !== confirmPassword}
+          disabled={registerMutation.isPending || !canSubmit}
           className="auth-field flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-[0_12px_32px_-12px_rgba(91,76,245,0.8)] transition-transform hover:-translate-y-0.5 disabled:opacity-60"
         >
           {registerMutation.isPending && <Loader2 className="size-4 animate-spin" />}

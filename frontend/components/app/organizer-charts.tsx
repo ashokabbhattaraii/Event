@@ -14,15 +14,19 @@ import {
 } from "recharts"
 import { registrationTrend, ticketTypes } from "@/lib/data"
 
-export function RegistrationTrendChart() {
+export function RegistrationTrendChart({
+  data,
+}: {
+  data?: { d: string; v: number }[]
+}) {
   return (
     <div className="rounded-2xl border border-border bg-card p-5 shadow-[0_2px_24px_rgba(0,0,0,0.04)]">
       <div className="mb-4">
         <h3 className="font-display text-base font-bold text-ink">Registration Velocity</h3>
-        <p className="text-xs text-muted-foreground">Sign-ups over the last 7 days</p>
+        <p className="text-xs text-muted-foreground">Sign-ups over recent days</p>
       </div>
       <ResponsiveContainer width="100%" height={260}>
-        <AreaChart data={registrationTrend} margin={{ left: -18, right: 8, top: 8 }}>
+        <AreaChart data={data ?? registrationTrend} margin={{ left: -18, right: 8, top: 8 }}>
           <defs>
             <linearGradient id="regfill" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="#5b4cf5" stopOpacity={0.35} />

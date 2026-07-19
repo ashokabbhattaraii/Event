@@ -47,10 +47,9 @@ const getMyEvents = async (req, res) => {
 
 const getEventById = async (req, res) => {
   try {
-    const event = await Event.findById(req.params.id).populate(
-      "organizer",
-      "name email"
-    );
+    const event = await Event.findById(req.params.id)
+      .populate("organizer", "name email")
+      .populate("organization", "name");
     if (!event) {
       return res.status(404).json({ message: "Event not found" });
     }
@@ -104,6 +103,7 @@ const getAllEvents = async (req, res) => {
   try {
     const events = await Event.find({ status: { $ne: "Draft" } })
       .populate("organizer", "name")
+      .populate("organization", "name")
       .sort({ date: 1 });
     res.json({ events });
   } catch (error) {

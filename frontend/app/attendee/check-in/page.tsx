@@ -1,14 +1,41 @@
-import { Calendar, CheckCircle2, MapPin, QrCode } from "lucide-react"
+"use client"
+
+import { Calendar, CheckCircle2, Loader2, MapPin, QrCode } from "lucide-react"
 import { AppShell } from "@/components/app/app-shell"
 import { Reveal } from "@/components/anim/reveal"
 import { QrCode as TicketCode } from "@/components/app/qr-code"
-import { events } from "@/lib/data"
-
-const currentTicket = events.find((event) => event.status === "Live") ?? events[0]
+import { useMyTickets } from "@/lib/queries/tickets"
+import type { EventData } from "@/lib/api/events"
 
 export default function AttendeeCheckInPage() {
+  const { data, isLoading } = useMyTickets()
+  const tickets = data?.tickets ?? []
+  const nextTicket = tickets.find((t) => t.status === "valid")
+  const event =
+    nextTicket && typeof nextTicket.event === "object" ? (nextTicket.event as EventData) : null
+
+  if (isLoading) {
+    return (
+      <AppShell role="Attendee" userName="Attendee" title="Check-in">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" /> Loading your ticket...
+        </div>
+      </AppShell>
+    )
+  }
+
+  if (!nextTicket || !event) {
+    return (
+      <AppShell role="Attendee" userName="Attendee" title="Check-in">
+        <div className="rounded-2xl border border-dashed border-border bg-card py-16 text-center">
+          <p className="text-sm text-muted-foreground">No upcoming ticket ready for check-in.</p>
+        </div>
+      </AppShell>
+    )
+  }
+
   return (
-    <AppShell role="Attendee" userName="Ava Lindqvist" title="Check-in">
+    <AppShell role="Attendee" userName="Attendee" title="Check-in">
       <div className="space-y-8">
         <Reveal className="rounded-2xl border border-secondary/20 bg-secondary/[0.05] p-6">
           <div className="flex items-center gap-3">
@@ -25,10 +52,10 @@ export default function AttendeeCheckInPage() {
         <Reveal className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
           <div className="rounded-2xl border border-border bg-card p-6 shadow-[0_2px_24px_rgba(0,0,0,0.04)]">
             <span className="rounded-full bg-primary/12 px-2.5 py-1 text-xs font-semibold text-primary">Active Ticket</span>
-            <h2 className="font-display mt-4 text-2xl font-bold text-ink">{currentTicket.title}</h2>
+            <h2 className="font-display mt-4 text-2xl font-bold text-ink">{event.title}</h2>
             <div className="mt-4 space-y-2 text-sm text-muted-foreground">
-              <p className="flex items-center gap-2"><Calendar className="size-4" /> {currentTicket.date}</p>
-              <p className="flex items-center gap-2"><MapPin className="size-4" /> {currentTicket.venue}</p>
+              <p className="flex items-center gap-2"><Calendar className="size-4" /> {new Date(event.date).toLocaleString()}</p>
+              <p className="flex items-center gap-2"><MapPin className="size-4" /> {event.venue}</p>
             </div>
             <div className="mt-6 flex items-center gap-2 rounded-xl border border-secondary/20 bg-secondary/10 px-4 py-3 text-sm font-medium text-secondary">
               <CheckCircle2 className="size-4" /> QR code is valid and ready to scan.
@@ -37,9 +64,9 @@ export default function AttendeeCheckInPage() {
 
           <div className="rounded-2xl border border-border bg-card p-6 shadow-[0_2px_24px_rgba(0,0,0,0.04)]">
             <div className="mx-auto flex w-fit rounded-2xl border border-border p-4">
-              <TicketCode seed={`${currentTicket.id}-checkin`} size={180} />
+              <TicketCode seed={nextTicket.qrToken} size={180} />
             </div>
-            <p className="mt-4 text-center text-sm text-muted-foreground">Ticket ID: {currentTicket.id.toUpperCase()}</p>
+            <p className="mt-4 break-all text-center text-xs text-muted-foreground">Ticket ID: {nextTicket._id}</p>
           </div>
         </Reveal>
       </div>

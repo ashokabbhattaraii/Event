@@ -18,7 +18,9 @@ export interface RegisterPayload {
   email: string;
   password: string;
   role?: string;
-  organization?: string;
+  // Admin sign-up creates a new tenant; organizer/attendee sign-up joins one.
+  organizationName?: string;
+  organizationId?: string;
 }
 
 export interface LoginPayload {

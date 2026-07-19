@@ -27,8 +27,8 @@ const userSchema = new mongoose.Schema(
       default: "attendee",
     },
     organization: {
-      type: String,
-      trim: true,
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Organization",
     },
   },
   { timestamps: true }

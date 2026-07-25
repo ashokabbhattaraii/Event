@@ -6,6 +6,12 @@ export interface User {
   email: string;
   role: "admin" | "organizer" | "attendee";
   organization?: string;
+  location?: {
+    lat: number;
+    lng: number;
+    city?: string;
+    updatedAt?: string;
+  };
 }
 
 export interface AuthResponse {

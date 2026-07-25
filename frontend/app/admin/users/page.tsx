@@ -1,18 +1,50 @@
 "use client"
 
+import { useState } from "react"
 import { Loader2, ShieldCheck, UserCog, Users } from "lucide-react"
 import { AppShell } from "@/components/app/app-shell"
 import { StatCard } from "@/components/app/stat-card"
 import { Reveal } from "@/components/anim/reveal"
+import { SearchInput, FilterSelect } from "@/components/app/search-input"
+import { Pagination } from "@/components/app/pagination"
 import { useOrgUsers, useUpdateUserRole } from "@/lib/queries/users"
+import { useDebounce } from "@/lib/hooks/use-debounce"
 
 const roleOptions = ["admin", "organizer", "attendee"] as const
 
+const roleFilterOptions = [
+  { label: "All roles", value: "all" },
+  { label: "Admins", value: "admin" },
+  { label: "Organizers", value: "organizer" },
+  { label: "Attendees", value: "attendee" },
+]
+
 export default function AdminUsersPage() {
-  const { data, isLoading } = useOrgUsers()
+  const [search, setSearch] = useState("")
+  const [role, setRole] = useState("all")
+  const [page, setPage] = useState(1)
+  const debouncedSearch = useDebounce(search, 400)
+
+  const { data, isLoading, isFetching } = useOrgUsers({
+    search: debouncedSearch,
+    role,
+    page,
+    limit: 10,
+  })
   const updateRole = useUpdateUserRole()
   const users = data?.users ?? []
+  const pagination = data?.pagination
 
+  const onSearchChange = (v: string) => {
+    setSearch(v)
+    setPage(1)
+  }
+  const onRoleChange = (v: string) => {
+    setRole(v)
+    setPage(1)
+  }
+
+  // Role breakdown across the currently loaded page.
   const admins = users.filter((u) => u.role === "admin").length
   const organizers = users.filter((u) => u.role === "organizer").length
   const attendees = users.filter((u) => u.role === "attendee").length
@@ -28,10 +60,21 @@ export default function AdminUsersPage() {
         </Reveal>
 
         <Reveal stagger={0.08} y={24} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard label="Managed Users" value={users.length} icon={Users} accent="primary" />
+          <StatCard label="Managed Users" value={pagination?.total ?? users.length} icon={Users} accent="primary" />
           <StatCard label="Administrators" value={admins} icon={ShieldCheck} accent="secondary" />
           <StatCard label="Organizers" value={organizers} icon={UserCog} accent="flame" />
           <StatCard label="Attendees" value={attendees} icon={Users} accent="primary" />
+        </Reveal>
+
+        <Reveal className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <SearchInput
+            value={search}
+            onChange={onSearchChange}
+            placeholder="Search users by name or email..."
+            className="flex-1"
+          />
+          <FilterSelect value={role} onChange={onRoleChange} options={roleFilterOptions} />
+          {isFetching && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
         </Reveal>
 
         <Reveal className="rounded-2xl border border-border bg-card p-6 shadow-[0_2px_24px_rgba(0,0,0,0.04)]">
@@ -81,12 +124,20 @@ export default function AdminUsersPage() {
                   {users.length === 0 && (
                     <tr>
                       <td colSpan={3} className="py-6 text-center text-sm text-muted-foreground">
-                        No users in your organization yet.
+                        {debouncedSearch || role !== "all"
+                          ? "No users match your search or filters."
+                          : "No users in your organization yet."}
                       </td>
                     </tr>
                   )}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {pagination && pagination.totalPages > 1 && (
+            <div className="mt-5">
+              <Pagination pagination={pagination} onPageChange={setPage} />
             </div>
           )}
         </Reveal>

@@ -20,6 +20,12 @@ const eventSchema = new mongoose.Schema(
       required: [true, "Venue is required"],
       trim: true,
     },
+    // Optional geo-coordinates of the venue, used to rank events by distance
+    // from an attendee's saved location.
+    coordinates: {
+      lat: { type: Number },
+      lng: { type: Number },
+    },
     type: {
       type: String,
       enum: ["In-person", "Hybrid", "Virtual"],

@@ -40,6 +40,7 @@ const serializeUser = (user) => ({
   email: user.email,
   role: user.role,
   organization: user.organization,
+  location: user.location,
 });
 
 const register = async (req, res) => {

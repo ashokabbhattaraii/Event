@@ -1,4 +1,11 @@
 import apiClient from "./client";
+import { toQueryString, type ListParams, type Pagination } from "./list";
+
+export interface EventListParams extends ListParams {
+  status?: string;
+  category?: string;
+  type?: string;
+}
 
 export interface EventData {
   _id: string;
@@ -6,6 +13,7 @@ export interface EventData {
   description: string;
   date: string;
   venue: string;
+  coordinates?: { lat: number; lng: number };
   type: "In-person" | "Hybrid" | "Virtual";
   category: string;
   capacity: number;
@@ -15,6 +23,7 @@ export interface EventData {
   organization: string;
   registered: number;
   createdAt: string;
+  predictedAttendance?: number;
 }
 
 export interface CreateEventPayload {
@@ -29,14 +38,19 @@ export interface CreateEventPayload {
   status?: string;
 }
 
+export interface EventsResponse {
+  events: EventData[];
+  pagination: Pagination;
+}
+
 export const eventsApi = {
-  getAll: async (): Promise<{ events: EventData[] }> => {
-    const res = await apiClient.get("/events");
+  getAll: async (params: EventListParams = {}): Promise<EventsResponse> => {
+    const res = await apiClient.get(`/events${toQueryString(params)}`);
     return res.data;
   },
 
-  getMy: async (): Promise<{ events: EventData[] }> => {
-    const res = await apiClient.get("/events/my");
+  getMy: async (params: EventListParams = {}): Promise<EventsResponse> => {
+    const res = await apiClient.get(`/events/my${toQueryString(params)}`);
     return res.data;
   },
 

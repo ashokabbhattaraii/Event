@@ -4,27 +4,35 @@ import { useState, useMemo } from "react"
 import { AppShell } from "@/components/app/app-shell"
 import { EventCard } from "@/components/app/event-card"
 import { Reveal } from "@/components/anim/reveal"
-import { events } from "@/lib/data"
-import { Search, Sparkles, SlidersHorizontal } from "lucide-react"
+import { useAllEvents } from "@/lib/queries/events"
+import { toAppEvent } from "@/lib/adapters/event"
+import { useDebounce } from "@/lib/hooks/use-debounce"
+import { Loader2, Search, Sparkles, SlidersHorizontal } from "lucide-react"
 
-const categories = ["All", "Technology", "Marketing", "Business", "Design", "Networking"]
+const categories = ["All", "Technology", "Business", "Music", "Education", "Design"]
 
 export default function AttendeeDiscoverPage() {
   const [active, setActive] = useState("All")
   const [query, setQuery] = useState("")
+  const debouncedQuery = useDebounce(query, 400)
 
-  const filtered = useMemo(() => {
-    return events.filter((e) => {
-      const matchCat = active === "All" || e.category === active
-      const matchQuery =
-        query === "" ||
-        e.title.toLowerCase().includes(query.toLowerCase()) ||
-        e.org.toLowerCase().includes(query.toLowerCase())
-      return matchCat && matchQuery
-    })
-  }, [active, query])
+  const { data, isLoading, isError } = useAllEvents({
+    search: debouncedQuery,
+    // "All" is the UI's no-filter option; send nothing so the API returns every category.
+    category: active === "All" ? undefined : active,
+    limit: 50,
+  })
 
-  const recommended = [...events].sort((a, b) => b.matchScore - a.matchScore).slice(0, 3)
+  const events = useMemo(() => (data?.events ?? []).map(toAppEvent), [data])
+  // Highest-demand events as a lightweight "recommended" strip.
+  const recommended = useMemo(
+    () =>
+      [...events]
+        .sort((a, b) => b.registered / b.capacity - a.registered / a.capacity)
+        .slice(0, 3),
+    [events]
+  )
+  const filtered = events
 
   return (
     <AppShell role="Attendee" userName="Ava Lindqvist" title="Discover Events">
@@ -89,7 +97,15 @@ export default function AttendeeDiscoverPage() {
             </button>
           </Reveal>
 
-          {filtered.length === 0 ? (
+          {isLoading ? (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 className="size-6 animate-spin text-primary" />
+            </div>
+          ) : isError ? (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 py-6 text-center text-sm text-amber-700">
+              Could not load events. Make sure the backend is running.
+            </div>
+          ) : filtered.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-border bg-card py-16 text-center">
               <p className="text-sm text-muted-foreground">No events match your search.</p>
             </div>

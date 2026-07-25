@@ -1,15 +1,48 @@
 "use client"
 
+import { useState } from "react"
 import Link from "next/link"
 import { CalendarDays, DollarSign, Ticket, Users, Plus, Loader2 } from "lucide-react"
 import { AppShell } from "@/components/app/app-shell"
 import { StatCard } from "@/components/app/stat-card"
 import { Reveal } from "@/components/anim/reveal"
+import { SearchInput, FilterSelect } from "@/components/app/search-input"
+import { Pagination } from "@/components/app/pagination"
 import { useMyEvents } from "@/lib/queries/events"
+import { useDebounce } from "@/lib/hooks/use-debounce"
+
+const statusOptions = [
+  { label: "All statuses", value: "all" },
+  { label: "Upcoming", value: "Upcoming" },
+  { label: "Live", value: "Live" },
+  { label: "Past", value: "Past" },
+  { label: "Draft", value: "Draft" },
+]
 
 export default function OrganizerEventsPage() {
-  const { data, isLoading, isError } = useMyEvents()
+  const [search, setSearch] = useState("")
+  const [status, setStatus] = useState("all")
+  const [page, setPage] = useState(1)
+  const debouncedSearch = useDebounce(search, 400)
+
+  const { data, isLoading, isError, isFetching } = useMyEvents({
+    search: debouncedSearch,
+    status,
+    page,
+    limit: 9,
+  })
   const events = data?.events || []
+  const pagination = data?.pagination
+
+  // Reset to page 1 whenever the search term or filter changes.
+  const onSearchChange = (v: string) => {
+    setSearch(v)
+    setPage(1)
+  }
+  const onStatusChange = (v: string) => {
+    setStatus(v)
+    setPage(1)
+  }
 
   const revenueEvents = events.filter((e) => e.price !== "Free").length
   const registrations = events.reduce((sum, e) => sum + e.registered, 0)
@@ -32,10 +65,21 @@ export default function OrganizerEventsPage() {
         </Reveal>
 
         <Reveal stagger={0.08} y={24} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard label="Managed Events" value={events.length} icon={CalendarDays} accent="primary" />
-          <StatCard label="Registrations" value={registrations} icon={Users} accent="secondary" />
-          <StatCard label="Paid Events" value={revenueEvents} icon={DollarSign} accent="flame" />
-          <StatCard label="Ticketed Programs" value={events.length} icon={Ticket} accent="primary" />
+          <StatCard label="Managed Events" value={pagination?.total ?? events.length} icon={CalendarDays} accent="primary" />
+          <StatCard label="Registrations (page)" value={registrations} icon={Users} accent="secondary" />
+          <StatCard label="Paid Events (page)" value={revenueEvents} icon={DollarSign} accent="flame" />
+          <StatCard label="Ticketed Programs" value={pagination?.total ?? events.length} icon={Ticket} accent="primary" />
+        </Reveal>
+
+        <Reveal className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <SearchInput
+            value={search}
+            onChange={onSearchChange}
+            placeholder="Search events by title, venue, or category..."
+            className="flex-1"
+          />
+          <FilterSelect value={status} onChange={onStatusChange} options={statusOptions} />
+          {isFetching && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
         </Reveal>
 
         {isLoading && (
@@ -53,13 +97,19 @@ export default function OrganizerEventsPage() {
         {!isLoading && events.length === 0 && !isError && (
           <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border py-16">
             <CalendarDays className="size-10 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">No events yet. Create your first event!</p>
-            <Link
-              href="/organizer/events/create"
-              className="mt-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground"
-            >
-              Create Event
-            </Link>
+            <p className="text-sm text-muted-foreground">
+              {debouncedSearch || status !== "all"
+                ? "No events match your search or filters."
+                : "No events yet. Create your first event!"}
+            </p>
+            {!debouncedSearch && status === "all" && (
+              <Link
+                href="/organizer/events/create"
+                className="mt-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground"
+              >
+                Create Event
+              </Link>
+            )}
           </div>
         )}
 
@@ -93,6 +143,12 @@ export default function OrganizerEventsPage() {
               </div>
             ))}
           </div>
+        )}
+
+        {pagination && pagination.totalPages > 1 && (
+          <Reveal>
+            <Pagination pagination={pagination} onPageChange={setPage} />
+          </Reveal>
         )}
       </div>
     </AppShell>

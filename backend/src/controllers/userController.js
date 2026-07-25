@@ -1,14 +1,35 @@
 const User = require("../models/User");
 const Event = require("../models/Event");
+const {
+  parsePagination,
+  buildSearch,
+  buildFilters,
+  parseSort,
+  paginate,
+} = require("../utils/query");
 
 // Admin-only, always scoped to the caller's own organization — an admin can
 // never list or modify users belonging to another tenant.
 const listOrgUsers = async (req, res) => {
   try {
-    const users = await User.find({ organization: req.user.organization }).sort({
+    const { page, limit, skip } = parsePagination(req.query);
+    const filter = {
+      organization: req.user.organization,
+      ...buildSearch(req.query.search, ["name", "email"]),
+      ...buildFilters(req.query, ["role"]),
+    };
+    const sort = parseSort(req.query.sort, ["name", "createdAt"], {
       createdAt: -1,
     });
-    res.json({ users });
+
+    const { data, pagination } = await paginate(User, {
+      filter,
+      page,
+      limit,
+      skip,
+      sort,
+    });
+    res.json({ users: data, pagination });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -40,6 +61,24 @@ const updateUserRole = async (req, res) => {
   }
 };
 
+// Any authenticated user can save their own location (captured from the
+// browser on login). Powers distance-based recommendations and chatbot.
+const updateMyLocation = async (req, res) => {
+  try {
+    const { lat, lng, city } = req.body;
+    req.user.location = {
+      lat,
+      lng,
+      city: city || req.user.location?.city,
+      updatedAt: new Date(),
+    };
+    await req.user.save();
+    res.json({ location: req.user.location });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 const getOrgStats = async (req, res) => {
   try {
     const [userCount, eventCount] = await Promise.all([
@@ -52,4 +91,4 @@ const getOrgStats = async (req, res) => {
   }
 };
 
-module.exports = { listOrgUsers, updateUserRole, getOrgStats };
+module.exports = { listOrgUsers, updateUserRole, updateMyLocation, getOrgStats };

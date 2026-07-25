@@ -12,7 +12,7 @@ export type AppEvent = {
   predicted: number
   status: EventStatus
   category: string
-  matchScore: number
+  matchScore?: number
   price: string
   gradient: string
 }

@@ -42,6 +42,14 @@ const userSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Organization",
     },
+    // Captured (with permission) from the browser on login. Powers
+    // distance-based recommendations and the chatbot's "near me" answers.
+    location: {
+      lat: { type: Number },
+      lng: { type: Number },
+      city: { type: String },
+      updatedAt: { type: Date },
+    },
   },
   { timestamps: true }
 );

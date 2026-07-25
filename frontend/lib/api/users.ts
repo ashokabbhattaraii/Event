@@ -1,4 +1,9 @@
 import apiClient from "./client";
+import { toQueryString, type ListParams, type Pagination } from "./list";
+
+export interface UserListParams extends ListParams {
+  role?: string;
+}
 
 export interface OrgUser {
   _id: string;
@@ -14,9 +19,14 @@ export interface OrgStats {
   eventCount: number;
 }
 
+export interface UsersResponse {
+  users: OrgUser[];
+  pagination: Pagination;
+}
+
 export const usersApi = {
-  list: async (): Promise<{ users: OrgUser[] }> => {
-    const res = await apiClient.get("/users");
+  list: async (params: UserListParams = {}): Promise<UsersResponse> => {
+    const res = await apiClient.get(`/users${toQueryString(params)}`);
     return res.data;
   },
 

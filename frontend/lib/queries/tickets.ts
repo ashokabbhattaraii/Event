@@ -19,6 +19,7 @@ export function useRegisterForEvent() {
     mutationFn: (eventId: string) => ticketsApi.registerForEvent(eventId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ticketKeys.mine });
+      queryClient.invalidateQueries({ queryKey: ["events"] });
     },
   });
 }

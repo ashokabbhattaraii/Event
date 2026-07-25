@@ -62,6 +62,14 @@ async function seed() {
     email: "attendee@eventnexus.dev",
     password: DEMO_PASSWORD,
     role: "attendee",
+    // Seeded so distance-based recommendations work without a browser
+    // (central Kathmandu). Real users' locations are captured on login.
+    location: {
+      lat: 27.7172,
+      lng: 85.324,
+      city: "Kathmandu",
+      updatedAt: new Date(),
+    },
   });
   console.log("✓ Created users (admin, organizer, attendee)");
 
@@ -90,6 +98,7 @@ async function seed() {
       description: "A full day of talks on AI, web, and cloud engineering.",
       date: new Date(now + 14 * day),
       venue: "Grand Hall, Kathmandu",
+      coordinates: { lat: 27.7125, lng: 85.32 }, // ~0.6 km from attendee
       type: "In-person",
       category: "Technology",
       capacity: 300,
@@ -103,7 +112,8 @@ async function seed() {
       title: "Startup Networking Night",
       description: "Meet founders, investors, and builders over drinks.",
       date: new Date(now + 3 * day),
-      venue: "Rooftop Lounge",
+      venue: "Rooftop Lounge, Lalitpur",
+      coordinates: { lat: 27.6667, lng: 85.3167 }, // ~5.6 km from attendee
       type: "Hybrid",
       category: "Business",
       capacity: 120,
@@ -117,7 +127,8 @@ async function seed() {
       title: "Live Music Festival",
       description: "An evening of live performances happening right now.",
       date: new Date(now),
-      venue: "Open Air Amphitheatre",
+      venue: "Open Air Amphitheatre, Bhaktapur",
+      coordinates: { lat: 27.671, lng: 85.4298 }, // ~12 km from attendee
       type: "In-person",
       category: "Music",
       capacity: 500,

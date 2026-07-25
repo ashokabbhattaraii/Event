@@ -15,6 +15,7 @@ import {
 import { EventBot } from "@/components/chatbot/event-bot"
 import { adminNav, attendeeNav, organizerNav } from "@/components/app/nav-configs"
 import { ensureGsap, prefersReducedMotion } from "@/lib/gsap"
+import { useNotifications } from "@/lib/queries/notifications"
 
 export type NavItem = { label: string; href: string; icon: LucideIcon; badge?: number }
 
@@ -68,6 +69,9 @@ export function AppShell({ children, role, userName, title = "Welcome back" }: A
       .filter((item) => matchesRoute(pathname, item.href))
       .sort((left, right) => right.href.length - left.href.length)[0]?.href ?? null
 
+  const { data: notifData } = useNotifications()
+  const unreadCount = (notifData?.notifications ?? []).filter((n) => !n.read).length
+
   useEffect(() => {
     if (prefersReducedMotion()) return
     const gsap = ensureGsap()
@@ -107,6 +111,7 @@ export function AppShell({ children, role, userName, title = "Welcome back" }: A
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
           {resolvedNav.map((item) => {
             const active = item.href === activeHref
+            const badge = item.label === "Notifications" && unreadCount > 0 ? unreadCount : item.badge
             return (
               <Link
                 key={item.label}
@@ -119,13 +124,13 @@ export function AppShell({ children, role, userName, title = "Welcome back" }: A
               >
                 <item.icon className="size-[18px] shrink-0" />
                 <span className="flex-1">{item.label}</span>
-                {item.badge ? (
+                {badge ? (
                   <span
                     className={`flex size-5 items-center justify-center rounded-full text-[10px] font-bold ${
                       active ? "bg-white/20 text-white" : "bg-flame text-white"
                     }`}
                   >
-                    {item.badge}
+                    {badge}
                   </span>
                 ) : null}
               </Link>

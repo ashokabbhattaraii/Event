@@ -26,9 +26,11 @@ export function EventCard({ event, href }: { event: AppEvent; href?: string }) {
             {event.type}
           </span>
         </div>
-        <span className="absolute bottom-3 right-3 inline-flex items-center gap-1 rounded-full bg-black/25 px-2.5 py-1 text-[11px] font-semibold text-white backdrop-blur">
-          <TrendingUp className="size-3" /> {event.matchScore}% match
-        </span>
+        {event.matchScore != null && (
+          <span className="absolute bottom-3 right-3 inline-flex items-center gap-1 rounded-full bg-black/25 px-2.5 py-1 text-[11px] font-semibold text-white backdrop-blur">
+            <TrendingUp className="size-3" /> {event.matchScore}% match
+          </span>
+        )}
       </div>
 
       <div className="flex flex-1 flex-col p-5">

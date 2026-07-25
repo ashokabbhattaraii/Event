@@ -6,10 +6,9 @@ import { StatCard } from "@/components/app/stat-card"
 import { EventCard } from "@/components/app/event-card"
 import { RegistrationTrendChart, TicketMixChart } from "@/components/app/organizer-charts"
 import { Reveal } from "@/components/anim/reveal"
-import { events } from "@/lib/data"
+import { useMyEvents } from "@/lib/queries/events"
+import { toAppEvent } from "@/lib/adapters/event"
 import { CalendarDays, Users, DollarSign, Sparkles, Plus, ArrowUpRight, Brain } from "lucide-react"
-
-const myEvents = events.filter((e) => e.org === "Apex Labs" || e.status !== "Past").slice(0, 3)
 
 const aiInsights = [
   {
@@ -30,6 +29,8 @@ const aiInsights = [
 ]
 
 export default function OrganizerDashboardPage() {
+  const { data } = useMyEvents({ limit: 3, sort: "-createdAt" })
+  const myEvents = (data?.events ?? []).map(toAppEvent)
   return (
     <AppShell role="Organizer" userName="Marcus Reid" title="My Events">
       <div className="space-y-8">

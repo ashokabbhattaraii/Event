@@ -6,6 +6,7 @@ import {
   type LoginPayload,
   type RegisterPayload,
 } from "../api/auth";
+import { captureAndSaveLocation } from "../api/location";
 
 export const authKeys = {
   me: ["auth", "me"] as const,
@@ -35,6 +36,15 @@ function useAuthSuccess() {
     localStorage.setItem("token", data.token);
     localStorage.setItem("user", JSON.stringify(data.user));
     queryClient.setQueryData(authKeys.me, { user: data.user });
+
+    // Capture location (with permission) in the background — the token is now
+    // stored, so the authenticated PATCH will carry it. Never blocks redirect.
+    captureAndSaveLocation()
+      .then((loc) => {
+        if (loc) queryClient.invalidateQueries({ queryKey: ["recommendations"] });
+      })
+      .catch(() => {});
+
     router.push(roleRoutes[data.user.role] || "/attendee");
   };
 }

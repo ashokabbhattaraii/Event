@@ -1,4 +1,14 @@
 const Event = require("../models/Event");
+const {
+  parsePagination,
+  buildSearch,
+  buildFilters,
+  parseSort,
+  paginate,
+} = require("../utils/query");
+
+const EVENT_SEARCH_FIELDS = ["title", "venue", "category", "description"];
+const EVENT_SORT_FIELDS = ["date", "title", "createdAt", "registered"];
 
 const createEvent = async (req, res) => {
   try {
@@ -12,6 +22,7 @@ const createEvent = async (req, res) => {
       capacity,
       price,
       status,
+      coordinates,
     } = req.body;
 
     const event = await Event.create({
@@ -24,6 +35,7 @@ const createEvent = async (req, res) => {
       capacity,
       price,
       status: status || "Draft",
+      coordinates,
       organizer: req.user._id,
       organization: req.user.organization,
     });
@@ -36,10 +48,22 @@ const createEvent = async (req, res) => {
 
 const getMyEvents = async (req, res) => {
   try {
-    const events = await Event.find({ organizer: req.user._id }).sort({
-      createdAt: -1,
+    const { page, limit, skip } = parsePagination(req.query, { defaultLimit: 9 });
+    const filter = {
+      organizer: req.user._id,
+      ...buildSearch(req.query.search, EVENT_SEARCH_FIELDS),
+      ...buildFilters(req.query, ["status", "type", "category"]),
+    };
+    const sort = parseSort(req.query.sort, EVENT_SORT_FIELDS, { createdAt: -1 });
+
+    const { data, pagination } = await paginate(Event, {
+      filter,
+      page,
+      limit,
+      skip,
+      sort,
     });
-    res.json({ events });
+    res.json({ events: data, pagination });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -101,11 +125,34 @@ const deleteEvent = async (req, res) => {
 
 const getAllEvents = async (req, res) => {
   try {
-    const events = await Event.find({ status: { $ne: "Draft" } })
-      .populate("organizer", "name")
-      .populate("organization", "name")
-      .sort({ date: 1 });
-    res.json({ events });
+    const { page, limit, skip } = parsePagination(req.query, { defaultLimit: 9 });
+
+    const filter = {
+      ...buildSearch(req.query.search, EVENT_SEARCH_FIELDS),
+      ...buildFilters(req.query, ["category", "type"]),
+    };
+    // Public browse never exposes drafts. An explicit status filter is honored
+    // for any non-draft value; otherwise all non-draft events are returned.
+    const { status } = req.query;
+    filter.status =
+      status && status !== "all" && status !== "Draft"
+        ? status
+        : { $ne: "Draft" };
+
+    const sort = parseSort(req.query.sort, EVENT_SORT_FIELDS, { date: 1 });
+
+    const { data, pagination } = await paginate(Event, {
+      filter,
+      page,
+      limit,
+      skip,
+      sort,
+      populate: [
+        { path: "organizer", select: "name" },
+        { path: "organization", select: "name" },
+      ],
+    });
+    res.json({ events: data, pagination });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

@@ -13,6 +13,7 @@ import {
   Compass,
   Heart,
   QrCode,
+  UserCircle,
 } from "lucide-react"
 import type { NavItem } from "@/components/app/app-shell"
 
@@ -44,4 +45,5 @@ export const attendeeNav: NavItem[] = [
   { label: "Check-in", href: "/attendee/check-in", icon: QrCode },
   { label: "Recommendations", href: "/attendee/recommendations", icon: Sparkles },
   { label: "Notifications", href: "/attendee/notifications", icon: Bell, badge: 2 },
+  { label: "Settings", href: "/attendee/settings", icon: UserCircle },
 ]

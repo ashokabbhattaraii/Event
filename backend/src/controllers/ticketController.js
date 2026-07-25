@@ -3,6 +3,12 @@ const Ticket = require("../models/Ticket");
 const Event = require("../models/Event");
 const { signTicketToken, verifyTicketToken } = require("../utils/qrToken");
 const { createNotification } = require("./notificationController");
+const {
+  parsePagination,
+  buildFilters,
+  parseSort,
+  paginate,
+} = require("../utils/query");
 
 const registerForEvent = async (req, res) => {
   try {
@@ -65,10 +71,22 @@ const registerForEvent = async (req, res) => {
 
 const getMyTickets = async (req, res) => {
   try {
-    const tickets = await Ticket.find({ attendee: req.user._id })
-      .populate("event")
-      .sort({ createdAt: -1 });
-    res.json({ tickets });
+    const { page, limit, skip } = parsePagination(req.query, { defaultLimit: 12 });
+    const filter = {
+      attendee: req.user._id,
+      ...buildFilters(req.query, ["status"]),
+    };
+    const sort = parseSort(req.query.sort, ["createdAt"], { createdAt: -1 });
+
+    const { data, pagination } = await paginate(Ticket, {
+      filter,
+      page,
+      limit,
+      skip,
+      sort,
+      populate: "event",
+    });
+    res.json({ tickets: data, pagination });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

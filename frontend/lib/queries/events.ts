@@ -1,23 +1,36 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { eventsApi, type CreateEventPayload } from "../api/events";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import {
+  eventsApi,
+  type CreateEventPayload,
+  type EventListParams,
+} from "../api/events";
 
 export const eventKeys = {
   all: ["events"] as const,
+  allList: (params: EventListParams) => ["events", "list", params] as const,
   my: ["events", "my"] as const,
+  myList: (params: EventListParams) => ["events", "my", params] as const,
   detail: (id: string) => ["events", id] as const,
 };
 
-export function useAllEvents() {
+export function useAllEvents(params: EventListParams = {}) {
   return useQuery({
-    queryKey: eventKeys.all,
-    queryFn: eventsApi.getAll,
+    queryKey: eventKeys.allList(params),
+    queryFn: () => eventsApi.getAll(params),
+    placeholderData: keepPreviousData,
   });
 }
 
-export function useMyEvents() {
+export function useMyEvents(params: EventListParams = {}) {
   return useQuery({
-    queryKey: eventKeys.my,
-    queryFn: eventsApi.getMy,
+    queryKey: eventKeys.myList(params),
+    queryFn: () => eventsApi.getMy(params),
+    placeholderData: keepPreviousData,
   });
 }
 

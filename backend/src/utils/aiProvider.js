@@ -1,14 +1,10 @@
-// Free-tier LLM fallback chain for the chatbot's natural-language phrasing.
-// Groq is tried first (fast, generous free tier), then Gemini. Both are called
-// with plain fetch to avoid adding an SDK dependency. If neither is configured
-// or both fail, generateReply returns null so the caller can fall back to its
-// own rule-based response — this layer must never be a hard requirement.
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.1-8b-instant";
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
 
-const TIMEOUT_MS = 8000;
+const TIMEOUT_MS = 10000
+const MAX_RETRIES = 2
 
 const fetchWithTimeout = async (url, options) => {
   const controller = new AbortController();
@@ -34,8 +30,9 @@ const callGroq = async (systemPrompt, userPrompt) => {
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-      temperature: 0.3,
-      max_tokens: 200,
+      temperature: 0.2,
+      max_tokens: 350,
+      top_p: 0.9,
     }),
   });
   if (!res.ok) throw new Error(`Groq responded ${res.status}`);
@@ -51,7 +48,11 @@ const callGemini = async (systemPrompt, userPrompt) => {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       contents: [{ parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }] }],
-      generationConfig: { temperature: 0.3, maxOutputTokens: 200 },
+      generationConfig: {
+        temperature: 0.2,
+        maxOutputTokens: 350,
+        topP: 0.9,
+      },
     }),
   });
   if (!res.ok) throw new Error(`Gemini responded ${res.status}`);
@@ -66,14 +67,38 @@ const PROVIDERS = [
 
 const generateReply = async (systemPrompt, userPrompt) => {
   for (const provider of PROVIDERS) {
-    try {
-      const reply = await provider.call(systemPrompt, userPrompt);
-      if (reply) return reply;
-    } catch (error) {
-      console.error(`[ai] ${provider.name} failed: ${error.message}`);
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        const reply = await provider.call(systemPrompt, userPrompt);
+        if (reply) return reply;
+      } catch (error) {
+        console.error(`[ai] ${provider.name} attempt ${attempt + 1} failed: ${error.message}`);
+        if (attempt < MAX_RETRIES - 1) {
+          await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+        }
+      }
     }
   }
   return null;
 };
 
-module.exports = { generateReply };
+const generateEventInsight = async (event) => {
+  const systemPrompt =
+    "You are EventNexus AI, an event analytics assistant. " +
+    "Generate a concise, data-driven insight (1-2 sentences) about the event's current demand and registration trends. " +
+    "Use ONLY the facts provided. Be precise and helpful. Never invent data.";
+
+  const userPrompt = [
+    "Event:", event.title,
+    "Category:", event.category,
+    "Type:", event.type,
+    "Capacity:", event.capacity,
+    "Registered:", event.registered,
+    "Status:", event.status,
+    "Days until event:", event.daysUntil,
+  ].join("\n");
+
+  return generateReply(systemPrompt, userPrompt);
+};
+
+module.exports = { generateReply, generateEventInsight };

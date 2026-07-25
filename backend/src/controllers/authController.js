@@ -7,6 +7,33 @@ const { slugify } = require("./organizationController");
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
+// Emails that are automatically granted the admin role on sign-in.
+// Configured via ADMIN_EMAILS; falls back to the project's default admin.
+const ADMIN_EMAILS = (
+  process.env.ADMIN_EMAILS || "anjaliimiishra321@gmail.com"
+)
+  .split(",")
+  .map((e) => e.trim().toLowerCase())
+  .filter(Boolean);
+
+const isAdminEmail = (email) => ADMIN_EMAILS.includes((email || "").toLowerCase());
+
+// Admin routes are tenant-scoped, so an admin must belong to an organization.
+// Attach the given user to the first existing org, creating a default one if
+// none exists yet. Mutates the user document; caller is responsible for saving.
+const assignDefaultOrg = async (user) => {
+  if (user.organization) return;
+  let org = await Organization.findOne({ status: "active" }).sort({ createdAt: 1 });
+  if (!org) {
+    org = await Organization.create({
+      name: "EventNexus",
+      slug: "eventnexus",
+      owner: user._id,
+    });
+  }
+  user.organization = org._id;
+};
+
 const serializeUser = (user) => ({
   _id: user._id,
   name: user.name,
@@ -129,21 +156,37 @@ const googleLogin = async (req, res) => {
         .json({ message: "Google account email is not verified" });
     }
 
-    // Find an existing account by email, otherwise create a new attendee.
+    const admin = isAdminEmail(email);
+
+    // Find an existing account by email, otherwise create one.
     let user = await User.findOne({ email });
     if (user) {
+      let changed = false;
       // Link the Google identity to a pre-existing local account.
       if (!user.googleId) {
         user.googleId = googleId;
-        await user.save();
+        changed = true;
       }
+      // Promote allowlisted emails to admin.
+      if (admin && user.role !== "admin") {
+        user.role = "admin";
+        changed = true;
+      }
+      // Admins must have an organization for tenant-scoped routes to work.
+      if (user.role === "admin" && !user.organization) {
+        await assignDefaultOrg(user);
+        changed = true;
+      }
+      if (changed) await user.save();
     } else {
-      user = await User.create({
+      user = new User({
         name: name || email.split("@")[0],
         email,
         googleId,
-        role: "attendee",
+        role: admin ? "admin" : "attendee",
       });
+      if (admin) await assignDefaultOrg(user);
+      await user.save();
     }
 
     const token = generateToken(user._id);

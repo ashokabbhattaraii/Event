@@ -9,6 +9,7 @@ import { Reveal } from "@/components/anim/reveal"
 import { SearchInput, FilterSelect } from "@/components/app/search-input"
 import { Pagination } from "@/components/app/pagination"
 import { useMyEvents } from "@/lib/queries/events"
+import { useCurrentUser } from "@/lib/queries/auth"
 import { useDebounce } from "@/lib/hooks/use-debounce"
 
 const statusOptions = [
@@ -20,10 +21,12 @@ const statusOptions = [
 ]
 
 export default function OrganizerEventsPage() {
+  const { data: userData } = useCurrentUser()
   const [search, setSearch] = useState("")
   const [status, setStatus] = useState("all")
   const [page, setPage] = useState(1)
   const debouncedSearch = useDebounce(search, 400)
+  const user = userData?.user
 
   const { data, isLoading, isError, isFetching } = useMyEvents({
     search: debouncedSearch,
@@ -48,7 +51,7 @@ export default function OrganizerEventsPage() {
   const registrations = events.reduce((sum, e) => sum + e.registered, 0)
 
   return (
-    <AppShell role="Organizer" userName="Organizer" title="My Events">
+    <AppShell role="Organizer" userName={user?.name || "Organizer"} title="My Events">
       <div className="space-y-8">
         <Reveal className="flex items-center justify-between">
           <div className="flex flex-col gap-1">

@@ -8,6 +8,7 @@ import { Reveal } from "@/components/anim/reveal"
 import { SearchInput, FilterSelect } from "@/components/app/search-input"
 import { Pagination } from "@/components/app/pagination"
 import { useOrgUsers, useUpdateUserRole } from "@/lib/queries/users"
+import { useCurrentUser } from "@/lib/queries/auth"
 import { useDebounce } from "@/lib/hooks/use-debounce"
 
 const roleOptions = ["admin", "organizer", "attendee"] as const
@@ -20,10 +21,12 @@ const roleFilterOptions = [
 ]
 
 export default function AdminUsersPage() {
+  const { data: userData } = useCurrentUser()
   const [search, setSearch] = useState("")
   const [role, setRole] = useState("all")
   const [page, setPage] = useState(1)
   const debouncedSearch = useDebounce(search, 400)
+  const user = userData?.user
 
   const { data, isLoading, isFetching } = useOrgUsers({
     search: debouncedSearch,
@@ -50,7 +53,7 @@ export default function AdminUsersPage() {
   const attendees = users.filter((u) => u.role === "attendee").length
 
   return (
-    <AppShell role="Administrator" userName="Admin" title="Users & Roles">
+    <AppShell role="Administrator" userName={user?.name || "Admin"} title="Users & Roles">
       <div className="space-y-8">
         <Reveal className="flex flex-col gap-1">
           <h1 className="font-display text-2xl font-bold tracking-tight text-ink">Users & Roles</h1>

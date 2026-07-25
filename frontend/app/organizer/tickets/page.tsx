@@ -6,9 +6,8 @@ import { AppShell } from "@/components/app/app-shell"
 import { StatCard } from "@/components/app/stat-card"
 import { Reveal } from "@/components/anim/reveal"
 import { useVerifyTicket } from "@/lib/queries/tickets"
-import { events } from "@/lib/data"
-
-const ticketPrograms = events.filter((event) => event.status !== "Past")
+import { useMyEvents } from "@/lib/queries/events"
+import { useCurrentUser } from "@/lib/queries/auth"
 
 function VerifyTicketPanel() {
   const [qrToken, setQrToken] = useState("")
@@ -21,13 +20,13 @@ function VerifyTicketPanel() {
   }
 
   return (
-    <Reveal className="rounded-2xl border border-border bg-card p-6 shadow-[0_2px_24px_rgba(0,0,0,0.04)]">
+    <Reveal className="rounded-2xl border border-border bg-card p-6">
       <div className="flex items-center gap-2">
         <QrCode className="size-5 text-primary" />
         <h2 className="font-display text-lg font-semibold text-ink">Verify a Ticket</h2>
       </div>
       <p className="mt-1 text-sm text-muted-foreground">
-        Enter the QR token from an attendee&apos;s ticket to check them in. Tickets from other organizations are rejected automatically.
+        Enter the QR token from an attendee&apos;s ticket to check them in.
       </p>
       <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-3 sm:flex-row">
         <input
@@ -62,50 +61,70 @@ function VerifyTicketPanel() {
 }
 
 export default function OrganizerTicketsPage() {
+  const { data: userData } = useCurrentUser()
+  const { data: eventsData, isLoading } = useMyEvents({ limit: 50 })
+  const user = userData?.user
+  const events = eventsData?.events ?? []
+
+  const activeEvents = events.filter((e) => e.status !== "Past")
+  const totalRegistered = events.reduce((sum, e) => sum + e.registered, 0)
+
   return (
-    <AppShell role="Organizer" userName="Organizer" title="Tickets & Check-in">
+    <AppShell role="Organizer" userName={user?.name || "Organizer"} title="Tickets & Check-in">
       <div className="space-y-8">
         <Reveal className="flex flex-col gap-1">
           <h1 className="font-display text-2xl font-bold tracking-tight text-ink">Tickets & Entry Ops</h1>
-          <p className="text-sm text-muted-foreground">Manage live ticketing readiness, QR validation, and front-of-house operations.</p>
+          <p className="text-sm text-muted-foreground">Manage live ticketing and QR validation.</p>
         </Reveal>
 
         <Reveal stagger={0.08} y={24} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard label="Programs Live" value={ticketPrograms.length} icon={Ticket} accent="primary" />
-          <StatCard label="QR Coverage" value={96} suffix="%" icon={QrCode} accent="secondary" />
-          <StatCard label="Verified Check-ins" value={842} icon={CheckCircle2} accent="flame" />
-          <StatCard label="Fraud Blocks" value={9} icon={ShieldCheck} accent="primary" />
+          <StatCard label="Active Programs" value={activeEvents.length} icon={Ticket} accent="primary" />
+          <StatCard label="Total Tickets" value={totalRegistered} icon={QrCode} accent="secondary" />
+          <StatCard label="Upcoming Events" value={events.filter((e) => e.status === "Upcoming").length} icon={ShieldCheck} accent="flame" />
+          <StatCard label="Live Events" value={events.filter((e) => e.status === "Live").length} icon={CheckCircle2} accent="primary" />
         </Reveal>
 
         <VerifyTicketPanel />
 
-        <Reveal stagger={0.08} y={20} className="grid gap-5 lg:grid-cols-2">
-          {ticketPrograms.map((event) => (
-            <div key={event.id} className="rounded-2xl border border-border bg-card p-6 shadow-[0_2px_24px_rgba(0,0,0,0.04)]">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="font-display text-lg font-semibold text-ink">{event.title}</h2>
-                  <p className="text-sm text-muted-foreground">{event.date} · {event.venue}</p>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="size-5 animate-spin text-primary" />
+          </div>
+        ) : (
+          <Reveal stagger={0.08} y={20} className="grid gap-5 lg:grid-cols-2">
+            {activeEvents.map((event) => (
+              <div key={event._id} className="rounded-2xl border border-border bg-card p-6">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h2 className="font-display text-lg font-semibold text-ink">{event.title}</h2>
+                    <p className="text-sm text-muted-foreground">
+                      {new Date(event.date).toLocaleDateString()} · {event.venue}
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-secondary/15 px-2.5 py-1 text-xs font-semibold text-secondary">
+                    {event.status}
+                  </span>
                 </div>
-                <span className="rounded-full bg-secondary/15 px-2.5 py-1 text-xs font-semibold text-secondary">Ready</span>
+                <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-xl border border-border bg-background p-4">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Issued</p>
+                    <p className="mt-2 font-display text-2xl font-bold text-ink">{event.registered}</p>
+                  </div>
+                  <div className="rounded-xl border border-border bg-background p-4">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Capacity</p>
+                    <p className="mt-2 font-display text-2xl font-bold text-ink">{event.capacity}</p>
+                  </div>
+                  <div className="rounded-xl border border-border bg-background p-4">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Fill Rate</p>
+                    <p className="mt-2 font-display text-2xl font-bold text-ink">
+                      {Math.round((event.registered / event.capacity) * 100)}%
+                    </p>
+                  </div>
+                </div>
               </div>
-              <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                <div className="rounded-xl border border-border bg-background p-4">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Issued</p>
-                  <p className="mt-2 font-display text-2xl font-bold text-ink">{event.registered}</p>
-                </div>
-                <div className="rounded-xl border border-border bg-background p-4">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Capacity</p>
-                  <p className="mt-2 font-display text-2xl font-bold text-ink">{event.capacity}</p>
-                </div>
-                <div className="rounded-xl border border-border bg-background p-4">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Forecast</p>
-                  <p className="mt-2 font-display text-2xl font-bold text-ink">{event.predicted}</p>
-                </div>
-              </div>
-            </div>
-          ))}
-        </Reveal>
+            ))}
+          </Reveal>
+        )}
       </div>
     </AppShell>
   )

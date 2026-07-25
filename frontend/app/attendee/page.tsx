@@ -5,6 +5,7 @@ import { AppShell } from "@/components/app/app-shell"
 import { EventCard } from "@/components/app/event-card"
 import { Reveal } from "@/components/anim/reveal"
 import { useAllEvents } from "@/lib/queries/events"
+import { useCurrentUser } from "@/lib/queries/auth"
 import { toAppEvent } from "@/lib/adapters/event"
 import { useDebounce } from "@/lib/hooks/use-debounce"
 import { Loader2, Search, Sparkles, SlidersHorizontal } from "lucide-react"
@@ -12,19 +13,19 @@ import { Loader2, Search, Sparkles, SlidersHorizontal } from "lucide-react"
 const categories = ["All", "Technology", "Business", "Music", "Education", "Design"]
 
 export default function AttendeeDiscoverPage() {
+  const { data: userData } = useCurrentUser()
   const [active, setActive] = useState("All")
   const [query, setQuery] = useState("")
   const debouncedQuery = useDebounce(query, 400)
+  const user = userData?.user
 
   const { data, isLoading, isError } = useAllEvents({
     search: debouncedQuery,
-    // "All" is the UI's no-filter option; send nothing so the API returns every category.
     category: active === "All" ? undefined : active,
     limit: 50,
   })
 
   const events = useMemo(() => (data?.events ?? []).map(toAppEvent), [data])
-  // Highest-demand events as a lightweight "recommended" strip.
   const recommended = useMemo(
     () =>
       [...events]
@@ -32,18 +33,16 @@ export default function AttendeeDiscoverPage() {
         .slice(0, 3),
     [events]
   )
-  const filtered = events
 
   return (
-    <AppShell role="Attendee" userName="Ava Lindqvist" title="Discover Events">
+    <AppShell role="Attendee" userName={user?.name || "Attendee"} title="Discover Events">
       <div className="space-y-8">
-        {/* Hero search */}
         <Reveal y={16}>
           <div className="bg-brand-gradient relative overflow-hidden rounded-2xl p-7 text-white">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_88%_15%,rgba(255,255,255,0.28),transparent_50%)]" />
             <div className="relative">
               <h2 className="font-display text-2xl font-bold">Find your next event</h2>
-              <p className="mt-1 text-sm text-white/80">847 events curated for you this month</p>
+              <p className="mt-1 text-sm text-white/80">{events.length} events available</p>
               <div className="mt-5 flex max-w-xl items-center gap-2 rounded-xl bg-white p-1.5">
                 <Search className="ml-2 size-5 text-muted-foreground" />
                 <input
@@ -58,25 +57,23 @@ export default function AttendeeDiscoverPage() {
           </div>
         </Reveal>
 
-        {/* AI recommendations */}
-        <div id="ai">
-          <Reveal y={14} className="mb-4 flex items-center gap-2">
-            <span className="bg-brand-gradient flex size-8 items-center justify-center rounded-lg text-white">
-              <Sparkles className="size-4" />
-            </span>
-            <h3 className="font-display text-lg font-bold text-ink">Recommended for you</h3>
-            <span className="rounded-full bg-secondary/12 px-2 py-0.5 text-[11px] font-semibold text-secondary">
-              AI matched
-            </span>
-          </Reveal>
-          <Reveal stagger={0.1} y={28} className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {recommended.map((e) => (
-              <EventCard key={e.id} event={e} />
-            ))}
-          </Reveal>
-        </div>
+        {recommended.length > 0 && (
+          <div id="ai">
+            <Reveal y={14} className="mb-4 flex items-center gap-2">
+              <span className="bg-brand-gradient flex size-8 items-center justify-center rounded-lg text-white">
+                <Sparkles className="size-4" />
+              </span>
+              <h3 className="font-display text-lg font-bold text-ink">Recommended for you</h3>
+              <span className="rounded-full bg-secondary/12 px-2 py-0.5 text-[11px] font-semibold text-secondary">AI matched</span>
+            </Reveal>
+            <Reveal stagger={0.1} y={28} className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              {recommended.map((e) => (
+                <EventCard key={e.id} event={e} />
+              ))}
+            </Reveal>
+          </div>
+        )}
 
-        {/* Filters + grid */}
         <div>
           <Reveal y={14} className="mb-5 flex flex-wrap items-center gap-2">
             {categories.map((c) => (
@@ -105,13 +102,13 @@ export default function AttendeeDiscoverPage() {
             <div className="rounded-2xl border border-amber-200 bg-amber-50 py-6 text-center text-sm text-amber-700">
               Could not load events. Make sure the backend is running.
             </div>
-          ) : filtered.length === 0 ? (
+          ) : events.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-border bg-card py-16 text-center">
               <p className="text-sm text-muted-foreground">No events match your search.</p>
             </div>
           ) : (
             <Reveal stagger={0.07} y={28} className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              {filtered.map((e) => (
+              {events.map((e) => (
                 <EventCard key={e.id} event={e} />
               ))}
             </Reveal>

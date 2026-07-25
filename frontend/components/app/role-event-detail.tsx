@@ -128,11 +128,7 @@ export function RoleEventDetail({
   const speakers = PREDEFINED_SPEAKERS[categoryKey] || PREDEFINED_SPEAKERS.technology
 
   const userHasLocation = currentUser?.location?.lat != null
-  const distanceInfo = !userHasLocation
-    ? null
-    : event.coordinates?.lat
-      ? `${((Math.random() * 5 + 1)).toFixed(1)} km away`
-      : null
+  const distanceInfo = null
 
   const handleRegister = async () => {
     if (isRegistered) {

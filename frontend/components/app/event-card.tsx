@@ -1,6 +1,6 @@
 import Link from "next/link"
 import { MapPin, Calendar, TrendingUp, Users } from "lucide-react"
-import type { AppEvent } from "@/lib/data"
+import type { AppEvent } from "@/lib/adapters/event"
 
 const statusStyle: Record<string, string> = {
   Live: "bg-secondary text-secondary-foreground",

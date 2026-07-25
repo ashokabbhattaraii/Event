@@ -16,32 +16,39 @@ import {
   Tooltip,
   Legend,
 } from "recharts"
-import { registrationTrend, predictedVsActual } from "@/lib/data"
+
+const defaultTrend = [
+  { d: "Day -7", v: 60 }, { d: "Day -6", v: 95 }, { d: "Day -5", v: 180 },
+  { d: "Day -4", v: 240 }, { d: "Day -3", v: 420 }, { d: "Day -2", v: 560 },
+  { d: "Day -1", v: 720 }, { d: "Day 0", v: 847 },
+]
+
+const defaultPredicted = [
+  { event: "E1", predicted: 100, actual: 85 },
+  { event: "E2", predicted: 200, actual: 180 },
+  { event: "E3", predicted: 150, actual: 140 },
+  { event: "E4", predicted: 300, actual: 280 },
+  { event: "E5", predicted: 250, actual: 240 },
+]
 
 const engagement = [
-  { metric: "Reach", v: 92 },
-  { metric: "Engagement", v: 78 },
-  { metric: "Conversion", v: 64 },
-  { metric: "Retention", v: 81 },
-  { metric: "Advocacy", v: 70 },
-  { metric: "Satisfaction", v: 88 },
+  { metric: "Reach", v: 92 }, { metric: "Engagement", v: 78 },
+  { metric: "Conversion", v: 64 }, { metric: "Retention", v: 81 },
+  { metric: "Advocacy", v: 70 }, { metric: "Satisfaction", v: 88 },
 ]
 
 const channels = [
-  { ch: "Email", v: 420 },
-  { ch: "Social", v: 360 },
-  { ch: "Direct", v: 280 },
-  { ch: "Partner", v: 190 },
-  { ch: "Referral", v: 140 },
+  { ch: "Email", v: 420 }, { ch: "Social", v: 360 },
+  { ch: "Direct", v: 280 }, { ch: "Partner", v: 190 }, { ch: "Referral", v: 140 },
 ]
 
 export function FunnelTrend() {
   return (
-    <div className="rounded-2xl border border-border bg-card p-5 shadow-[0_2px_24px_rgba(0,0,0,0.04)]">
+    <div className="rounded-2xl border border-border bg-card p-5">
       <h3 className="font-display text-base font-bold text-ink">Registration Funnel</h3>
       <p className="text-xs text-muted-foreground">Daily sign-up momentum</p>
       <ResponsiveContainer width="100%" height={240}>
-        <AreaChart data={registrationTrend} margin={{ left: -18, right: 8, top: 12 }}>
+        <AreaChart data={defaultTrend} margin={{ left: -18, right: 8, top: 12 }}>
           <defs>
             <linearGradient id="anafill" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="#00c9a7" stopOpacity={0.4} />
@@ -61,11 +68,11 @@ export function FunnelTrend() {
 
 export function PredictionAccuracy() {
   return (
-    <div className="rounded-2xl border border-border bg-card p-5 shadow-[0_2px_24px_rgba(0,0,0,0.04)]">
+    <div className="rounded-2xl border border-border bg-card p-5">
       <h3 className="font-display text-base font-bold text-ink">Predicted vs. Actual</h3>
       <p className="text-xs text-muted-foreground">AI forecast accuracy</p>
       <ResponsiveContainer width="100%" height={240}>
-        <BarChart data={predictedVsActual} margin={{ left: -18, right: 8, top: 12 }} barGap={4}>
+        <BarChart data={defaultPredicted} margin={{ left: -18, right: 8, top: 12 }} barGap={4}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e7e5df" vertical={false} />
           <XAxis dataKey="event" stroke="#6b7280" fontSize={11} tickLine={false} axisLine={false} />
           <YAxis stroke="#6b7280" fontSize={12} tickLine={false} axisLine={false} />
@@ -81,7 +88,7 @@ export function PredictionAccuracy() {
 
 export function EngagementRadar() {
   return (
-    <div className="rounded-2xl border border-border bg-card p-5 shadow-[0_2px_24px_rgba(0,0,0,0.04)]">
+    <div className="rounded-2xl border border-border bg-card p-5">
       <h3 className="font-display text-base font-bold text-ink">Engagement Profile</h3>
       <p className="text-xs text-muted-foreground">Across the attendee lifecycle</p>
       <ResponsiveContainer width="100%" height={260}>
@@ -98,7 +105,7 @@ export function EngagementRadar() {
 
 export function ChannelBars() {
   return (
-    <div className="rounded-2xl border border-border bg-card p-5 shadow-[0_2px_24px_rgba(0,0,0,0.04)]">
+    <div className="rounded-2xl border border-border bg-card p-5">
       <h3 className="font-display text-base font-bold text-ink">Acquisition Channels</h3>
       <p className="text-xs text-muted-foreground">Registrations by source</p>
       <ResponsiveContainer width="100%" height={260}>

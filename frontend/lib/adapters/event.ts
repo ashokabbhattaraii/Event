@@ -1,5 +1,23 @@
 import type { EventData } from "@/lib/api/events";
-import type { AppEvent } from "@/lib/data";
+
+export type EventStatus = "Upcoming" | "Live" | "Past";
+
+export interface AppEvent {
+  id: string;
+  title: string;
+  org: string;
+  date: string;
+  type: "In-person" | "Hybrid" | "Virtual";
+  venue: string;
+  registered: number;
+  capacity: number;
+  predicted: number;
+  status: EventStatus;
+  category: string;
+  matchScore?: number;
+  price: string;
+  gradient: string;
+}
 
 const GRADIENTS = [
   "linear-gradient(135deg,#5b4cf5,#00c9a7)",
@@ -8,7 +26,6 @@ const GRADIENTS = [
   "linear-gradient(135deg,#5b4cf5,#ff6b35)",
 ];
 
-// Deterministic gradient so a given event always looks the same.
 const pickGradient = (id: string) => {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
@@ -20,8 +37,6 @@ const orgName = (event: EventData): string => {
   return typeof o === "object" && o?.name ? o.name : "Organizer";
 };
 
-// Map a real API event onto the shape the presentational EventCard expects.
-// Card-only/mock fields (matchScore) are left undefined and hidden by the card.
 export function toAppEvent(event: EventData): AppEvent {
   return {
     id: event._id,
@@ -36,7 +51,7 @@ export function toAppEvent(event: EventData): AppEvent {
     registered: event.registered,
     capacity: event.capacity,
     predicted: event.registered,
-    status: (event.status === "Draft" ? "Upcoming" : event.status) as AppEvent["status"],
+    status: (event.status === "Draft" ? "Upcoming" : event.status) as EventStatus,
     category: event.category,
     price: event.price,
     gradient: pickGradient(event._id),

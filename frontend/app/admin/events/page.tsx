@@ -6,10 +6,13 @@ import { EventCard } from "@/components/app/event-card"
 import { StatCard } from "@/components/app/stat-card"
 import { Reveal } from "@/components/anim/reveal"
 import { useAllEvents } from "@/lib/queries/events"
+import { useCurrentUser } from "@/lib/queries/auth"
 import { toAppEvent } from "@/lib/adapters/event"
 
 export default function AdminEventsPage() {
+  const { data: userData } = useCurrentUser()
   const { data, isLoading, isError } = useAllEvents({ limit: 50 })
+  const user = userData?.user
   const events = data?.events ?? []
   const total = data?.pagination?.total ?? events.length
 
@@ -18,11 +21,11 @@ export default function AdminEventsPage() {
   const totalRegistrations = events.reduce((sum, e) => sum + e.registered, 0)
 
   return (
-    <AppShell role="Administrator" userName="Admin" title="Events Oversight">
+    <AppShell role="Administrator" userName={user?.name || "Admin"} title="Events Oversight">
       <div className="space-y-8">
         <Reveal className="flex flex-col gap-1">
           <h1 className="font-display text-2xl font-bold tracking-tight text-ink">Events Oversight</h1>
-          <p className="text-sm text-muted-foreground">Review event performance, live status, and demand trends across the platform.</p>
+          <p className="text-sm text-muted-foreground">Review event performance across the platform.</p>
         </Reveal>
 
         <Reveal stagger={0.08} y={24} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -40,7 +43,7 @@ export default function AdminEventsPage() {
 
         {isError && (
           <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-            Could not load events. Make sure the backend is running.
+            Could not load events.
           </div>
         )}
 
@@ -53,11 +56,7 @@ export default function AdminEventsPage() {
         {events.length > 0 && (
           <Reveal stagger={0.08} y={22} className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
             {events.map((event) => (
-              <EventCard
-                key={event._id}
-                event={toAppEvent(event)}
-                href={`/admin/events/${event._id}`}
-              />
+              <EventCard key={event._id} event={toAppEvent(event)} href={`/admin/events/${event._id}`} />
             ))}
           </Reveal>
         )}

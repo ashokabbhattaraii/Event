@@ -5,14 +5,17 @@ import { AppShell } from "@/components/app/app-shell"
 import { Reveal } from "@/components/anim/reveal"
 import { QrCode } from "@/components/app/qr-code"
 import { useMyTickets } from "@/lib/queries/tickets"
+import { useCurrentUser } from "@/lib/queries/auth"
 import type { EventData } from "@/lib/api/events"
 import { Calendar, MapPin, CheckCircle2, Loader2 } from "lucide-react"
 
 const tabs = ["Upcoming", "Past"] as const
 
 export default function MyTicketsPage() {
+  const { data: userData } = useCurrentUser()
   const [tab, setTab] = useState<(typeof tabs)[number]>("Upcoming")
   const { data, isLoading } = useMyTickets()
+  const user = userData?.user
   const tickets = data?.tickets ?? []
 
   const list = tickets.filter((t) => {
@@ -22,7 +25,7 @@ export default function MyTicketsPage() {
   })
 
   return (
-    <AppShell role="Attendee" userName="Attendee" title="My Tickets">
+    <AppShell role="Attendee" userName={user?.name || "Attendee"} title="My Tickets">
       <div className="space-y-6">
         <Reveal y={14} className="flex items-center gap-1 rounded-xl border border-border bg-card p-1">
           {tabs.map((t) => (
@@ -47,12 +50,8 @@ export default function MyTicketsPage() {
             {list.map((ticket) => {
               const event = typeof ticket.event === "object" ? (ticket.event as EventData) : null
               return (
-                <div
-                  key={ticket._id}
-                  className="relative flex overflow-hidden rounded-2xl border border-border bg-card shadow-[0_2px_24px_rgba(0,0,0,0.05)]"
-                >
+                <div key={ticket._id} className="relative flex overflow-hidden rounded-2xl border border-border bg-card">
                   <div className="w-2 shrink-0 bg-brand-gradient" />
-
                   <div className="flex flex-1 flex-col gap-4 p-5 sm:flex-row sm:items-center">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
@@ -75,11 +74,10 @@ export default function MyTicketsPage() {
                           </>
                         )}
                       </div>
-                      <div className="mt-4 flex items-center gap-3">
-                        <span className="font-mono text-[10px] text-ink">{ticket._id}</span>
+                      <div className="mt-4">
+                        <span className="font-mono text-[10px] text-ink">ID: {ticket._id.slice(-8).toUpperCase()}</span>
                       </div>
                     </div>
-
                     <div className="flex shrink-0 flex-col items-center gap-2 border-t border-dashed border-border pt-4 sm:border-l sm:border-t-0 sm:pl-5 sm:pt-0">
                       {ticket.status !== "checked-in" ? (
                         <>
@@ -96,7 +94,6 @@ export default function MyTicketsPage() {
                       )}
                     </div>
                   </div>
-
                   <span className="absolute -left-2 top-1/2 size-4 -translate-y-1/2 rounded-full bg-background" />
                   <span className="absolute -right-2 top-1/2 size-4 -translate-y-1/2 rounded-full bg-background" />
                 </div>

@@ -1,6 +1,9 @@
+"use client"
+
 import { Bell, Database, Globe2, Shield, Workflow } from "lucide-react"
 import { AppShell } from "@/components/app/app-shell"
 import { Reveal } from "@/components/anim/reveal"
+import { useCurrentUser } from "@/lib/queries/auth"
 
 const settingsGroups = [
   { title: "Platform Access", icon: Shield, body: "Require SSO for administrators and enforce session limits across all tenants.", status: "Enforced" },
@@ -11,8 +14,11 @@ const settingsGroups = [
 ]
 
 export default function AdminSettingsPage() {
+  const { data: userData } = useCurrentUser()
+  const user = userData?.user
+
   return (
-    <AppShell role="Administrator" userName="Jordan Reyes" title="System Settings">
+    <AppShell role="Administrator" userName={user?.name || "Admin"} title="System Settings">
       <div className="space-y-8">
         <Reveal className="flex flex-col gap-1">
           <h1 className="font-display text-2xl font-bold tracking-tight text-ink">System Settings</h1>
@@ -21,7 +27,7 @@ export default function AdminSettingsPage() {
 
         <Reveal stagger={0.08} y={24} className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
           {settingsGroups.map((group) => (
-            <div key={group.title} className="rounded-2xl border border-border bg-card p-6 shadow-[0_2px_24px_rgba(0,0,0,0.04)]">
+            <div key={group.title} className="rounded-2xl border border-border bg-card p-6">
               <span className="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
                 <group.icon className="size-5" />
               </span>

@@ -7,12 +7,15 @@ import { Reveal } from "@/components/anim/reveal"
 import { useRecommendations } from "@/lib/queries/recommendations"
 import { useUpdateLocation } from "@/lib/queries/location"
 import { useMyTickets, useRegisterForEvent } from "@/lib/queries/tickets"
+import { useCurrentUser } from "@/lib/queries/auth"
 
 export default function AttendeeRecommendationsPage() {
+  const { data: userData } = useCurrentUser()
   const { data, isLoading } = useRecommendations()
   const { data: ticketData } = useMyTickets()
   const registerMutation = useRegisterForEvent()
   const updateLocation = useUpdateLocation()
+  const user = userData?.user
 
   const recommendations = data?.recommendations ?? []
   const hasLocation = data?.hasLocation ?? false
@@ -24,7 +27,7 @@ export default function AttendeeRecommendationsPage() {
   const trendingCount = recommendations.filter((r) => r.event.registered / Math.max(1, r.event.capacity) > 0.5).length
 
   return (
-    <AppShell role="Attendee" userName="Attendee" title="Recommendations">
+    <AppShell role="Attendee" userName={user?.name || "Attendee"} title="Recommendations">
       <div className="space-y-8">
         <Reveal className="flex flex-col gap-1">
           <h1 className="font-display text-2xl font-bold tracking-tight text-ink">AI Recommendations</h1>
@@ -81,10 +84,7 @@ export default function AttendeeRecommendationsPage() {
               const isRegistered = registeredEventIds.has(event._id)
               const pct = Math.round((event.registered / event.capacity) * 100)
               return (
-                <div
-                  key={event._id}
-                  className="flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-[0_2px_24px_rgba(0,0,0,0.04)]"
-                >
+                <div key={event._id} className="flex flex-col overflow-hidden rounded-2xl border border-border bg-card">
                   <div className="relative h-24 bg-brand-gradient">
                     <span className="absolute bottom-3 right-3 inline-flex items-center gap-1 rounded-full bg-black/25 px-2.5 py-1 text-[11px] font-semibold text-white backdrop-blur">
                       <TrendingUp className="size-3" /> score {score}
@@ -119,9 +119,7 @@ export default function AttendeeRecommendationsPage() {
                       }`}
                     >
                       {isRegistered ? (
-                        <>
-                          <Check className="size-4" /> Registered
-                        </>
+                        <><Check className="size-4" /> Registered</>
                       ) : registerMutation.isPending ? (
                         <Loader2 className="size-4 animate-spin" />
                       ) : (
@@ -138,7 +136,7 @@ export default function AttendeeRecommendationsPage() {
         {!isLoading && recommendations.length === 0 && (
           <div className="rounded-2xl border border-dashed border-border bg-card py-16 text-center">
             <p className="text-sm text-muted-foreground">
-              No recommendations yet — register for a few events to help us learn your interests.
+              No recommendations yet — register for events to help us learn your interests.
             </p>
           </div>
         )}

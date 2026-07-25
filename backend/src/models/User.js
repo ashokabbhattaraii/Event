@@ -17,9 +17,21 @@ const userSchema = new mongoose.Schema(
     },
     password: {
       type: String,
-      required: [true, "Password is required"],
+      // Password is only required for local (email/password) accounts.
+      // Google sign-in creates accounts that authenticate via googleId instead.
+      required: [
+        function () {
+          return !this.googleId;
+        },
+        "Password is required",
+      ],
       minlength: 6,
       select: false,
+    },
+    googleId: {
+      type: String,
+      // Sparse: only Google-linked accounts carry this field.
+      index: { unique: true, sparse: true },
     },
     role: {
       type: String,

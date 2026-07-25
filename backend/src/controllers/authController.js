@@ -1,8 +1,11 @@
 const mongoose = require("mongoose");
+const { OAuth2Client } = require("google-auth-library");
 const User = require("../models/User");
 const Organization = require("../models/Organization");
 const generateToken = require("../utils/generateToken");
 const { slugify } = require("./organizationController");
+
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 const serializeUser = (user) => ({
   _id: user._id,
@@ -99,8 +102,59 @@ const login = async (req, res) => {
   }
 };
 
+const googleLogin = async (req, res) => {
+  try {
+    if (!process.env.GOOGLE_CLIENT_ID) {
+      return res
+        .status(500)
+        .json({ message: "Google login is not configured on the server" });
+    }
+
+    const { credential } = req.body;
+    if (!credential) {
+      return res.status(400).json({ message: "Missing Google credential" });
+    }
+
+    // Verify the ID token came from Google and was issued for our client.
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    const payload = ticket.getPayload();
+    const { sub: googleId, email, name, email_verified: emailVerified } = payload;
+
+    if (!emailVerified) {
+      return res
+        .status(401)
+        .json({ message: "Google account email is not verified" });
+    }
+
+    // Find an existing account by email, otherwise create a new attendee.
+    let user = await User.findOne({ email });
+    if (user) {
+      // Link the Google identity to a pre-existing local account.
+      if (!user.googleId) {
+        user.googleId = googleId;
+        await user.save();
+      }
+    } else {
+      user = await User.create({
+        name: name || email.split("@")[0],
+        email,
+        googleId,
+        role: "attendee",
+      });
+    }
+
+    const token = generateToken(user._id);
+    res.json({ user: serializeUser(user), token });
+  } catch (error) {
+    res.status(401).json({ message: "Google authentication failed" });
+  }
+};
+
 const getMe = async (req, res) => {
   res.json({ user: serializeUser(req.user) });
 };
 
-module.exports = { register, login, getMe };
+module.exports = { register, login, googleLogin, getMe };

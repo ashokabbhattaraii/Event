@@ -3,8 +3,11 @@
 import { useState } from "react"
 import Link from "next/link"
 import { Eye, EyeOff, ShieldCheck, Loader2 } from "lucide-react"
+import { GoogleLogin } from "@react-oauth/google"
 import { AuthShell } from "@/components/auth/auth-shell"
-import { useLogin } from "@/lib/queries/auth"
+import { useLogin, useGoogleLogin } from "@/lib/queries/auth"
+
+const googleEnabled = !!process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID
 
 function detectRole(email: string) {
   if (!email.includes("@")) return null
@@ -21,6 +24,7 @@ export default function LoginPage() {
   const role = detectRole(email)
 
   const loginMutation = useLogin()
+  const googleMutation = useGoogleLogin()
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault()
@@ -31,9 +35,11 @@ export default function LoginPage() {
   return (
     <AuthShell heading="Welcome back" sub="Log in to your EventNexus workspace.">
       <form className="space-y-5" onSubmit={handleLogin}>
-        {loginMutation.isError && (
+        {(loginMutation.isError || googleMutation.isError) && (
           <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {(loginMutation.error as any)?.response?.data?.message || "Login failed. Please try again."}
+            {(loginMutation.error as any)?.response?.data?.message ||
+              (googleMutation.error as any)?.response?.data?.message ||
+              "Login failed. Please try again."}
           </div>
         )}
 
@@ -105,18 +111,25 @@ export default function LoginPage() {
           <span className="h-px flex-1 bg-border" />
         </div>
 
-        <button
-          type="button"
-          className="auth-field flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm font-semibold text-ink transition-colors hover:bg-muted"
-        >
-          <svg className="size-4" viewBox="0 0 24 24" aria-hidden>
-            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.27-4.74 3.27-8.1Z" />
-            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.99.66-2.26 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0 0 12 23Z" />
-            <path fill="#FBBC05" d="M5.84 14.1a6.6 6.6 0 0 1 0-4.2V7.06H2.18a11 11 0 0 0 0 9.88l3.66-2.84Z" />
-            <path fill="#EA4335" d="M12 4.75c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 1.46 14.97.5 12 .5A11 11 0 0 0 2.18 7.06l3.66 2.84C6.71 7.3 9.14 4.75 12 4.75Z" />
-          </svg>
-          Continue with Google
-        </button>
+        {googleEnabled ? (
+          <div className="auth-field flex w-full justify-center">
+            <GoogleLogin
+              onSuccess={(cred) => {
+                if (cred.credential) googleMutation.mutate(cred.credential)
+              }}
+              onError={() => {
+                /* surfaced via googleMutation error state above */
+              }}
+              width="320"
+              text="continue_with"
+              shape="pill"
+            />
+          </div>
+        ) : (
+          <p className="auth-field text-center text-xs text-muted-foreground">
+            Google sign-in is not configured.
+          </p>
+        )}
 
         <p className="auth-field text-center text-sm text-muted-foreground">
           {"Don't have an account? "}

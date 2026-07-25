@@ -1,9 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { authApi, type LoginPayload, type RegisterPayload } from "../api/auth";
+import {
+  authApi,
+  type AuthResponse,
+  type LoginPayload,
+  type RegisterPayload,
+} from "../api/auth";
 
 export const authKeys = {
   me: ["auth", "me"] as const,
+};
+
+const roleRoutes: Record<string, string> = {
+  admin: "/admin",
+  organizer: "/organizer",
+  attendee: "/attendee",
 };
 
 export function useCurrentUser() {
@@ -15,45 +26,40 @@ export function useCurrentUser() {
   });
 }
 
-export function useLogin() {
+// Shared success handler: persist the session and route by role.
+function useAuthSuccess() {
   const queryClient = useQueryClient();
   const router = useRouter();
 
+  return (data: AuthResponse) => {
+    localStorage.setItem("token", data.token);
+    localStorage.setItem("user", JSON.stringify(data.user));
+    queryClient.setQueryData(authKeys.me, { user: data.user });
+    router.push(roleRoutes[data.user.role] || "/attendee");
+  };
+}
+
+export function useLogin() {
+  const onSuccess = useAuthSuccess();
   return useMutation({
     mutationFn: (data: LoginPayload) => authApi.login(data),
-    onSuccess: (data) => {
-      localStorage.setItem("token", data.token);
-      localStorage.setItem("user", JSON.stringify(data.user));
-      queryClient.setQueryData(authKeys.me, { user: data.user });
-
-      const roleRoutes: Record<string, string> = {
-        admin: "/admin",
-        organizer: "/organizer",
-        attendee: "/attendee",
-      };
-      router.push(roleRoutes[data.user.role] || "/attendee");
-    },
+    onSuccess,
   });
 }
 
 export function useRegister() {
-  const queryClient = useQueryClient();
-  const router = useRouter();
-
+  const onSuccess = useAuthSuccess();
   return useMutation({
     mutationFn: (data: RegisterPayload) => authApi.register(data),
-    onSuccess: (data) => {
-      localStorage.setItem("token", data.token);
-      localStorage.setItem("user", JSON.stringify(data.user));
-      queryClient.setQueryData(authKeys.me, { user: data.user });
+    onSuccess,
+  });
+}
 
-      const roleRoutes: Record<string, string> = {
-        admin: "/admin",
-        organizer: "/organizer",
-        attendee: "/attendee",
-      };
-      router.push(roleRoutes[data.user.role] || "/attendee");
-    },
+export function useGoogleLogin() {
+  const onSuccess = useAuthSuccess();
+  return useMutation({
+    mutationFn: (credential: string) => authApi.googleLogin(credential),
+    onSuccess,
   });
 }
 

@@ -39,6 +39,12 @@ export const authApi = {
     return res.data;
   },
 
+  // Exchange a Google ID-token credential for an app session.
+  googleLogin: async (credential: string): Promise<AuthResponse> => {
+    const res = await apiClient.post("/auth/google", { credential });
+    return res.data;
+  },
+
   getMe: async (): Promise<{ user: User }> => {
     const res = await apiClient.get("/auth/me");
     return res.data;

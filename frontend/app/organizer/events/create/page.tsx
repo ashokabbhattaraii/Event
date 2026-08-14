@@ -1,15 +1,107 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useRouter } from "next/navigation"
+import {
+  Calendar,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Image as ImageIcon,
+  Loader2,
+  Mail,
+  Mic,
+  Phone,
+  Plus,
+  Sparkles,
+  Tag,
+  Trash2,
+  X,
+} from "lucide-react"
 import { AppShell } from "@/components/app/app-shell"
 import { useCreateEvent } from "@/lib/queries/events"
 import { useCurrentUser } from "@/lib/queries/auth"
-import { Loader2 } from "lucide-react"
+import { EVENT_CATEGORIES, EVENT_STATUSES, EVENT_TYPES, SUGGESTED_TAGS } from "@/lib/constants/event-options"
+import type { EventAgendaItem, EventSpeaker } from "@/lib/api/events"
 
-const eventTypes = ["In-person", "Hybrid", "Virtual"] as const
-const categories = ["Technology", "Business", "Academic", "Workshop", "Social", "Health", "Arts"]
-const statuses = ["Draft", "Upcoming", "Live"] as const
+type FormState = {
+  title: string
+  description: string
+  date: string
+  venue: string
+  type: (typeof EVENT_TYPES)[number]
+  category: string
+  tags: string[]
+  imageUrl: string
+  capacity: number
+  price: number
+  status: (typeof EVENT_STATUSES)[number]
+  agenda: EventAgendaItem[]
+  speakers: EventSpeaker[]
+  highlights: string[]
+  requirements: string
+  refundPolicy: string
+  contactEmail: string
+  contactPhone: string
+  website: string
+}
+
+const emptyForm: FormState = {
+  title: "",
+  description: "",
+  date: "",
+  venue: "",
+  type: "In-person",
+  category: "Technology",
+  tags: [],
+  imageUrl: "",
+  capacity: 100,
+  price: 0,
+  status: "Draft",
+  agenda: [],
+  speakers: [],
+  highlights: [],
+  requirements: "",
+  refundPolicy: "",
+  contactEmail: "",
+  contactPhone: "",
+  website: "",
+}
+
+const steps = [
+  { id: 1, label: "Basics", hint: "Identity & cover" },
+  { id: 2, label: "Logistics", hint: "Schedule & program" },
+  { id: 3, label: "Review", hint: "Extras & publish" },
+]
+
+const inputClass =
+  "w-full rounded-xl border border-border bg-card px-4 py-3 text-sm text-ink outline-none transition-colors focus:border-primary focus:ring-4 focus:ring-primary/10"
+
+// Downscales + re-encodes a source image client-side so the base64 payload
+// we send stays small (no object-storage provider is configured, so the
+// cover image is stored as a data URL directly on the event document).
+function compressImage(file: File, maxWidth = 1280, quality = 0.82): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error("Could not read file"))
+    reader.onload = () => {
+      const img = new window.Image()
+      img.onerror = () => reject(new Error("Could not load image"))
+      img.onload = () => {
+        const scale = Math.min(1, maxWidth / img.width)
+        const canvas = document.createElement("canvas")
+        canvas.width = Math.round(img.width * scale)
+        canvas.height = Math.round(img.height * scale)
+        const ctx = canvas.getContext("2d")
+        if (!ctx) return reject(new Error("Canvas unsupported"))
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+        resolve(canvas.toDataURL("image/jpeg", quality))
+      }
+      img.src = reader.result as string
+    }
+    reader.readAsDataURL(file)
+  })
+}
 
 export default function CreateEventPage() {
   const router = useRouter()
@@ -17,36 +109,132 @@ export default function CreateEventPage() {
   const createEvent = useCreateEvent()
   const user = userData?.user
 
-  const [form, setForm] = useState({
-    title: "",
-    description: "",
-    date: "",
-    venue: "",
-    type: "In-person" as (typeof eventTypes)[number],
-    category: "Technology",
-    capacity: 100,
-    price: 0,
-    status: "Draft" as (typeof statuses)[number],
-  })
+  const [step, setStep] = useState(1)
+  const [form, setForm] = useState<FormState>(emptyForm)
+  const [tagInput, setTagInput] = useState("")
+  const [highlightInput, setHighlightInput] = useState("")
+  const [imageError, setImageError] = useState("")
+  const [imageBusy, setImageBusy] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const update = (field: string, value: string | number) => {
+  const update = <K extends keyof FormState>(field: K, value: FormState[K]) => {
     setForm((prev) => ({ ...prev, [field]: value }))
   }
 
+  const step1Valid = form.title.trim().length >= 3 && form.description.trim().length >= 20 && !!form.category
+  const step2Valid = !!form.date && form.venue.trim().length >= 2 && Number(form.capacity) >= 1 && Number(form.price) >= 0
+  const stepValid = [true, step1Valid, step2Valid, true][step] ?? true
+
+  const goNext = () => setStep((s) => Math.min(3, s + 1))
+  const goBack = () => setStep((s) => Math.max(1, s - 1))
+
+  const handleImagePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ""
+    if (!file) return
+    if (!file.type.startsWith("image/")) {
+      setImageError("Please choose an image file.")
+      return
+    }
+    if (file.size > 15 * 1024 * 1024) {
+      setImageError("Image is too large (max 15MB).")
+      return
+    }
+    setImageError("")
+    setImageBusy(true)
+    try {
+      const dataUrl = await compressImage(file)
+      update("imageUrl", dataUrl)
+    } catch {
+      setImageError("Could not process that image — try a different file.")
+    } finally {
+      setImageBusy(false)
+    }
+  }
+
+  const addTag = (raw: string) => {
+    const value = raw.trim()
+    if (!value || form.tags.includes(value)) return
+    update("tags", [...form.tags, value])
+  }
+  const removeTag = (value: string) => update("tags", form.tags.filter((t) => t !== value))
+
+  const addHighlight = (raw: string) => {
+    const value = raw.trim()
+    if (!value) return
+    update("highlights", [...form.highlights, value])
+  }
+  const removeHighlight = (idx: number) => update("highlights", form.highlights.filter((_, i) => i !== idx))
+
+  const addAgendaItem = () => update("agenda", [...form.agenda, { time: "", title: "", description: "" }])
+  const updateAgendaItem = (idx: number, field: keyof EventAgendaItem, value: string) =>
+    update("agenda", form.agenda.map((item, i) => (i === idx ? { ...item, [field]: value } : item)))
+  const removeAgendaItem = (idx: number) => update("agenda", form.agenda.filter((_, i) => i !== idx))
+
+  const addSpeaker = () => update("speakers", [...form.speakers, { name: "", role: "", bio: "" }])
+  const updateSpeaker = (idx: number, field: keyof EventSpeaker, value: string) =>
+    update("speakers", form.speakers.map((sp, i) => (i === idx ? { ...sp, [field]: value } : sp)))
+  const removeSpeaker = (idx: number) => update("speakers", form.speakers.filter((_, i) => i !== idx))
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    if (!step1Valid || !step2Valid) return
     createEvent.mutate(
-      { ...form, capacity: Number(form.capacity), price: Number(form.price) || 0 },
+      {
+        ...form,
+        capacity: Number(form.capacity),
+        price: Number(form.price) || 0,
+        agenda: form.agenda.filter((a) => a.time.trim() || a.title.trim()),
+        speakers: form.speakers.filter((s) => s.name.trim()),
+        tags: form.tags,
+        highlights: form.highlights,
+      },
       { onSuccess: () => router.push("/organizer/events") }
     )
   }
 
   return (
     <AppShell role="Organizer" userName={user?.name || "Organizer"} title="Create Event">
-      <div className="mx-auto max-w-2xl space-y-8">
+      <div className="mx-auto max-w-3xl space-y-8">
         <div>
           <h1 className="font-display text-2xl font-bold tracking-tight text-ink">Create New Event</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Fill in the details to publish a new event.</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            A complete, well-documented listing builds trust and drives registrations.
+          </p>
+        </div>
+
+        {/* Step indicator */}
+        <div className="flex items-center">
+          {steps.map((s, i) => (
+            <div key={s.id} className="flex flex-1 items-center last:flex-none">
+              <button
+                type="button"
+                onClick={() => s.id < step && setStep(s.id)}
+                className="flex items-center gap-3"
+              >
+                <span
+                  className={`flex size-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold transition-colors ${
+                    s.id < step
+                      ? "bg-primary text-primary-foreground"
+                      : s.id === step
+                        ? "bg-primary/10 text-primary ring-2 ring-primary"
+                        : "bg-muted text-muted-foreground"
+                  }`}
+                >
+                  {s.id < step ? <Check className="size-4" /> : s.id}
+                </span>
+                <span className="hidden text-left sm:block">
+                  <span className={`block text-sm font-semibold ${s.id <= step ? "text-ink" : "text-muted-foreground"}`}>
+                    {s.label}
+                  </span>
+                  <span className="block text-xs text-muted-foreground">{s.hint}</span>
+                </span>
+              </button>
+              {i < steps.length - 1 && (
+                <div className={`mx-3 h-0.5 flex-1 rounded-full transition-colors ${s.id < step ? "bg-primary" : "bg-muted"}`} />
+              )}
+            </div>
+          ))}
         </div>
 
         {createEvent.isError && (
@@ -56,129 +244,443 @@ export default function CreateEventPage() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium text-ink">Event Title</label>
-            <input
-              required
-              value={form.title}
-              onChange={(e) => update("title", e.target.value)}
-              placeholder="DevSummit 2026"
-              className="w-full rounded-xl border border-border bg-card px-4 py-3 text-sm text-ink outline-none focus:border-primary focus:ring-4 focus:ring-primary/10"
-            />
-          </div>
+          {step === 1 && (
+            <div className="space-y-6 rounded-2xl border border-border bg-card p-6">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-ink">Cover image</label>
+                <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImagePick} />
+                {form.imageUrl ? (
+                  <div className="relative overflow-hidden rounded-2xl border border-border">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={form.imageUrl} alt="Event cover preview" className="h-52 w-full object-cover" />
+                    <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/60 to-transparent p-3">
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="rounded-lg bg-white/90 px-3 py-1.5 text-xs font-semibold text-ink hover:bg-white"
+                      >
+                        Replace
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => update("imageUrl", "")}
+                        className="rounded-lg bg-white/90 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-white"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={imageBusy}
+                    className="flex h-52 w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-border bg-muted/30 text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/[0.03] hover:text-primary"
+                  >
+                    {imageBusy ? <Loader2 className="size-6 animate-spin" /> : <ImageIcon className="size-6" />}
+                    <span className="text-sm font-medium">{imageBusy ? "Processing…" : "Click to upload a banner image"}</span>
+                    <span className="text-xs">PNG or JPG, recommended 1280×720</span>
+                  </button>
+                )}
+                {imageError && <p className="text-xs text-red-600">{imageError}</p>}
+              </div>
 
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium text-ink">Description</label>
-            <textarea
-              value={form.description}
-              onChange={(e) => update("description", e.target.value)}
-              placeholder="Describe what the event is about..."
-              rows={4}
-              className="w-full rounded-xl border border-border bg-card px-4 py-3 text-sm text-ink outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 resize-none"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-ink">Date & Time</label>
-              <input
-                required
-                type="datetime-local"
-                value={form.date}
-                onChange={(e) => update("date", e.target.value)}
-                className="w-full rounded-xl border border-border bg-card px-4 py-3 text-sm text-ink outline-none focus:border-primary focus:ring-4 focus:ring-primary/10"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-ink">Venue</label>
-              <input
-                required
-                value={form.venue}
-                onChange={(e) => update("venue", e.target.value)}
-                placeholder="Venue name or URL"
-                className="w-full rounded-xl border border-border bg-card px-4 py-3 text-sm text-ink outline-none focus:border-primary focus:ring-4 focus:ring-primary/10"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-ink">Type</label>
-              <select
-                value={form.type}
-                onChange={(e) => update("type", e.target.value)}
-                className="w-full rounded-xl border border-border bg-card px-4 py-3 text-sm text-ink outline-none focus:border-primary"
-              >
-                {eventTypes.map((t) => (
-                  <option key={t} value={t}>{t}</option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-ink">Category</label>
-              <select
-                value={form.category}
-                onChange={(e) => update("category", e.target.value)}
-                className="w-full rounded-xl border border-border bg-card px-4 py-3 text-sm text-ink outline-none focus:border-primary"
-              >
-                {categories.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-ink">Capacity</label>
-              <input
-                required
-                type="number"
-                min={1}
-                value={form.capacity}
-                onChange={(e) => update("capacity", e.target.value)}
-                className="w-full rounded-xl border border-border bg-card px-4 py-3 text-sm text-ink outline-none focus:border-primary focus:ring-4 focus:ring-primary/10"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-ink">Price (NPR)</label>
-              <div className="relative">
-                <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">Rs.</span>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-ink">Event Title</label>
                 <input
-                  type="number"
-                  min={0}
-                  step="1"
-                  value={form.price}
-                  onChange={(e) => update("price", e.target.value)}
-                  placeholder="0"
-                  className="w-full rounded-xl border border-border bg-card py-3 pl-10 pr-4 text-sm text-ink outline-none focus:border-primary focus:ring-4 focus:ring-primary/10"
+                  required
+                  value={form.title}
+                  onChange={(e) => update("title", e.target.value)}
+                  placeholder="DevSummit 2026"
+                  className={inputClass}
                 />
               </div>
-              <p className="text-xs text-muted-foreground">Leave at 0 for a free event — attendees register directly with no payment step.</p>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-ink">Type</label>
+                  <select value={form.type} onChange={(e) => update("type", e.target.value as FormState["type"])} className={inputClass}>
+                    {EVENT_TYPES.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-ink">Category</label>
+                  <select value={form.category} onChange={(e) => update("category", e.target.value)} className={inputClass}>
+                    {EVENT_CATEGORIES.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-ink">
+                  Description <span className="text-muted-foreground">({form.description.trim().length}/20 min)</span>
+                </label>
+                <textarea
+                  value={form.description}
+                  onChange={(e) => update("description", e.target.value)}
+                  placeholder="Describe what the event is about, who it's for, and what makes it worth attending..."
+                  rows={5}
+                  className={`${inputClass} resize-none`}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="flex items-center gap-1.5 text-sm font-medium text-ink">
+                  <Tag className="size-3.5" /> Tags
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {form.tags.map((t) => (
+                    <span key={t} className="flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                      {t}
+                      <button type="button" onClick={() => removeTag(t)}><X className="size-3" /></button>
+                    </span>
+                  ))}
+                </div>
+                <input
+                  value={tagInput}
+                  onChange={(e) => setTagInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === ",") {
+                      e.preventDefault()
+                      addTag(tagInput)
+                      setTagInput("")
+                    }
+                  }}
+                  placeholder="Type a tag and press Enter"
+                  className={inputClass}
+                />
+                <div className="flex flex-wrap gap-1.5">
+                  {SUGGESTED_TAGS.filter((t) => !form.tags.includes(t)).map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => addTag(t)}
+                      className="rounded-full border border-dashed border-border px-2.5 py-1 text-[11px] text-muted-foreground hover:border-primary/40 hover:text-primary"
+                    >
+                      + {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
-          </div>
+          )}
 
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium text-ink">Status</label>
-            <select
-              value={form.status}
-              onChange={(e) => update("status", e.target.value)}
-              className="w-full rounded-xl border border-border bg-card px-4 py-3 text-sm text-ink outline-none focus:border-primary"
+          {step === 2 && (
+            <div className="space-y-6 rounded-2xl border border-border bg-card p-6">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-ink">Date & Time</label>
+                  <input
+                    required
+                    type="datetime-local"
+                    value={form.date}
+                    onChange={(e) => update("date", e.target.value)}
+                    className={inputClass}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-ink">Venue</label>
+                  <input
+                    required
+                    value={form.venue}
+                    onChange={(e) => update("venue", e.target.value)}
+                    placeholder="Venue name or URL"
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-ink">Capacity</label>
+                  <input
+                    required
+                    type="number"
+                    min={1}
+                    value={form.capacity}
+                    onChange={(e) => update("capacity", Number(e.target.value))}
+                    className={inputClass}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-ink">Price (NPR)</label>
+                  <div className="relative">
+                    <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">Rs.</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step="1"
+                      value={form.price}
+                      onChange={(e) => update("price", Number(e.target.value))}
+                      placeholder="0"
+                      className={`${inputClass} pl-10`}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">Leave at 0 for a free event.</p>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-ink">Status</label>
+                <select value={form.status} onChange={(e) => update("status", e.target.value as FormState["status"])} className={inputClass}>
+                  {EVENT_STATUSES.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-3 border-t border-border pt-5">
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-1.5 text-sm font-medium text-ink">
+                    <Calendar className="size-3.5" /> Agenda / Run of show
+                  </label>
+                  <button type="button" onClick={addAgendaItem} className="flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-ink hover:bg-muted">
+                    <Plus className="size-3.5" /> Add item
+                  </button>
+                </div>
+                {form.agenda.length === 0 && <p className="text-xs text-muted-foreground">Optional — break the event into a timed schedule.</p>}
+                <div className="space-y-2">
+                  {form.agenda.map((item, idx) => (
+                    <div key={idx} className="flex gap-2 rounded-xl border border-border bg-muted/20 p-3">
+                      <input
+                        value={item.time}
+                        onChange={(e) => updateAgendaItem(idx, "time", e.target.value)}
+                        placeholder="10:00 AM"
+                        className="w-28 rounded-lg border border-border bg-card px-2.5 py-2 text-xs text-ink outline-none focus:border-primary"
+                      />
+                      <input
+                        value={item.title}
+                        onChange={(e) => updateAgendaItem(idx, "title", e.target.value)}
+                        placeholder="Session title"
+                        className="flex-1 rounded-lg border border-border bg-card px-2.5 py-2 text-xs text-ink outline-none focus:border-primary"
+                      />
+                      <input
+                        value={item.description}
+                        onChange={(e) => updateAgendaItem(idx, "description", e.target.value)}
+                        placeholder="Details (optional)"
+                        className="flex-1 rounded-lg border border-border bg-card px-2.5 py-2 text-xs text-ink outline-none focus:border-primary"
+                      />
+                      <button type="button" onClick={() => removeAgendaItem(idx)} className="shrink-0 rounded-lg p-2 text-muted-foreground hover:bg-red-50 hover:text-red-600">
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-3 border-t border-border pt-5">
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-1.5 text-sm font-medium text-ink">
+                    <Mic className="size-3.5" /> Speakers / Hosts
+                  </label>
+                  <button type="button" onClick={addSpeaker} className="flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-ink hover:bg-muted">
+                    <Plus className="size-3.5" /> Add speaker
+                  </button>
+                </div>
+                {form.speakers.length === 0 && <p className="text-xs text-muted-foreground">Optional — introduce who's presenting or hosting.</p>}
+                <div className="space-y-2">
+                  {form.speakers.map((sp, idx) => (
+                    <div key={idx} className="space-y-2 rounded-xl border border-border bg-muted/20 p-3">
+                      <div className="flex gap-2">
+                        <input
+                          value={sp.name}
+                          onChange={(e) => updateSpeaker(idx, "name", e.target.value)}
+                          placeholder="Speaker name"
+                          className="flex-1 rounded-lg border border-border bg-card px-2.5 py-2 text-xs text-ink outline-none focus:border-primary"
+                        />
+                        <input
+                          value={sp.role}
+                          onChange={(e) => updateSpeaker(idx, "role", e.target.value)}
+                          placeholder="Role / title"
+                          className="flex-1 rounded-lg border border-border bg-card px-2.5 py-2 text-xs text-ink outline-none focus:border-primary"
+                        />
+                        <button type="button" onClick={() => removeSpeaker(idx)} className="shrink-0 rounded-lg p-2 text-muted-foreground hover:bg-red-50 hover:text-red-600">
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      </div>
+                      <textarea
+                        value={sp.bio}
+                        onChange={(e) => updateSpeaker(idx, "bio", e.target.value)}
+                        placeholder="Short bio (optional)"
+                        rows={2}
+                        className="w-full resize-none rounded-lg border border-border bg-card px-2.5 py-2 text-xs text-ink outline-none focus:border-primary"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {step === 3 && (
+            <div className="space-y-6">
+              <div className="space-y-6 rounded-2xl border border-border bg-card p-6">
+                <div className="space-y-1.5">
+                  <label className="flex items-center gap-1.5 text-sm font-medium text-ink">
+                    <Sparkles className="size-3.5" /> Highlights / What to expect
+                  </label>
+                  <ul className="space-y-1.5">
+                    {form.highlights.map((h, idx) => (
+                      <li key={idx} className="flex items-center justify-between rounded-lg border border-border bg-muted/20 px-3 py-2 text-sm text-ink">
+                        {h}
+                        <button type="button" onClick={() => removeHighlight(idx)}><X className="size-3.5 text-muted-foreground" /></button>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="flex gap-2">
+                    <input
+                      value={highlightInput}
+                      onChange={(e) => setHighlightInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault()
+                          addHighlight(highlightInput)
+                          setHighlightInput("")
+                        }
+                      }}
+                      placeholder="e.g. Live Q&A with industry experts"
+                      className={inputClass}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => { addHighlight(highlightInput); setHighlightInput("") }}
+                      className="shrink-0 rounded-xl border border-border px-4 text-sm font-medium text-ink hover:bg-muted"
+                    >
+                      Add
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-ink">Requirements / what to bring</label>
+                  <textarea
+                    value={form.requirements}
+                    onChange={(e) => update("requirements", e.target.value)}
+                    placeholder="e.g. Laptop, student ID, comfortable shoes..."
+                    rows={2}
+                    className={`${inputClass} resize-none`}
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-ink">Refund / cancellation policy</label>
+                  <textarea
+                    value={form.refundPolicy}
+                    onChange={(e) => update("refundPolicy", e.target.value)}
+                    placeholder="e.g. Full refund up to 48 hours before the event."
+                    rows={2}
+                    className={`${inputClass} resize-none`}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="flex items-center gap-1.5 text-sm font-medium text-ink"><Mail className="size-3.5" /> Contact email</label>
+                    <input
+                      type="email"
+                      value={form.contactEmail}
+                      onChange={(e) => update("contactEmail", e.target.value)}
+                      placeholder="hello@organizer.com"
+                      className={inputClass}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="flex items-center gap-1.5 text-sm font-medium text-ink"><Phone className="size-3.5" /> Contact phone</label>
+                    <input
+                      value={form.contactPhone}
+                      onChange={(e) => update("contactPhone", e.target.value)}
+                      placeholder="+977 98XXXXXXXX"
+                      className={inputClass}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-ink">Website / more info link</label>
+                  <input
+                    value={form.website}
+                    onChange={(e) => update("website", e.target.value)}
+                    placeholder="https://..."
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+
+              {/* Live preview */}
+              <div className="overflow-hidden rounded-2xl border border-border bg-card">
+                <div className="border-b border-border px-6 py-3">
+                  <h3 className="text-sm font-semibold text-ink">Preview</h3>
+                  <p className="text-xs text-muted-foreground">This is roughly how attendees will see it.</p>
+                </div>
+                <div className="relative h-40 bg-primary/10">
+                  {form.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={form.imageUrl} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_20%,rgba(255,255,255,0.3),transparent_55%)]" />
+                  )}
+                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/50 to-transparent p-4 text-white">
+                    <div className="flex gap-2">
+                      <span className="rounded-full bg-white/90 px-2.5 py-0.5 text-[11px] font-semibold text-ink">{form.category}</span>
+                      <span className="rounded-full bg-black/30 px-2.5 py-0.5 text-[11px] font-medium">{form.type}</span>
+                    </div>
+                    <h4 className="font-display mt-1.5 text-lg font-bold">{form.title || "Untitled event"}</h4>
+                  </div>
+                </div>
+                <div className="space-y-3 p-6">
+                  <p className="text-sm text-muted-foreground">{form.description || "No description yet."}</p>
+                  {form.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {form.tags.map((t) => (
+                        <span key={t} className="rounded-full bg-primary/10 px-2.5 py-0.5 text-[11px] font-medium text-primary">{t}</span>
+                      ))}
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-3 text-xs text-muted-foreground sm:grid-cols-4">
+                    <div><span className="block font-semibold text-ink">Venue</span>{form.venue || "—"}</div>
+                    <div><span className="block font-semibold text-ink">Capacity</span>{form.capacity}</div>
+                    <div><span className="block font-semibold text-ink">Price</span>{form.price ? `Rs. ${form.price}` : "Free"}</div>
+                    <div><span className="block font-semibold text-ink">Status</span>{form.status}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between pt-2">
+            <button
+              type="button"
+              onClick={goBack}
+              disabled={step === 1}
+              className="flex items-center gap-1.5 rounded-xl border border-border px-4 py-2.5 text-sm font-medium text-ink transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-0"
             >
-              {statuses.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
-          </div>
+              <ChevronLeft className="size-4" /> Back
+            </button>
 
-          <button
-            type="submit"
-            disabled={createEvent.isPending}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground disabled:opacity-60"
-          >
-            {createEvent.isPending && <Loader2 className="size-4 animate-spin" />}
-            Create Event
-          </button>
+            {step < 3 ? (
+              <button
+                type="button"
+                onClick={goNext}
+                disabled={!stepValid}
+                className="flex items-center gap-1.5 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-all hover:-translate-y-0.5 disabled:pointer-events-none disabled:opacity-50"
+              >
+                Continue <ChevronRight className="size-4" />
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={createEvent.isPending || !step1Valid || !step2Valid}
+                className="flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-[0_8px_20px_-10px_rgba(91,76,245,0.8)] transition-all hover:-translate-y-0.5 disabled:pointer-events-none disabled:opacity-60"
+              >
+                {createEvent.isPending && <Loader2 className="size-4 animate-spin" />}
+                Publish Event
+              </button>
+            )}
+          </div>
         </form>
       </div>
     </AppShell>

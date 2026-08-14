@@ -1,13 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { feedbackApi } from "../api/feedback";
-
-const enabled = typeof window !== "undefined" && !!localStorage.getItem("token");
+import { useHasToken } from "../hooks/use-has-token";
 
 export function useMyFeedback(eventId: string) {
   return useQuery({
     queryKey: ["feedback", "mine", eventId],
     queryFn: () => feedbackApi.getMine(eventId),
-    enabled: enabled && !!eventId,
+    enabled: useHasToken() && !!eventId,
   });
 }
 
@@ -15,7 +14,7 @@ export function useEventFeedback(eventId: string) {
   return useQuery({
     queryKey: ["feedback", "event", eventId],
     queryFn: () => feedbackApi.getForEvent(eventId),
-    enabled: enabled && !!eventId,
+    enabled: useHasToken() && !!eventId,
   });
 }
 

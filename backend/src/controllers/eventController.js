@@ -37,6 +37,16 @@ const createEvent = async (req, res) => {
       price,
       status,
       coordinates,
+      imageUrl,
+      tags,
+      highlights,
+      agenda,
+      speakers,
+      requirements,
+      refundPolicy,
+      contactEmail,
+      contactPhone,
+      website,
     } = req.body;
 
     const event = await Event.create({
@@ -50,6 +60,16 @@ const createEvent = async (req, res) => {
       price: normalizePrice(price),
       status: status || "Draft",
       coordinates,
+      imageUrl,
+      tags,
+      highlights,
+      agenda,
+      speakers,
+      requirements,
+      refundPolicy,
+      contactEmail,
+      contactPhone,
+      website,
       organizer: req.user._id,
       organization: req.user.organization,
     });
@@ -131,6 +151,16 @@ const UPDATABLE_EVENT_FIELDS = [
   "capacity",
   "price",
   "status",
+  "imageUrl",
+  "tags",
+  "highlights",
+  "agenda",
+  "speakers",
+  "requirements",
+  "refundPolicy",
+  "contactEmail",
+  "contactPhone",
+  "website",
 ];
 
 const updateEvent = async (req, res) => {

@@ -61,6 +61,68 @@ const eventSchema = new mongoose.Schema(
       enum: ["Upcoming", "Live", "Past", "Draft"],
       default: "Draft",
     },
+    // Cover image for the event's public/detail pages. Stored as a data URL
+    // (the frontend downsizes/compresses the source image client-side before
+    // sending it) since no object-storage provider is configured yet.
+    imageUrl: {
+      type: String,
+      default: "",
+    },
+    tags: {
+      type: [String],
+      default: [],
+    },
+    // Short bullet points shown as "what to expect" on the detail page.
+    highlights: {
+      type: [String],
+      default: [],
+    },
+    // Ordered run-of-show items for the detail page's agenda/timeline.
+    agenda: {
+      type: [
+        {
+          time: { type: String, trim: true },
+          title: { type: String, trim: true },
+          description: { type: String, trim: true, default: "" },
+        },
+      ],
+      default: [],
+    },
+    speakers: {
+      type: [
+        {
+          name: { type: String, trim: true },
+          role: { type: String, trim: true, default: "" },
+          bio: { type: String, trim: true, default: "" },
+          photoUrl: { type: String, default: "" },
+        },
+      ],
+      default: [],
+    },
+    // Free-text prerequisites / what to bring (e.g. "Laptop, student ID").
+    requirements: {
+      type: String,
+      default: "",
+    },
+    refundPolicy: {
+      type: String,
+      default: "",
+    },
+    contactEmail: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    contactPhone: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    website: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     organizer: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

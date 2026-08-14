@@ -8,24 +8,33 @@ import {
   Calendar,
   Check,
   Clock,
+  CreditCard,
+  Globe,
   Hexagon,
+  ListChecks,
   Loader2,
   LogIn,
+  Mail,
   MapPin,
+  Phone,
+  RotateCcw,
   Share2,
   ShieldCheck,
   Sparkles,
   Ticket,
   Users,
+  Wallet,
   X,
 } from "lucide-react"
 import { Reveal } from "@/components/anim/reveal"
 import { QrCode } from "@/components/app/qr-code"
+import { EventQrPoster } from "@/components/app/event-qr-poster"
 import { VenueMap } from "@/components/app/venue-map"
 import { useEvent } from "@/lib/queries/events"
 import { useMyTickets, useRegisterForEvent, useCancelTicket } from "@/lib/queries/tickets"
 import { useCurrentUser } from "@/lib/queries/auth"
-import { usePaymentConfig, useCreateCheckoutSession } from "@/lib/queries/payments"
+import { usePaymentConfig, useCreateCheckoutSession, useInitiateEsewaPayment } from "@/lib/queries/payments"
+import { submitEsewaForm } from "@/lib/esewa"
 import { formatPrice, isFreeEvent } from "@/lib/price"
 
 const roleHome: Record<string, string> = {
@@ -48,6 +57,7 @@ export default function PublicEventPage({ params }: { params: Promise<{ id: stri
   const registerMutation = useRegisterForEvent()
   const cancelMutation = useCancelTicket()
   const checkoutMutation = useCreateCheckoutSession()
+  const esewaMutation = useInitiateEsewaPayment()
   const [confirmingCancel, setConfirmingCancel] = useState(false)
   const [showShareFeedback, setShowShareFeedback] = useState(false)
 
@@ -102,6 +112,14 @@ export default function PublicEventPage({ params }: { params: Promise<{ id: stri
     registerMutation.mutate(eventId)
   }
 
+  const handlePayWithStripe = () => {
+    checkoutMutation.mutate(eventId, { onSuccess: (res) => { window.location.href = res.url } })
+  }
+
+  const handlePayWithEsewa = () => {
+    esewaMutation.mutate(eventId, { onSuccess: (res) => submitEsewaForm(res.action, res.fields) })
+  }
+
   const handleCancel = () => {
     if (!registeredTicket) return
     cancelMutation.mutate(registeredTicket._id, { onSuccess: () => setConfirmingCancel(false) })
@@ -109,7 +127,12 @@ export default function PublicEventPage({ params }: { params: Promise<{ id: stri
 
   const primaryLabel = isRegistered ? "You're registered" : isFull ? "Event full" : !free ? `Buy ticket — ${formatPrice(event.price)}` : "Register now"
   const primaryPending = registerMutation.isPending || checkoutMutation.isPending
-  const primaryDisabled = primaryPending || isRegistered || (isFull && !isRegistered) || (!free && paymentConfig?.enabled === false)
+  const primaryDisabled = primaryPending || isRegistered || (isFull && !isRegistered)
+
+  const showPaymentChoice = !isRegistered && !isFull && !free
+  const isNprEvent = (event.price.currency || "NPR").toUpperCase() === "NPR"
+  const usdEstimate =
+    isNprEvent && paymentConfig?.nprUsdRate ? (event.price.amount / paymentConfig.nprUsdRate).toFixed(2) : null
 
   return (
     <div className="min-h-screen bg-background">
@@ -151,9 +174,15 @@ export default function PublicEventPage({ params }: { params: Promise<{ id: stri
         </Link>
 
         <Reveal y={18}>
-          <div className="relative h-56 overflow-hidden rounded-2xl bg-primary/10">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_20%,rgba(255,255,255,0.3),transparent_55%)]" />
-            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/40 to-transparent p-6 text-white">
+          <div className="relative h-64 overflow-hidden rounded-2xl bg-primary/10">
+            {event.imageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={event.imageUrl} alt={event.title} className="h-full w-full object-cover" />
+            ) : (
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_20%,rgba(255,255,255,0.3),transparent_55%)]" />
+            )}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
+            <div className="absolute bottom-0 left-0 right-0 p-6 text-white">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-ink">{event.category}</span>
                 <span className="rounded-full bg-black/25 px-3 py-1 text-xs font-medium backdrop-blur">{event.type}</span>
@@ -163,6 +192,15 @@ export default function PublicEventPage({ params }: { params: Promise<{ id: stri
               <p className="mt-1 text-sm text-white/85">
                 Hosted by {(typeof event.organizer === "object" && event.organizer?.name) || "Organizer"}
               </p>
+              {!!event.tags?.length && (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {event.tags.map((t) => (
+                    <span key={t} className="rounded-full bg-white/15 px-2.5 py-0.5 text-[11px] font-medium backdrop-blur">
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </Reveal>
@@ -207,11 +245,118 @@ export default function PublicEventPage({ params }: { params: Promise<{ id: stri
               </div>
             </Reveal>
 
+            {!!event.highlights?.length && (
+              <Reveal>
+                <div className="rounded-2xl border border-border bg-card p-6">
+                  <h2 className="flex items-center gap-1.5 font-display text-lg font-bold text-ink">
+                    <Sparkles className="size-4 text-primary" /> What to expect
+                  </h2>
+                  <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {event.highlights.map((h, idx) => (
+                      <li key={idx} className="flex items-start gap-2 rounded-xl bg-muted/40 p-3 text-sm text-ink">
+                        <Check className="mt-0.5 size-4 shrink-0 text-secondary" /> {h}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </Reveal>
+            )}
+
+            {!!event.agenda?.length && (
+              <Reveal>
+                <div className="rounded-2xl border border-border bg-card p-6">
+                  <h2 className="flex items-center gap-1.5 font-display text-lg font-bold text-ink">
+                    <ListChecks className="size-4 text-primary" /> Agenda
+                  </h2>
+                  <ol className="mt-4 space-y-4 border-l-2 border-border pl-4">
+                    {event.agenda.map((item, idx) => (
+                      <li key={idx} className="relative">
+                        <span className="absolute -left-[21px] top-1 size-2.5 rounded-full bg-primary" />
+                        <div className="text-xs font-semibold uppercase tracking-wide text-primary">{item.time}</div>
+                        <div className="text-sm font-semibold text-ink">{item.title}</div>
+                        {item.description && <p className="mt-0.5 text-sm text-muted-foreground">{item.description}</p>}
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              </Reveal>
+            )}
+
+            {!!event.speakers?.length && (
+              <Reveal>
+                <div className="rounded-2xl border border-border bg-card p-6">
+                  <h2 className="font-display text-lg font-bold text-ink">Speakers & Hosts</h2>
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                    {event.speakers.map((sp, idx) => (
+                      <div key={idx} className="flex gap-3 rounded-xl bg-muted/40 p-4">
+                        <div className="flex size-11 shrink-0 items-center justify-center rounded-full bg-primary/10 font-display text-sm font-bold text-primary">
+                          {sp.name.slice(0, 2).toUpperCase()}
+                        </div>
+                        <div>
+                          <div className="text-sm font-semibold text-ink">{sp.name}</div>
+                          {sp.role && <div className="text-xs text-primary">{sp.role}</div>}
+                          {sp.bio && <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{sp.bio}</p>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </Reveal>
+            )}
+
+            {(event.requirements || event.refundPolicy || event.contactEmail || event.contactPhone || event.website) && (
+              <Reveal>
+                <div className="rounded-2xl border border-border bg-card p-6">
+                  <h2 className="font-display text-lg font-bold text-ink">Good to know</h2>
+                  <div className="mt-4 space-y-4">
+                    {event.requirements && (
+                      <div>
+                        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">What to bring</div>
+                        <p className="mt-1 text-sm text-ink">{event.requirements}</p>
+                      </div>
+                    )}
+                    {event.refundPolicy && (
+                      <div className="flex gap-2">
+                        <RotateCcw className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                        <div>
+                          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Refund policy</div>
+                          <p className="mt-1 text-sm text-ink">{event.refundPolicy}</p>
+                        </div>
+                      </div>
+                    )}
+                    {(event.contactEmail || event.contactPhone || event.website) && (
+                      <div className="flex flex-wrap gap-3 border-t border-border pt-4 text-sm">
+                        {event.contactEmail && (
+                          <a href={`mailto:${event.contactEmail}`} className="flex items-center gap-1.5 text-primary hover:underline">
+                            <Mail className="size-3.5" /> {event.contactEmail}
+                          </a>
+                        )}
+                        {event.contactPhone && (
+                          <a href={`tel:${event.contactPhone}`} className="flex items-center gap-1.5 text-primary hover:underline">
+                            <Phone className="size-3.5" /> {event.contactPhone}
+                          </a>
+                        )}
+                        {event.website && (
+                          <a href={event.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-primary hover:underline">
+                            <Globe className="size-3.5" /> Website
+                          </a>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </Reveal>
+            )}
+
             {event.coordinates?.lat != null && event.coordinates?.lng != null && (
               <Reveal>
                 <VenueMap lat={event.coordinates.lat} lng={event.coordinates.lng} venue={event.venue} />
               </Reveal>
             )}
+
+            <Reveal>
+              <EventQrPoster eventId={eventId} eventTitle={event.title} />
+            </Reveal>
           </div>
 
           <div>
@@ -258,27 +403,56 @@ export default function PublicEventPage({ params }: { params: Promise<{ id: stri
 
                 {isAttendeeUser && (
                   <>
-                    <button
-                      onClick={handlePrimaryAction}
-                      disabled={primaryDisabled}
-                      className={`mt-5 flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition-all ${
-                        isRegistered
-                          ? "bg-secondary text-secondary-foreground"
-                          : isFull
-                            ? "bg-muted text-muted-foreground cursor-not-allowed"
-                            : "bg-primary text-primary-foreground hover:-translate-y-0.5 shadow-[0_8px_20px_-10px_rgba(91,76,245,0.8)]"
-                      }`}
-                    >
-                      {primaryPending ? <Loader2 className="size-4 animate-spin" /> : isRegistered ? <Check className="size-4" /> : <Ticket className="size-4" />}
-                      {primaryLabel}
-                    </button>
-
-                    {!free && paymentConfig?.enabled === false && !isRegistered && (
-                      <p className="mt-2 text-xs text-amber-600">Payments aren&apos;t configured yet — contact the organizer.</p>
+                    {showPaymentChoice ? (
+                      <div className="mt-5 space-y-2">
+                        <button
+                          onClick={handlePayWithEsewa}
+                          disabled={esewaMutation.isPending || checkoutMutation.isPending}
+                          className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#60bb46] px-4 py-3 text-sm font-semibold text-white transition-all hover:-translate-y-0.5 disabled:pointer-events-none disabled:opacity-60"
+                        >
+                          {esewaMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <Wallet className="size-4" />}
+                          Pay with eSewa — {formatPrice(event.price)}
+                        </button>
+                        <button
+                          onClick={handlePayWithStripe}
+                          disabled={checkoutMutation.isPending || esewaMutation.isPending || paymentConfig?.enabled === false}
+                          className="flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm font-semibold text-ink transition-all hover:-translate-y-0.5 disabled:pointer-events-none disabled:opacity-60"
+                        >
+                          {checkoutMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
+                          Pay by card{usdEstimate ? ` — ~$${usdEstimate}` : ` — ${formatPrice(event.price)}`}
+                        </button>
+                        {isNprEvent && (
+                          <p className="text-center text-[11px] text-muted-foreground">
+                            Card payments are billed in USD (Stripe doesn&apos;t settle in NPR); eSewa charges the exact NPR price.
+                          </p>
+                        )}
+                        {paymentConfig?.enabled === false && (
+                          <p className="text-center text-[11px] text-amber-600">Card payments aren&apos;t configured on this server yet.</p>
+                        )}
+                      </div>
+                    ) : (
+                      <button
+                        onClick={handlePrimaryAction}
+                        disabled={primaryDisabled}
+                        className={`mt-5 flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition-all ${
+                          isRegistered
+                            ? "bg-secondary text-secondary-foreground"
+                            : isFull
+                              ? "bg-muted text-muted-foreground cursor-not-allowed"
+                              : "bg-primary text-primary-foreground hover:-translate-y-0.5 shadow-[0_8px_20px_-10px_rgba(91,76,245,0.8)]"
+                        }`}
+                      >
+                        {primaryPending ? <Loader2 className="size-4 animate-spin" /> : isRegistered ? <Check className="size-4" /> : <Ticket className="size-4" />}
+                        {primaryLabel}
+                      </button>
                     )}
-                    {(registerMutation.isError || checkoutMutation.isError) && (
+
+                    {(registerMutation.isError || checkoutMutation.isError || esewaMutation.isError) && (
                       <p className="mt-2 text-xs text-amber-600">
-                        {(registerMutation.error as any)?.response?.data?.message || (checkoutMutation.error as any)?.response?.data?.message || "Something went wrong"}
+                        {(registerMutation.error as any)?.response?.data?.message ||
+                          (checkoutMutation.error as any)?.response?.data?.message ||
+                          (esewaMutation.error as any)?.response?.data?.message ||
+                          "Something went wrong"}
                       </p>
                     )}
 

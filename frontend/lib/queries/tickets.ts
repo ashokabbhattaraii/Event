@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ticketsApi } from "../api/tickets";
+import { useHasToken } from "../hooks/use-has-token";
 
 export const ticketKeys = {
   mine: ["tickets", "mine"] as const,
@@ -9,7 +10,7 @@ export function useMyTickets() {
   return useQuery({
     queryKey: ticketKeys.mine,
     queryFn: ticketsApi.getMy,
-    enabled: typeof window !== "undefined" && !!localStorage.getItem("token"),
+    enabled: useHasToken(),
   });
 }
 

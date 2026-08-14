@@ -1,17 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { notificationsApi } from "../api/notifications";
+import { useHasToken } from "../hooks/use-has-token";
 
 export const notificationKeys = {
   list: ["notifications", "list"] as const,
 };
 
-const enabled = typeof window !== "undefined" && !!localStorage.getItem("token");
-
 export function useNotifications() {
   return useQuery({
     queryKey: notificationKeys.list,
     queryFn: notificationsApi.list,
-    enabled,
+    enabled: useHasToken(),
   });
 }
 

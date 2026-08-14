@@ -8,6 +8,19 @@ export interface EventListParams extends ListParams {
   type?: string;
 }
 
+export interface EventAgendaItem {
+  time: string;
+  title: string;
+  description?: string;
+}
+
+export interface EventSpeaker {
+  name: string;
+  role?: string;
+  bio?: string;
+  photoUrl?: string;
+}
+
 export interface EventData {
   _id: string;
   title: string;
@@ -25,6 +38,16 @@ export interface EventData {
   registered: number;
   createdAt: string;
   predictedAttendance?: number;
+  imageUrl?: string;
+  tags?: string[];
+  highlights?: string[];
+  agenda?: EventAgendaItem[];
+  speakers?: EventSpeaker[];
+  requirements?: string;
+  refundPolicy?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  website?: string;
 }
 
 export interface CreateEventPayload {
@@ -32,11 +55,22 @@ export interface CreateEventPayload {
   description?: string;
   date: string;
   venue: string;
+  coordinates?: { lat: number; lng: number };
   type: "In-person" | "Hybrid" | "Virtual";
   category: string;
   capacity: number;
   price?: number;
   status?: string;
+  imageUrl?: string;
+  tags?: string[];
+  highlights?: string[];
+  agenda?: EventAgendaItem[];
+  speakers?: EventSpeaker[];
+  requirements?: string;
+  refundPolicy?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  website?: string;
 }
 
 export interface EventsResponse {

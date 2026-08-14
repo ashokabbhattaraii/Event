@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { organizationsApi, type Organization } from "../api/organizations";
+import { useHasToken } from "../hooks/use-has-token";
 
 export const organizationKeys = {
   list: ["organizations", "list"] as const,
@@ -18,7 +19,7 @@ export function useMyOrganization() {
     queryKey: organizationKeys.mine,
     queryFn: organizationsApi.getMine,
     retry: false,
-    enabled: typeof window !== "undefined" && !!localStorage.getItem("token"),
+    enabled: useHasToken(),
   });
 }
 

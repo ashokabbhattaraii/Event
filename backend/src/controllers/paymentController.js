@@ -3,6 +3,8 @@ const Event = require("../models/Event");
 const Ticket = require("../models/Ticket");
 const User = require("../models/User");
 const { claimAndIssueTicket } = require("../utils/ticketing");
+const { nprToUsd, NPR_USD_RATE } = require("../utils/currency");
+const esewa = require("../utils/esewa");
 
 // Payments are entirely optional: the app runs fine with STRIPE_SECRET_KEY
 // unset (free events work as before), it just returns a clear 503 for the
@@ -13,18 +15,15 @@ const stripe = process.env.STRIPE_SECRET_KEY
 
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 
-// Stripe doesn't support Nepal as a business location or NPR as a charge
-// currency — NPR is the app's default (see models/Event.js), so a Stripe
-// checkout attempt on an NPR-priced event would otherwise fail with an
-// opaque Stripe API error. Fail fast with a clear message instead; a Nepal
-// deployment needs a local rail (eSewa, Khalti, Fonepay, ...) for paid
-// events, which isn't wired up here.
-const STRIPE_UNSUPPORTED_CURRENCIES = new Set(["NPR"]);
-
+// eSewa is always available: unlike Stripe it needs no live secret key to
+// exercise end-to-end, since utils/esewa.js falls back to eSewa's own
+// published UAT/sandbox test credentials when ESEWA_SECRET_KEY isn't set.
 const getPaymentConfig = (req, res) => {
   res.json({
     enabled: !!stripe,
     publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || null,
+    esewaEnabled: true,
+    nprUsdRate: NPR_USD_RATE,
   });
 };
 
@@ -43,11 +42,6 @@ const createCheckoutSession = async (req, res) => {
     if (!event.price?.amount || event.price.amount <= 0) {
       return res.status(400).json({ message: "This event is free — register directly instead" });
     }
-    if (STRIPE_UNSUPPORTED_CURRENCIES.has((event.price.currency || "").toUpperCase())) {
-      return res.status(400).json({
-        message: `Stripe doesn't support ${event.price.currency} — this event needs a local payment provider (e.g. eSewa or Khalti) that isn't configured yet`,
-      });
-    }
     if (event.registered >= event.capacity) {
       return res.status(400).json({ message: "Event is at full capacity" });
     }
@@ -61,6 +55,14 @@ const createCheckoutSession = async (req, res) => {
       return res.status(400).json({ message: "Already registered for this event" });
     }
 
+    // Stripe can't settle in NPR, so an NPR-priced event is billed to the
+    // card in a converted USD amount instead of failing outright — the
+    // event's own listed price (and everything else about it) stays in NPR.
+    const originalCurrency = (event.price.currency || "USD").toUpperCase();
+    const isNpr = originalCurrency === "NPR";
+    const chargeCurrency = isNpr ? "usd" : originalCurrency.toLowerCase();
+    const chargeAmount = isNpr ? nprToUsd(event.price.amount) : event.price.amount;
+
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       payment_method_types: ["card"],
@@ -68,12 +70,14 @@ const createCheckoutSession = async (req, res) => {
       line_items: [
         {
           price_data: {
-            currency: (event.price.currency || "USD").toLowerCase(),
+            currency: chargeCurrency,
             product_data: {
               name: event.title,
-              description: `Ticket for ${event.title} on ${new Date(event.date).toDateString()}`,
+              description: isNpr
+                ? `Ticket for ${event.title} on ${new Date(event.date).toDateString()} (converted from Rs. ${event.price.amount})`
+                : `Ticket for ${event.title} on ${new Date(event.date).toDateString()}`,
             },
-            unit_amount: Math.round(event.price.amount * 100),
+            unit_amount: Math.round(chargeAmount * 100),
           },
           quantity: 1,
         },
@@ -86,7 +90,7 @@ const createCheckoutSession = async (req, res) => {
       cancel_url: `${FRONTEND_URL}/attendee/${event._id}?checkout=cancelled`,
     });
 
-    res.json({ url: session.url });
+    res.json({ url: session.url, chargeAmount, chargeCurrency: chargeCurrency.toUpperCase() });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -151,6 +155,7 @@ const handleWebhook = async (req, res) => {
             attendeeName: attendee.name,
             payment: {
               status: "paid",
+              provider: "stripe",
               amount: (session.amount_total || 0) / 100,
               currency: (session.currency || "usd").toUpperCase(),
               stripeSessionId: session.id,
@@ -167,9 +172,124 @@ const handleWebhook = async (req, res) => {
   res.json({ received: true });
 };
 
+// eSewa checkout is initiated by the browser auto-submitting a real HTML
+// form (not fetch) directly to eSewa's gateway, so this just returns the
+// signed field set for the frontend to POST — mirroring how Stripe's
+// session.url is handed back for a full-page redirect.
+const initiateEsewaPayment = async (req, res) => {
+  try {
+    const event = await Event.findById(req.params.id);
+    if (!event) {
+      return res.status(404).json({ message: "Event not found" });
+    }
+    if (!event.price?.amount || event.price.amount <= 0) {
+      return res.status(400).json({ message: "This event is free — register directly instead" });
+    }
+    if (event.registered >= event.capacity) {
+      return res.status(400).json({ message: "Event is at full capacity" });
+    }
+
+    const existing = await Ticket.findOne({
+      event: event._id,
+      attendee: req.user._id,
+      status: { $ne: "cancelled" },
+    });
+    if (existing) {
+      return res.status(400).json({ message: "Already registered for this event" });
+    }
+
+    const baseUrl = `${req.protocol}://${req.get("host")}`;
+    const { action, fields } = esewa.buildPaymentForm({
+      amount: event.price.amount,
+      eventId: event._id.toString(),
+      attendeeId: req.user._id.toString(),
+      successUrl: `${baseUrl}/api/payments/esewa/success`,
+      failureUrl: `${baseUrl}/api/payments/esewa/failure`,
+    });
+
+    res.json({ action, fields });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// eSewa redirects the browser here (GET, unauthenticated — the user's
+// session cookie/JWT isn't sent along) with a base64 `data` query param.
+// Ticket issuance only ever happens after (a) verifying that payload's
+// signature and (b) an independent server-to-server status check against
+// eSewa's API — never from the redirect alone — the same "redirect is not
+// proof of payment" principle the Stripe webhook above is built on.
+const handleEsewaSuccess = async (req, res) => {
+  const fail = (reason) => res.redirect(`${FRONTEND_URL}/attendee/checkout/success?provider=esewa&error=${reason}`);
+
+  try {
+    const raw = req.query.data;
+    if (!raw) return fail("missing_data");
+
+    let decoded;
+    try {
+      decoded = JSON.parse(Buffer.from(String(raw), "base64").toString("utf-8"));
+    } catch {
+      return fail("invalid_data");
+    }
+
+    if (!esewa.verifyResponse(decoded)) return fail("signature");
+    if (decoded.status !== "COMPLETE") return fail("not_complete");
+
+    const { eventId, attendeeId } = esewa.parseTransactionUuid(decoded.transaction_uuid);
+    if (!eventId || !attendeeId) return fail("bad_transaction");
+
+    const statusCheck = await esewa.checkStatus({
+      transactionUuid: decoded.transaction_uuid,
+      totalAmount: decoded.total_amount,
+    });
+    if (statusCheck.status !== "COMPLETE") return fail("unconfirmed");
+
+    const [eventDoc, attendee] = await Promise.all([
+      Event.findById(eventId),
+      User.findById(attendeeId),
+    ]);
+    if (!eventDoc || !attendee) return fail("not_found");
+
+    let ticket = await Ticket.findOne({
+      event: eventId,
+      attendee: attendeeId,
+      status: { $ne: "cancelled" },
+    });
+
+    if (!ticket) {
+      ticket = await claimAndIssueTicket({
+        event: eventDoc,
+        attendeeId,
+        attendeeName: attendee.name,
+        payment: {
+          status: "paid",
+          provider: "esewa",
+          amount: Number(decoded.total_amount),
+          currency: "NPR",
+          esewaTransactionUuid: decoded.transaction_uuid,
+          esewaRefId: statusCheck.ref_id || decoded.transaction_code,
+        },
+      });
+    }
+
+    res.redirect(`${FRONTEND_URL}/attendee/checkout/success?provider=esewa&ticketId=${ticket._id}`);
+  } catch (error) {
+    console.error("[esewa] success handling failed:", error.message);
+    fail("server");
+  }
+};
+
+const handleEsewaFailure = (req, res) => {
+  res.redirect(`${FRONTEND_URL}/attendee/checkout/success?provider=esewa&error=cancelled`);
+};
+
 module.exports = {
   getPaymentConfig,
   createCheckoutSession,
   getCheckoutStatus,
   handleWebhook,
+  initiateEsewaPayment,
+  handleEsewaSuccess,
+  handleEsewaFailure,
 };

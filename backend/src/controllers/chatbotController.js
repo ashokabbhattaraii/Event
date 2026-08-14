@@ -2,26 +2,102 @@ const Event = require("../models/Event");
 const Ticket = require("../models/Ticket");
 const { haversineKm, hasValidCoords } = require("../utils/geo");
 const predictAttendance = require("../utils/predictAttendance");
+const { generateReply } = require("../utils/aiProvider");
+
+const INTENTS = [
+  "near_me",
+  "my_tickets",
+  "pricing",
+  "organizer",
+  "upcoming_events",
+  "venue",
+  "schedule",
+  "registration_status",
+  "popular_events",
+  "capacity",
+  "cancellation",
+  "greeting",
+  "categories",
+  "fallback",
+];
 
 const matchIntent = (message) => {
-  const m = message.toLowerCase();
-  if (/(near me|nearby|close to me|around me|closest|near by)/.test(m)) return "near_me";
-  if (/(my ticket|my registration|my bookings)/.test(m)) return "my_tickets";
+  const m = message.toLowerCase().trim();
+  if (/\b(near me|nearby|close to me|around me|closest|near by)\b/.test(m)) return "near_me";
+  if (/\b(my ticket|my tickets|my registration|my registrations|my bookings|my booking)\b/.test(m)) return "my_tickets";
   // Checked before "capacity" (which also matches "available") and before
   // "upcoming_events" so "any free events?" doesn't get swallowed by the
   // more generic "what events are there" match.
   if (/(\bfree\b|no cost|complimentary|\bcost\b|\bprice\b|pricing|how much|paid event|ticket price|is it free)/.test(m)) return "pricing";
   if (/(who\b.{0,15}\b(organiz|host|run)|organizer of|host of|hosted by)/.test(m)) return "organizer";
-  if (/(this week|upcoming|what.*events|find events|show events)/.test(m)) return "upcoming_events";
-  if (/(venue|where is|location|address|held at|taking place)/.test(m)) return "venue";
-  if (/(when is|schedule|date|time|what time|starts at|start time)/.test(m)) return "schedule";
+  if (
+    /(this week|\bupcoming\b|latest event|latest events|\bnew event\b|\bnew events\b|any event|any events|list events|what.*events|find events|show events|events happening|what's on|whats on|any updates)/.test(m)
+  )
+    return "upcoming_events";
+  if (/(\bvenue\b|where is|\blocation\b|\baddress\b|held at|taking place)/.test(m)) return "venue";
+  if (/(when is|\bschedule\b|\bdate\b|\btime\b|what time|starts at|start time)/.test(m)) return "schedule";
   if (/(registration status|am i registered|did i register|my status)/.test(m)) return "registration_status";
-  if (/(popular|trending|best|top|hot|highest)/.test(m)) return "popular_events";
-  if (/(capacity|spots left|how many seats|how many people|sold out|full|available)/.test(m)) return "capacity";
-  if (/(cancel|refund|unregister|remove)/.test(m)) return "cancellation";
-  if (/(hi|hello|hey|help|what can you do)/.test(m)) return "greeting";
-  if (/(category|type|kind|sort|filter)/.test(m)) return "categories";
+  if (/(\bpopular\b|\btrending\b|\bbest\b|\btop\b|\bhot\b|highest)/.test(m)) return "popular_events";
+  if (/(\bcapacity\b|spots left|how many seats|how many people|sold out|\bfull\b|\bavailable\b)/.test(m)) return "capacity";
+  if (/(\bcancel\b|\brefund\b|unregister|\bremove\b)/.test(m)) return "cancellation";
+  // Word-boundaried so "hi" doesn't match inside unrelated words like
+  // "this", "which", or "anything" and hijack their real intent.
+  if (/\b(hi|hello|hey|howdy|yo|help|what can you do|what do you do)\b/.test(m)) return "greeting";
+  if (/(\bcategory\b|\bcategories\b|\btype\b|\bkind\b|\bsort\b|\bfilter\b)/.test(m)) return "categories";
   return "fallback";
+};
+
+// Last-resort intent guess for phrasing the regex cascade above doesn't
+// anticipate (e.g. "what's happening soon?", "anything I should know
+// about?"). The LLM only picks a label from the closed INTENTS list — it
+// never generates the answer itself — so buildGroundedReply still produces
+// the exact same deterministic, DB-backed reply for whatever intent comes
+// back. This keeps facts accurate while covering far more phrasings than a
+// fixed regex list ever could.
+const classifyIntentWithLLM = async (message) => {
+  const systemPrompt =
+    "You are an intent classifier for an event-management app's chatbot. " +
+    `Reply with EXACTLY ONE of these labels and nothing else: ${INTENTS.join(", ")}. ` +
+    "Pick 'greeting' for small talk or generic help requests, and 'fallback' only if truly nothing fits.";
+  const reply = await generateReply(systemPrompt, message);
+  if (!reply) return null;
+  const cleaned = reply.trim().toLowerCase().replace(/[^a-z_]/g, "");
+  return INTENTS.includes(cleaned) ? cleaned : null;
+};
+
+// Absolute last resort when neither the regex cascade nor LLM intent
+// classification finds a match: a grounded free-form answer, strictly
+// limited to the real upcoming-event data injected below, so the model has
+// no room to invent event names, dates, or prices.
+const answerFreeform = async (req, message) => {
+  const orgFilter = { organization: req.user.organization };
+  const events = await Event.find({
+    ...orgFilter,
+    status: { $in: ["Upcoming", "Live"] },
+    date: { $gte: new Date() },
+  })
+    .sort({ date: 1 })
+    .limit(10)
+    .lean();
+
+  const context = events.length
+    ? events
+        .map(
+          (e) =>
+            `- "${e.title}" (${e.category}, ${e.type}) on ${new Date(e.date).toDateString()} at ${e.venue}, price: ${formatEventPrice(e.price)}, ${e.registered}/${e.capacity} registered`
+        )
+        .join("\n")
+    : "No upcoming events right now.";
+
+  const systemPrompt =
+    "You are EventBot, a helpful assistant for an event-management app. " +
+    "Answer the user's question in 1-3 short, friendly sentences using ONLY the event data below — " +
+    "never invent event names, dates, prices, venues, or any fact not listed. " +
+    "If the data doesn't contain the answer, say you're not sure and suggest what you can help with instead " +
+    "(finding events, tickets, pricing, capacity, venues, schedules).\n\nUpcoming events:\n" +
+    context;
+
+  return generateReply(systemPrompt, message);
 };
 
 // NPR is the app's default currency (see models/Event.js); mirrors
@@ -311,16 +387,21 @@ const buildGroundedReply = async (req, intent, eventId, message) => {
   return "I'm not sure how to help with that yet 🤔 Here's what I can do:\n• 📍 Find events near you\n• 🎫 Show your tickets\n• 📅 List upcoming events\n• 💰 Check free vs. paid pricing\n• 👥 Check event capacity\n• 🔥 Find popular/trending events\n• 🗺️ Tell you about venue and schedule\n• ✅ Check your registration status\n\nWhat would you like to know?";
 };
 
-// The reply is the grounded, DB-computed fact string returned verbatim —
-// no LLM rephrasing step. That used to run every grounded reply through
-// generateReply() (Groq/Gemini) to "sound more natural," but a small
-// instant-tier model paraphrasing a multi-fact sentence (e.g. "these events
-// are free, these are paid, these cost X") would routinely drop or garble
-// facts, or shuffle a price onto the wrong event's name — same question,
-// different (and sometimes wrong) answer on repeat asks. Grounded replies
-// are already written as complete, friendly sentences with light emoji, so
-// nothing is lost by returning them directly; what's gained is that every
-// answer is exactly reproducible from the database.
+// Once an intent is known (whether from the regex cascade or the LLM
+// classifier), the reply is always the grounded, DB-computed fact string
+// returned verbatim — no LLM rephrasing step. That used to run every
+// grounded reply through generateReply() (Groq/Gemini) to "sound more
+// natural," but a small instant-tier model paraphrasing a multi-fact
+// sentence (e.g. "these events are free, these are paid, these cost X")
+// would routinely drop or garble facts, or shuffle a price onto the wrong
+// event's name — same question, different (and sometimes wrong) answer on
+// repeat asks. Grounded replies are already written as complete, friendly
+// sentences with light emoji, so nothing is lost by returning them
+// directly; what's gained is that every answer is exactly reproducible
+// from the database. The LLM is only used (a) to classify genuinely
+// unmatched phrasing into one of the same closed intents, and (b), as an
+// absolute last resort, to answer free-form strictly from injected event
+// data — never to rewrite an already-correct grounded fact.
 const query = async (req, res) => {
   try {
     const { message, eventId } = req.body;
@@ -328,8 +409,18 @@ const query = async (req, res) => {
       return res.status(400).json({ message: "message is required" });
     }
 
-    const intent = matchIntent(message);
-    const reply = await buildGroundedReply(req, intent, eventId, message);
+    let intent = matchIntent(message);
+    if (intent === "fallback") {
+      const llmIntent = await classifyIntentWithLLM(message);
+      if (llmIntent) intent = llmIntent;
+    }
+
+    let reply = await buildGroundedReply(req, intent, eventId, message);
+
+    if (intent === "fallback") {
+      const freeform = await answerFreeform(req, message);
+      if (freeform) reply = freeform;
+    }
 
     res.json({ intent, reply });
   } catch (error) {

@@ -5,6 +5,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { usersApi, type UserListParams } from "../api/users";
+import { useHasToken } from "../hooks/use-has-token";
 
 export const userKeys = {
   list: ["users", "list"] as const,
@@ -12,19 +13,17 @@ export const userKeys = {
   stats: ["users", "stats"] as const,
 };
 
-const enabled = typeof window !== "undefined" && !!localStorage.getItem("token");
-
 export function useOrgUsers(params: UserListParams = {}) {
   return useQuery({
     queryKey: userKeys.listParams(params),
     queryFn: () => usersApi.list(params),
-    enabled,
+    enabled: useHasToken(),
     placeholderData: keepPreviousData,
   });
 }
 
 export function useOrgStats() {
-  return useQuery({ queryKey: userKeys.stats, queryFn: usersApi.stats, enabled });
+  return useQuery({ queryKey: userKeys.stats, queryFn: usersApi.stats, enabled: useHasToken() });
 }
 
 export function useUpdateUserRole() {

@@ -1,6 +1,7 @@
 "use client"
 
-import { QRCodeSVG } from "qrcode.react"
+import { forwardRef } from "react"
+import { QRCodeSVG, QRCodeCanvas } from "qrcode.react"
 
 // Real, camera-scannable QR code encoding the signed ticket token (the same
 // qrToken the backend's /tickets/verify endpoint checks). Previously this
@@ -13,3 +14,15 @@ export function QrCode({ seed, size = 84 }: { seed: string; size?: number }) {
     </div>
   )
 }
+
+// Canvas variant so callers can grab a ref and export the QR as a PNG
+// (canvas.toDataURL) — the SVG variant above can't be exported that way.
+export const QrCodeCanvas = forwardRef<HTMLCanvasElement, { seed: string; size?: number }>(
+  function QrCodeCanvas({ seed, size = 84 }, ref) {
+    return (
+      <div className="rounded-lg bg-white p-2">
+        <QRCodeCanvas ref={ref} value={seed} size={size} level="M" includeMargin={false} />
+      </div>
+    )
+  }
+)

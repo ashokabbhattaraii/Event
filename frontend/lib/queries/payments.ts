@@ -1,7 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { paymentsApi } from "../api/payments";
-
-const enabled = typeof window !== "undefined" && !!localStorage.getItem("token");
+import { useHasToken } from "../hooks/use-has-token";
 
 export function usePaymentConfig() {
   return useQuery({
@@ -17,11 +16,17 @@ export function useCreateCheckoutSession() {
   });
 }
 
+export function useInitiateEsewaPayment() {
+  return useMutation({
+    mutationFn: (eventId: string) => paymentsApi.initiateEsewa(eventId),
+  });
+}
+
 export function useCheckoutStatus(sessionId: string | null) {
   return useQuery({
     queryKey: ["payments", "checkout-status", sessionId],
     queryFn: () => paymentsApi.checkoutStatus(sessionId as string),
-    enabled: enabled && !!sessionId,
+    enabled: useHasToken() && !!sessionId,
     retry: 3,
     retryDelay: 1500,
   });

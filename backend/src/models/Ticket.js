@@ -43,10 +43,22 @@ const ticketSchema = new mongoose.Schema(
         enum: ["none", "pending", "paid", "refunded"],
         default: "none",
       },
+      // Which rail actually took the payment — "none" for free events. The
+      // amount/currency below reflect what was actually charged (e.g. a
+      // Stripe payment on an NPR event is charged in converted USD), while
+      // the event's own price stays the source of truth for its listed NPR
+      // price.
+      provider: {
+        type: String,
+        enum: ["none", "stripe", "esewa"],
+        default: "none",
+      },
       amount: { type: Number, default: 0 },
       currency: { type: String, default: "NPR" },
       stripeSessionId: { type: String },
       stripePaymentIntentId: { type: String },
+      esewaTransactionUuid: { type: String },
+      esewaRefId: { type: String },
     },
   },
   { timestamps: true }

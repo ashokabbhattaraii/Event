@@ -7,6 +7,7 @@ import {
   type RegisterPayload,
 } from "../api/auth";
 import { captureAndSaveLocation } from "../api/location";
+import { useHasToken } from "../hooks/use-has-token";
 
 export const authKeys = {
   me: ["auth", "me"] as const,
@@ -23,7 +24,7 @@ export function useCurrentUser() {
     queryKey: authKeys.me,
     queryFn: authApi.getMe,
     retry: false,
-    enabled: typeof window !== "undefined" && !!localStorage.getItem("token"),
+    enabled: useHasToken(),
   });
 }
 

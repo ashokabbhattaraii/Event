@@ -34,7 +34,10 @@ app.post(
   handleWebhook
 );
 
-app.use(express.json());
+// Raised from the default 100kb so event cover images (sent as base64 data
+// URLs, since no object-storage provider is configured) fit in the body —
+// the frontend downsizes images client-side before sending, well under this.
+app.use(express.json({ limit: "8mb" }));
 
 app.use("/api/auth", authRoutes);
 app.use("/api/events", eventRoutes);

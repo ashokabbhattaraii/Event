@@ -44,6 +44,12 @@ router.post(
       .optional()
       .isIn(["In-person", "Hybrid", "Virtual"])
       .withMessage("Invalid event type"),
+    body("imageUrl").optional().isLength({ max: 6_000_000 }).withMessage("Image is too large"),
+    body("tags").optional().isArray().withMessage("Tags must be a list"),
+    body("highlights").optional().isArray().withMessage("Highlights must be a list"),
+    body("agenda").optional().isArray().withMessage("Agenda must be a list"),
+    body("speakers").optional().isArray().withMessage("Speakers must be a list"),
+    body("contactEmail").optional({ checkFalsy: true }).isEmail().withMessage("Invalid contact email"),
   ],
   validate,
   createEvent

@@ -55,6 +55,18 @@ function matchesRoute(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`)
 }
 
+// Lets EventBot answer event-specific questions (capacity, venue, schedule,
+// registration status, price) when the visitor is actually on that event's
+// detail page — otherwise those intents have no eventId to look up and
+// always fall back to "which event do you mean?". Matches the Mongo
+// ObjectId pattern so route segments like "create" or "check-in" are never
+// mistaken for an id.
+const EVENT_DETAIL_PATTERN = /^\/(?:attendee|organizer\/events|admin\/events)\/([0-9a-f]{24})$/i
+
+function extractEventIdFromPath(pathname: string): string | undefined {
+  return EVENT_DETAIL_PATTERN.exec(pathname)?.[1]
+}
+
 export function AppShell({ children, role, userName, title = "Welcome back" }: AppShellProps) {
   const greeting = title
   const pathname = usePathname()
@@ -68,6 +80,7 @@ export function AppShell({ children, role, userName, title = "Welcome back" }: A
     resolvedNav
       .filter((item) => matchesRoute(pathname, item.href))
       .sort((left, right) => right.href.length - left.href.length)[0]?.href ?? null
+  const currentEventId = extractEventIdFromPath(pathname)
 
   const { data: notifData } = useNotifications()
   const unreadCount = (notifData?.notifications ?? []).filter((n) => !n.read).length
@@ -191,7 +204,7 @@ export function AppShell({ children, role, userName, title = "Welcome back" }: A
         <main className="flex-1 px-6 py-6">{children}</main>
       </div>
 
-      <EventBot open={botOpen} onClose={() => setBotOpen(false)} />
+      <EventBot open={botOpen} onClose={() => setBotOpen(false)} eventId={currentEventId} />
     </div>
   )
 }

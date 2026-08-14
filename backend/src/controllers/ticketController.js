@@ -37,7 +37,7 @@ const registerForEvent = async (req, res) => {
       event,
       attendeeId: req.user._id,
       attendeeName: req.user.name,
-      payment: { status: "none", amount: 0, currency: event.price?.currency || "USD" },
+      payment: { status: "none", amount: 0, currency: event.price?.currency || "NPR" },
     });
 
     res.status(201).json({ ticket });

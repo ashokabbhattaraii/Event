@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { Sparkles, X, Send, Mic } from "lucide-react"
+import { Sparkles, X, Send } from "lucide-react"
 import { ensureGsap, prefersReducedMotion } from "@/lib/gsap"
 import { chatbotApi } from "@/lib/api/chatbot"
 
@@ -11,9 +11,20 @@ const seed: Msg[] = [
   { from: "bot", text: "Hi, I'm EventBot. Ask me about your tickets or upcoming events." },
 ]
 
-const quickReplies = ["View my tickets", "Find events near me", "Check registration status"]
+const quickReplies = ["View my tickets", "Find events near me", "Any free events?"]
 
-export function EventBot({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function EventBot({
+  open,
+  onClose,
+  eventId,
+}: {
+  open: boolean
+  onClose: () => void
+  // The event currently open (from AppShell reading the route), if any —
+  // lets event-specific questions (capacity, venue, schedule, price,
+  // registration status) resolve instead of always asking "which event?".
+  eventId?: string
+}) {
   const panel = useRef<HTMLDivElement>(null)
   const [messages, setMessages] = useState<Msg[]>(seed)
   const [input, setInput] = useState("")
@@ -42,7 +53,7 @@ export function EventBot({ open, onClose }: { open: boolean; onClose: () => void
     setInput("")
     setTyping(true)
     try {
-      const { reply } = await chatbotApi.query(text)
+      const { reply } = await chatbotApi.query(text, eventId)
       setMessages((m) => [...m, { from: "bot", text: reply }])
     } catch {
       setMessages((m) => [
@@ -139,13 +150,6 @@ export function EventBot({ open, onClose }: { open: boolean; onClose: () => void
             placeholder="Ask EventBot anything..."
             className="flex-1 rounded-xl border border-border bg-background px-4 py-2.5 text-sm text-ink outline-none focus:border-primary focus:ring-4 focus:ring-primary/10"
           />
-          <button
-            type="button"
-            className="flex size-10 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted"
-            aria-label="Voice input"
-          >
-            <Mic className="size-4" />
-          </button>
           <button
             type="submit"
             className="bg-brand-gradient flex size-10 items-center justify-center rounded-xl text-white"

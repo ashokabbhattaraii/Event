@@ -54,7 +54,7 @@ const eventSchema = new mongoose.Schema(
     // skips the payment flow entirely in that case.
     price: {
       amount: { type: Number, default: 0, min: 0 },
-      currency: { type: String, default: "USD", uppercase: true, trim: true },
+      currency: { type: String, default: "NPR", uppercase: true, trim: true },
     },
     status: {
       type: String,

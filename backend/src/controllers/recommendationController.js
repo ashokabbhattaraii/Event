@@ -28,7 +28,10 @@ const getRecommendations = async (req, res) => {
     const interestWeights = {};
     const categoryWeights = {};
     const typeWeights = {};
-    const pastCategories = new Set();
+    // Most recent past-event date per category — powers the recency boost
+    // below, so a category you attended last week outranks one from a year
+    // ago even if both have the same raw interest weight.
+    const categoryLastSeen = {};
 
     myTickets.forEach((t) => {
       if (!t.event) return;
@@ -39,8 +42,9 @@ const getRecommendations = async (req, res) => {
       categoryWeights[cat] = (categoryWeights[cat] || 0) + 1;
       typeWeights[typ] = (typeWeights[typ] || 0) + 1;
 
-      if (new Date(t.event.date) < new Date()) {
-        pastCategories.add(cat);
+      const eventDate = new Date(t.event.date);
+      if (eventDate < new Date() && (!categoryLastSeen[cat] || eventDate > categoryLastSeen[cat])) {
+        categoryLastSeen[cat] = eventDate;
       }
     });
 
@@ -79,13 +83,17 @@ const getRecommendations = async (req, res) => {
             : null;
         const proximity = proximityScore(distanceKm);
 
-        const recency = 0;
-        if (pastCategories.has(event.category)) {
-          const idx = [...pastCategories].indexOf(event.category);
+        // Decaying boost for categories attended recently: full +5 right
+        // after attending, fading to 0 over ~5 months.
+        let recencyScore = 0;
+        const lastSeen = categoryLastSeen[event.category];
+        if (lastSeen) {
+          const daysSince = Math.max(0, (Date.now() - lastSeen.getTime()) / (1000 * 60 * 60 * 24));
+          recencyScore = Math.max(0, 5 - (daysSince / 150) * 5);
         }
 
         const score = Math.round(
-          (catScore + typeScore + comboScore + velocityScore + demandPressure + popularityScore + proximity) * 10
+          (catScore + typeScore + comboScore + velocityScore + demandPressure + popularityScore + proximity + recencyScore) * 10
         ) / 10;
 
         return { event, score, distanceKm, proximity, predicted };

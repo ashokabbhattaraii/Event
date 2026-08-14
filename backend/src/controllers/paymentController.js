@@ -13,6 +13,14 @@ const stripe = process.env.STRIPE_SECRET_KEY
 
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 
+// Stripe doesn't support Nepal as a business location or NPR as a charge
+// currency — NPR is the app's default (see models/Event.js), so a Stripe
+// checkout attempt on an NPR-priced event would otherwise fail with an
+// opaque Stripe API error. Fail fast with a clear message instead; a Nepal
+// deployment needs a local rail (eSewa, Khalti, Fonepay, ...) for paid
+// events, which isn't wired up here.
+const STRIPE_UNSUPPORTED_CURRENCIES = new Set(["NPR"]);
+
 const getPaymentConfig = (req, res) => {
   res.json({
     enabled: !!stripe,
@@ -34,6 +42,11 @@ const createCheckoutSession = async (req, res) => {
     }
     if (!event.price?.amount || event.price.amount <= 0) {
       return res.status(400).json({ message: "This event is free — register directly instead" });
+    }
+    if (STRIPE_UNSUPPORTED_CURRENCIES.has((event.price.currency || "").toUpperCase())) {
+      return res.status(400).json({
+        message: `Stripe doesn't support ${event.price.currency} — this event needs a local payment provider (e.g. eSewa or Khalti) that isn't configured yet`,
+      });
     }
     if (event.registered >= event.capacity) {
       return res.status(400).json({ message: "Event is at full capacity" });

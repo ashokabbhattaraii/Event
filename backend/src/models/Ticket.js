@@ -44,7 +44,7 @@ const ticketSchema = new mongoose.Schema(
         default: "none",
       },
       amount: { type: Number, default: 0 },
-      currency: { type: String, default: "USD" },
+      currency: { type: String, default: "NPR" },
       stripeSessionId: { type: String },
       stripePaymentIntentId: { type: String },
     },

@@ -141,17 +141,17 @@ export default function CreateEventPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-sm font-medium text-ink">Price (USD)</label>
+              <label className="text-sm font-medium text-ink">Price (NPR)</label>
               <div className="relative">
-                <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
+                <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">Rs.</span>
                 <input
                   type="number"
                   min={0}
-                  step="0.01"
+                  step="1"
                   value={form.price}
                   onChange={(e) => update("price", e.target.value)}
                   placeholder="0"
-                  className="w-full rounded-xl border border-border bg-card py-3 pl-7 pr-4 text-sm text-ink outline-none focus:border-primary focus:ring-4 focus:ring-primary/10"
+                  className="w-full rounded-xl border border-border bg-card py-3 pl-10 pr-4 text-sm text-ink outline-none focus:border-primary focus:ring-4 focus:ring-primary/10"
                 />
               </div>
               <p className="text-xs text-muted-foreground">Leave at 0 for a free event — attendees register directly with no payment step.</p>

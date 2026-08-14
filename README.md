@@ -89,7 +89,7 @@ Re-running `pnpm seed` **wipes and re-creates** all seeded data.
 | `JWT_EXPIRES_IN` | no | Token lifetime (default `7d`) |
 | `QR_TOKEN_SECRET` | no | Separate secret for QR ticket tokens (falls back to `JWT_SECRET`) |
 | `FRONTEND_URL` | no | Allowed CORS origin (default `http://localhost:3000`) |
-| `GROQ_API_KEY` / `GEMINI_API_KEY` | no | Optional — only makes chatbot replies read more naturally. Works without them. |
+| `GROQ_API_KEY` / `GEMINI_API_KEY` | no | Optional, not currently used by the chatbot (which answers only from real DB data, deliberately with no LLM in the loop, for accuracy). Reserved for future AI features. |
 
 ### Frontend — `frontend/.env.local` (copy from `.env.example`)
 

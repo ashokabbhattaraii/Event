@@ -14,14 +14,14 @@ const EVENT_SORT_FIELDS = ["date", "title", "createdAt", "registered"];
 // Accepts either a plain number (ticket amount) or an { amount, currency }
 // object from the client and normalizes it to the model's shape.
 const normalizePrice = (price) => {
-  if (price == null || price === "") return { amount: 0, currency: "USD" };
+  if (price == null || price === "") return { amount: 0, currency: "NPR" };
   if (typeof price === "object") {
     return {
       amount: Number(price.amount) || 0,
-      currency: (price.currency || "USD").toUpperCase(),
+      currency: (price.currency || "NPR").toUpperCase(),
     };
   }
-  return { amount: Number(price) || 0, currency: "USD" };
+  return { amount: Number(price) || 0, currency: "NPR" };
 };
 
 const createEvent = async (req, res) => {

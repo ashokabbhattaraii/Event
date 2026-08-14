@@ -9,19 +9,34 @@ import { RegistrationTrendChart, TicketMixChart } from "@/components/app/organiz
 import { Reveal } from "@/components/anim/reveal"
 import { useMyEvents } from "@/lib/queries/events"
 import { useCurrentUser } from "@/lib/queries/auth"
+import { useOrganizerAnalytics } from "@/lib/queries/analytics"
 import { toAppEvent } from "@/lib/adapters/event"
+import { isFreeEvent } from "@/lib/price"
 import { CalendarDays, Users, DollarSign, Sparkles, Plus, ArrowUpRight, Brain, TrendingUp } from "lucide-react"
 
 export default function OrganizerDashboardPage() {
   const { data: userData } = useCurrentUser()
   const { data: eventsData } = useMyEvents({ limit: 50 })
+  const { data: analytics } = useOrganizerAnalytics()
   const user = userData?.user
   const events = eventsData?.events ?? []
 
   const myEvents = events.map(toAppEvent)
   const totalRegistrations = events.reduce((sum, e) => sum + e.registered, 0)
   const activeEvents = events.filter((e) => e.status === "Upcoming" || e.status === "Live").length
-  const revenueEvents = events.filter((e) => e.price && e.price !== "Free" && e.price !== "0")
+  const revenueEvents = events.filter((e) => !isFreeEvent(e.price))
+
+  const trendData = analytics?.trend.map((t) => ({
+    d: new Date(t.date).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+    v: t.registrations,
+  }))
+
+  const freeRegistered = events.filter((e) => isFreeEvent(e.price)).reduce((s, e) => s + e.registered, 0)
+  const paidRegistered = events.filter((e) => !isFreeEvent(e.price)).reduce((s, e) => s + e.registered, 0)
+  const ticketMixData = [
+    { name: "Free", value: freeRegistered, fill: "#5b4cf5" },
+    { name: "Paid", value: paidRegistered, fill: "#00c9a7" },
+  ].filter((t) => t.value > 0)
 
   const aiInsights = useMemo(() => {
     const insights: { title: string; body: string; tag: string }[] = []
@@ -97,10 +112,10 @@ export default function OrganizerDashboardPage() {
 
         <div className="grid gap-6 lg:grid-cols-3">
           <Reveal className="lg:col-span-2">
-            <RegistrationTrendChart />
+            <RegistrationTrendChart data={trendData} />
           </Reveal>
           <Reveal>
-            <TicketMixChart />
+            <TicketMixChart data={ticketMixData} />
           </Reveal>
         </div>
 

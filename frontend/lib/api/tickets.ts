@@ -1,6 +1,14 @@
 import apiClient from "./client";
 import type { EventData } from "./events";
 
+export interface TicketPayment {
+  status: "none" | "pending" | "paid" | "refunded";
+  amount: number;
+  currency: string;
+  stripeSessionId?: string;
+  stripePaymentIntentId?: string;
+}
+
 export interface Ticket {
   _id: string;
   event: EventData | string;
@@ -9,6 +17,8 @@ export interface Ticket {
   qrToken: string;
   status: "valid" | "checked-in" | "cancelled";
   checkedInAt?: string;
+  cancelledAt?: string;
+  payment: TicketPayment;
   createdAt: string;
 }
 
@@ -20,6 +30,11 @@ export const ticketsApi = {
 
   getMy: async (): Promise<{ tickets: Ticket[] }> => {
     const res = await apiClient.get("/tickets/my");
+    return res.data;
+  },
+
+  cancel: async (ticketId: string): Promise<{ ticket: Ticket }> => {
+    const res = await apiClient.post(`/tickets/${ticketId}/cancel`);
     return res.data;
   },
 

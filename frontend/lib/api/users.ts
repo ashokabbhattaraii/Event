@@ -17,6 +17,7 @@ export interface OrgUser {
 export interface OrgStats {
   userCount: number;
   eventCount: number;
+  roleCounts: { admin: number; organizer: number; attendee: number };
 }
 
 export interface UsersResponse {

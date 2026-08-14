@@ -1,16 +1,18 @@
 "use client"
 
 import { useState } from "react"
-import { CheckCircle2, Loader2, QrCode, ShieldCheck, Ticket, XCircle } from "lucide-react"
+import { Camera, CheckCircle2, Loader2, QrCode, ShieldCheck, Ticket, XCircle } from "lucide-react"
 import { AppShell } from "@/components/app/app-shell"
 import { StatCard } from "@/components/app/stat-card"
 import { Reveal } from "@/components/anim/reveal"
+import { QrScanner } from "@/components/app/qr-scanner"
 import { useVerifyTicket } from "@/lib/queries/tickets"
 import { useMyEvents } from "@/lib/queries/events"
 import { useCurrentUser } from "@/lib/queries/auth"
 
 function VerifyTicketPanel() {
   const [qrToken, setQrToken] = useState("")
+  const [scannerOpen, setScannerOpen] = useState(false)
   const verify = useVerifyTicket()
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -19,15 +21,38 @@ function VerifyTicketPanel() {
     verify.mutate(qrToken.trim())
   }
 
+  const handleScan = (decodedText: string) => {
+    setScannerOpen(false)
+    verify.mutate(decodedText)
+  }
+
   return (
     <Reveal className="rounded-2xl border border-border bg-card p-6">
-      <div className="flex items-center gap-2">
-        <QrCode className="size-5 text-primary" />
-        <h2 className="font-display text-lg font-semibold text-ink">Verify a Ticket</h2>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <QrCode className="size-5 text-primary" />
+          <h2 className="font-display text-lg font-semibold text-ink">Verify a Ticket</h2>
+        </div>
+        <button
+          type="button"
+          onClick={() => setScannerOpen((v) => !v)}
+          className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+            scannerOpen ? "border-primary bg-primary/10 text-primary" : "border-border text-ink hover:bg-muted"
+          }`}
+        >
+          <Camera className="size-3.5" /> {scannerOpen ? "Close scanner" : "Scan with camera"}
+        </button>
       </div>
       <p className="mt-1 text-sm text-muted-foreground">
-        Enter the QR token from an attendee&apos;s ticket to check them in.
+        Scan an attendee&apos;s QR ticket, or paste the QR token manually, to check them in.
       </p>
+
+      {scannerOpen && (
+        <div className="mt-4">
+          <QrScanner active={scannerOpen} onScan={handleScan} onClose={() => setScannerOpen(false)} />
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-3 sm:flex-row">
         <input
           value={qrToken}

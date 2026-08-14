@@ -7,7 +7,9 @@ import { Reveal } from "@/components/anim/reveal"
 import { useAllEvents } from "@/lib/queries/events"
 import { useCurrentUser } from "@/lib/queries/auth"
 import { useOrgStats } from "@/lib/queries/users"
+import { useAdminAnalytics } from "@/lib/queries/analytics"
 import { Calendar, DollarSign, Users, TrendingUp, Loader2 } from "lucide-react"
+import { formatPrice } from "@/lib/price"
 
 const statusStyle: Record<string, string> = {
   Live: "bg-secondary/15 text-secondary",
@@ -19,6 +21,7 @@ export default function AdminDashboardPage() {
   const { data: userData } = useCurrentUser()
   const { data: eventsData, isLoading } = useAllEvents({ limit: 50 })
   const { data: stats } = useOrgStats()
+  const { data: analytics } = useAdminAnalytics()
 
   const user = userData?.user
   const events = eventsData?.events ?? []
@@ -28,6 +31,19 @@ export default function AdminDashboardPage() {
   const avgFillRate = events.length > 0
     ? Math.round(events.reduce((sum, e) => sum + (e.registered / e.capacity) * 100, 0) / events.length)
     : 0
+
+  const activityData = analytics?.trend.map((t) => ({
+    day: new Date(t.date).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+    registrations: t.registrations,
+  }))
+
+  const roleData = stats
+    ? [
+        { name: "Attendees", value: stats.roleCounts.attendee, fill: "#ff6b35" },
+        { name: "Organizers", value: stats.roleCounts.organizer, fill: "#00c9a7" },
+        { name: "Admins", value: stats.roleCounts.admin, fill: "#5b4cf5" },
+      ].filter((r) => r.value > 0)
+    : undefined
 
   return (
     <AppShell role="Administrator" userName={user?.name || "Admin"} title="Platform Overview">
@@ -41,15 +57,15 @@ export default function AdminDashboardPage() {
 
         <div className="grid gap-6 lg:grid-cols-3">
           <Reveal className="lg:col-span-2">
-            <AdminRevenueChart />
+            <AdminRevenueChart data={activityData} />
           </Reveal>
           <Reveal>
-            <AdminCategoryChart />
+            <AdminCategoryChart data={roleData} />
           </Reveal>
         </div>
 
         <Reveal>
-          <AdminAttendanceChart />
+          <AdminAttendanceChart data={analytics?.categories} />
         </Reveal>
 
         <div className="grid gap-6 lg:grid-cols-3">
@@ -91,7 +107,7 @@ export default function AdminDashboardPage() {
                           <td className="py-3.5 pr-4 font-mono text-xs text-ink">
                             {e.registered.toLocaleString()}/{e.capacity.toLocaleString()}
                           </td>
-                          <td className="py-3.5 text-right font-mono text-xs font-medium text-ink">{e.price || "Free"}</td>
+                          <td className="py-3.5 text-right font-mono text-xs font-medium text-ink">{formatPrice(e.price)}</td>
                         </tr>
                       ))}
                     </tbody>

@@ -162,7 +162,7 @@ const buildGroundedReply = async (req, intent, eventId) => {
 
   if (intent === "cancellation") {
     if (!eventId) {
-      return "To cancel a registration, please open the event page and I can help you there, or contact your event organizer directly.";
+      return "You can cancel any upcoming registration yourself — open My Tickets and tap Cancel on the ticket you no longer need.";
     }
     const ticket = await Ticket.findOne({ event: eventId, attendee: req.user._id });
     if (!ticket) {
@@ -171,7 +171,10 @@ const buildGroundedReply = async (req, intent, eventId) => {
     if (ticket.status === "cancelled") {
       return "Your registration for this event is already cancelled.";
     }
-    return `You are registered for this event (status: ${ticket.status}). To cancel, please contact the event organizer. Currently, self-cancellation is not available through the chatbot.`;
+    if (ticket.status === "checked-in") {
+      return "This ticket is already checked in, so it can no longer be cancelled.";
+    }
+    return `You're registered for this event (status: ${ticket.status}). Go to My Tickets and tap Cancel to self-cancel — it's instant and frees your spot for someone else.`;
   }
 
   if (intent === "categories") {

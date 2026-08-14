@@ -81,11 +81,19 @@ const updateMyLocation = async (req, res) => {
 
 const getOrgStats = async (req, res) => {
   try {
-    const [userCount, eventCount] = await Promise.all([
+    const [userCount, eventCount, roleRows] = await Promise.all([
       User.countDocuments({ organization: req.user.organization }),
       Event.countDocuments({ organization: req.user.organization }),
+      User.aggregate([
+        { $match: { organization: req.user.organization } },
+        { $group: { _id: "$role", count: { $sum: 1 } } },
+      ]),
     ]);
-    res.json({ userCount, eventCount });
+    const roleCounts = { admin: 0, organizer: 0, attendee: 0 };
+    roleRows.forEach((r) => {
+      if (r._id in roleCounts) roleCounts[r._id] = r.count;
+    });
+    res.json({ userCount, eventCount, roleCounts });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

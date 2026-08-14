@@ -1,6 +1,6 @@
 "use client"
 
-import { Bell, CalendarCheck2, Info, Loader2, Sparkles } from "lucide-react"
+import { Bell, CalendarCheck2, Info, Loader2, MapPin, Sparkles } from "lucide-react"
 import { Reveal } from "@/components/anim/reveal"
 import { useMarkAllNotificationsRead, useMarkNotificationRead, useNotifications } from "@/lib/queries/notifications"
 import type { Notification } from "@/lib/api/notifications"
@@ -10,6 +10,7 @@ const iconForType: Record<Notification["type"], typeof Bell> = {
   reminder: Bell,
   "event-update": Info,
   system: Sparkles,
+  "nearby-event": MapPin,
 }
 
 const toneForType: Record<Notification["type"], string> = {
@@ -17,6 +18,7 @@ const toneForType: Record<Notification["type"], string> = {
   reminder: "text-flame bg-flame/12",
   "event-update": "text-secondary bg-secondary/15",
   system: "text-primary bg-primary/12",
+  "nearby-event": "text-flame bg-flame/12",
 }
 
 export function NotificationList() {

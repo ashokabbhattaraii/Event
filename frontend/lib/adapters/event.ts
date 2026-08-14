@@ -1,4 +1,5 @@
 import type { EventData } from "@/lib/api/events";
+import { formatPrice } from "@/lib/price";
 
 export type EventStatus = "Upcoming" | "Live" | "Past";
 
@@ -53,7 +54,7 @@ export function toAppEvent(event: EventData): AppEvent {
     predicted: event.registered,
     status: (event.status === "Draft" ? "Upcoming" : event.status) as EventStatus,
     category: event.category,
-    price: event.price,
+    price: formatPrice(event.price),
     gradient: pickGradient(event._id),
   };
 }

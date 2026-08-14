@@ -36,6 +36,20 @@ export interface AdminAnalytics {
   categories: CategoryBreakdown[];
 }
 
+export interface AudienceSegments {
+  totalAttendees: number;
+  byInterestCategory: { category: string; count: number }[];
+  byEngagement: { tier: string; count: number }[];
+  checkInRate: number;
+}
+
+export interface MarketingInsight {
+  hasEnoughData: boolean;
+  suggestedSendWindow: string | null;
+  topPerformingCategory: string | null;
+  note: string;
+}
+
 export const analyticsApi = {
   organizer: async (): Promise<OrganizerAnalytics> => {
     const res = await apiClient.get("/analytics/organizer");
@@ -43,6 +57,14 @@ export const analyticsApi = {
   },
   admin: async (): Promise<AdminAnalytics> => {
     const res = await apiClient.get("/analytics/admin");
+    return res.data;
+  },
+  segments: async (): Promise<AudienceSegments> => {
+    const res = await apiClient.get("/analytics/segments");
+    return res.data;
+  },
+  marketingInsight: async (): Promise<MarketingInsight> => {
+    const res = await apiClient.get("/analytics/marketing-insight");
     return res.data;
   },
 };

@@ -29,3 +29,14 @@ export function useVerifyTicket() {
     mutationFn: (qrToken: string) => ticketsApi.verify(qrToken),
   });
 }
+
+export function useCancelTicket() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (ticketId: string) => ticketsApi.cancel(ticketId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ticketKeys.mine });
+      queryClient.invalidateQueries({ queryKey: ["events"] });
+    },
+  });
+}

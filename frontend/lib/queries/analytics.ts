@@ -18,3 +18,19 @@ export function useAdminAnalytics() {
     enabled,
   });
 }
+
+export function useAudienceSegments() {
+  return useQuery({
+    queryKey: ["analytics", "segments"],
+    queryFn: analyticsApi.segments,
+    enabled,
+  });
+}
+
+export function useMarketingInsight() {
+  return useQuery({
+    queryKey: ["analytics", "marketing-insight"],
+    queryFn: analyticsApi.marketingInsight,
+    enabled,
+  });
+}

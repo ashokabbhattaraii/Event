@@ -1,5 +1,6 @@
 import apiClient from "./client";
 import { toQueryString, type ListParams, type Pagination } from "./list";
+import type { EventPrice } from "../price";
 
 export interface EventListParams extends ListParams {
   status?: string;
@@ -17,7 +18,7 @@ export interface EventData {
   type: "In-person" | "Hybrid" | "Virtual";
   category: string;
   capacity: number;
-  price: string;
+  price: EventPrice;
   status: "Upcoming" | "Live" | "Past" | "Draft";
   organizer: { _id: string; name: string } | string;
   organization: string;
@@ -34,7 +35,7 @@ export interface CreateEventPayload {
   type: "In-person" | "Hybrid" | "Virtual";
   category: string;
   capacity: number;
-  price?: string;
+  price?: number;
   status?: string;
 }
 

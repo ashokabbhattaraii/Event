@@ -1,8 +1,8 @@
-const mongoose = require("mongoose");
-const Ticket = require("../models/Ticket");
 const Event = require("../models/Event");
-const { signTicketToken, verifyTicketToken } = require("../utils/qrToken");
+const Ticket = require("../models/Ticket");
+const { verifyTicketToken } = require("../utils/qrToken");
 const { createNotification } = require("./notificationController");
+const { claimAndIssueTicket } = require("../utils/ticketing");
 const {
   parsePagination,
   buildFilters,
@@ -16,56 +16,33 @@ const registerForEvent = async (req, res) => {
     if (!event) {
       return res.status(404).json({ message: "Event not found" });
     }
-    if (event.registered >= event.capacity) {
-      return res.status(400).json({ message: "Event is at full capacity" });
+
+    if (event.price?.amount > 0) {
+      return res.status(400).json({
+        message: "This event requires payment — use the checkout endpoint instead",
+        requiresPayment: true,
+      });
     }
 
     const existing = await Ticket.findOne({
       event: event._id,
       attendee: req.user._id,
+      status: { $ne: "cancelled" },
     });
     if (existing) {
       return res.status(400).json({ message: "Already registered for this event" });
     }
 
-    const ticketId = new mongoose.Types.ObjectId();
-    const qrToken = signTicketToken(
-      ticketId.toString(),
-      event._id.toString(),
-      req.user._id.toString()
-    );
-
-    const ticket = await Ticket.create({
-      _id: ticketId,
-      event: event._id,
-      attendee: req.user._id,
-      organization: event.organization,
-      qrToken,
-    });
-
-    event.registered += 1;
-    await event.save();
-
-    await createNotification({
-      recipient: req.user._id,
-      organization: event.organization,
-      type: "registration",
-      title: "Registration confirmed",
-      message: `You're registered for ${event.title}. Your QR ticket is ready.`,
-      event: event._id,
-    });
-    await createNotification({
-      recipient: event.organizer,
-      organization: event.organization,
-      type: "registration",
-      title: "New registration",
-      message: `${req.user.name} registered for ${event.title}.`,
-      event: event._id,
+    const ticket = await claimAndIssueTicket({
+      event,
+      attendeeId: req.user._id,
+      attendeeName: req.user.name,
+      payment: { status: "none", amount: 0, currency: event.price?.currency || "USD" },
     });
 
     res.status(201).json({ ticket });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(error.status || 500).json({ message: error.message });
   }
 };
 
@@ -87,6 +64,54 @@ const getMyTickets = async (req, res) => {
       populate: "event",
     });
     res.json({ tickets: data, pagination });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Attendee self-service cancellation: only their own ticket, only before the
+// event starts, and only if it hasn't already been checked in.
+const cancelTicket = async (req, res) => {
+  try {
+    const ticket = await Ticket.findOne({
+      _id: req.params.id,
+      attendee: req.user._id,
+    }).populate("event");
+
+    if (!ticket) {
+      return res.status(404).json({ message: "Ticket not found" });
+    }
+    if (ticket.status === "cancelled") {
+      return res.status(400).json({ message: "Ticket is already cancelled" });
+    }
+    if (ticket.status === "checked-in") {
+      return res.status(400).json({ message: "Cannot cancel a ticket that's already checked in" });
+    }
+    if (ticket.event && new Date(ticket.event.date) <= new Date()) {
+      return res.status(400).json({ message: "Cannot cancel — this event has already started" });
+    }
+
+    ticket.status = "cancelled";
+    ticket.cancelledAt = new Date();
+    await ticket.save();
+
+    if (ticket.event) {
+      await Event.updateOne(
+        { _id: ticket.event._id, registered: { $gt: 0 } },
+        { $inc: { registered: -1 } }
+      );
+
+      await createNotification({
+        recipient: ticket.event.organizer,
+        organization: ticket.organization,
+        type: "registration",
+        title: "Registration cancelled",
+        message: `${req.user.name} cancelled their registration for ${ticket.event.title}.`,
+        event: ticket.event._id,
+      });
+    }
+
+    res.json({ ticket });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -130,4 +155,4 @@ const verifyTicket = async (req, res) => {
   }
 };
 
-module.exports = { registerForEvent, getMyTickets, verifyTicket };
+module.exports = { registerForEvent, getMyTickets, cancelTicket, verifyTicket };

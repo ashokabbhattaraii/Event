@@ -11,6 +11,8 @@ import {
   PieChart,
   Pie,
   Cell,
+  BarChart,
+  Bar,
 } from "recharts"
 
 const defaultTrend = [
@@ -51,16 +53,17 @@ export function RegistrationTrendChart({ data }: { data?: { d: string; v: number
   )
 }
 
-export function TicketMixChart() {
-  const total = defaultTickets.reduce((s, t) => s + t.value, 0)
+export function TicketMixChart({ data }: { data?: { name: string; value: number; fill: string }[] }) {
+  const rows = data && data.length > 0 ? data : defaultTickets
+  const total = rows.reduce((s, t) => s + t.value, 0)
   return (
     <div className="rounded-2xl border border-border bg-card p-5">
       <h3 className="font-display text-base font-bold text-ink">Ticket Mix</h3>
       <p className="text-xs text-muted-foreground">{total.toLocaleString()} tickets issued</p>
       <ResponsiveContainer width="100%" height={220}>
         <PieChart>
-          <Pie data={defaultTickets} dataKey="value" nameKey="name" outerRadius={88} paddingAngle={2} animationDuration={1200}>
-            {defaultTickets.map((t) => (
+          <Pie data={rows} dataKey="value" nameKey="name" outerRadius={88} paddingAngle={2} animationDuration={1200}>
+            {rows.map((t) => (
               <Cell key={t.name} fill={t.fill} stroke="none" />
             ))}
           </Pie>
@@ -68,11 +71,47 @@ export function TicketMixChart() {
         </PieChart>
       </ResponsiveContainer>
       <div className="mt-2 flex justify-center gap-4 text-xs">
-        {defaultTickets.map((t) => (
+        {rows.map((t) => (
           <span key={t.name} className="flex items-center gap-1.5 text-muted-foreground">
             <span className="size-2.5 rounded-full" style={{ background: t.fill }} /> {t.name}
           </span>
         ))}
+      </div>
+    </div>
+  )
+}
+
+export function PredictedAttendanceChart({
+  data,
+}: {
+  data: { event: string; predicted: number; actual: number }[]
+}) {
+  if (data.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-border bg-card p-8 text-center">
+        <p className="text-sm text-muted-foreground">No events yet — predictions appear once you create some.</p>
+      </div>
+    )
+  }
+  return (
+    <div className="rounded-2xl border border-border bg-card p-5">
+      <div className="mb-4">
+        <h3 className="font-display text-base font-bold text-ink">AI Predicted vs. Actual Attendance</h3>
+        <p className="text-xs text-muted-foreground">Forecast accuracy across your events</p>
+      </div>
+      <ResponsiveContainer width="100%" height={260}>
+        <BarChart data={data} margin={{ left: -18, right: 8, top: 8 }} barGap={6}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e7e5df" vertical={false} />
+          <XAxis dataKey="event" stroke="#6b7280" fontSize={11} tickLine={false} axisLine={false} interval={0} angle={-15} textAnchor="end" height={50} />
+          <YAxis stroke="#6b7280" fontSize={12} tickLine={false} axisLine={false} />
+          <Tooltip cursor={{ fill: "rgba(91,76,245,0.05)" }} contentStyle={{ borderRadius: 12, border: "1px solid #e7e5df", fontSize: 12 }} />
+          <Bar dataKey="predicted" name="Predicted" fill="#5b4cf5" radius={[6, 6, 0, 0]} animationDuration={1200} />
+          <Bar dataKey="actual" name="Registered so far" fill="#00c9a7" radius={[6, 6, 0, 0]} animationDuration={1400} />
+        </BarChart>
+      </ResponsiveContainer>
+      <div className="mt-2 flex justify-center gap-6 text-xs">
+        <span className="flex items-center gap-1.5 text-muted-foreground"><span className="size-2.5 rounded-full bg-primary" /> Predicted</span>
+        <span className="flex items-center gap-1.5 text-muted-foreground"><span className="size-2.5 rounded-full bg-secondary" /> Registered so far</span>
       </div>
     </div>
   )

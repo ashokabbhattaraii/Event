@@ -14,58 +14,24 @@ import {
   Share2,
   Sparkles,
   Ticket,
-  TrendingUp,
   Users,
+  X,
   type LucideIcon,
 } from "lucide-react"
 import { AppShell } from "@/components/app/app-shell"
 import { Reveal } from "@/components/anim/reveal"
+import { QrCode } from "@/components/app/qr-code"
+import { FeedbackForm } from "@/components/app/feedback-form"
+import { FeedbackSummaryPanel } from "@/components/app/feedback-summary"
+import { NetworkingPanel } from "@/components/app/networking-panel"
+import { VenueMap } from "@/components/app/venue-map"
+import { EventQrPoster } from "@/components/app/event-qr-poster"
 import { useEvent } from "@/lib/queries/events"
-import { useMyTickets, useRegisterForEvent } from "@/lib/queries/tickets"
+import { useMyTickets, useRegisterForEvent, useCancelTicket } from "@/lib/queries/tickets"
 import { useCurrentUser } from "@/lib/queries/auth"
 import { useUpdateLocation } from "@/lib/queries/location"
-import { eventsApi } from "@/lib/api/events"
-
-const PREDEFINED_AGENDAS: Record<string, { time: string; title: string; speaker: string }[]> = {
-  technology: [
-    { time: "09:00", title: "Registration & Coffee", speaker: "—" },
-    { time: "09:45", title: "Opening Keynote: The Next Decade", speaker: "Dr. Lena Cho" },
-    { time: "11:00", title: "Building at Scale (Workshop)", speaker: "Marcus Reid" },
-    { time: "13:30", title: "Panel: AI in Production", speaker: "Industry Leaders" },
-    { time: "15:30", title: "Networking & Closing", speaker: "—" },
-  ],
-  business: [
-    { time: "09:30", title: "Breakfast & Networking", speaker: "—" },
-    { time: "10:15", title: "Market Trends Keynote", speaker: "Sarah Chen" },
-    { time: "11:30", title: "Growth Strategy Workshop", speaker: "Tom Adler" },
-    { time: "14:00", title: "Investor Pitch Session", speaker: "Venture Panel" },
-    { time: "16:00", title: "Closing Reception", speaker: "—" },
-  ],
-  workshop: [
-    { time: "09:00", title: "Setup & Materials", speaker: "—" },
-    { time: "10:00", title: "Hands-on Session 1", speaker: "Instructor Team" },
-    { time: "12:00", title: "Lunch Break", speaker: "—" },
-    { time: "13:00", title: "Hands-on Session 2", speaker: "Instructor Team" },
-    { time: "15:30", title: "Showcase & Wrap-up", speaker: "—" },
-  ],
-}
-
-const PREDEFINED_SPEAKERS: Record<string, { name: string; role: string }[]> = {
-  technology: [
-    { name: "Dr. Lena Cho", role: "Chief Scientist, Apex Labs" },
-    { name: "Marcus Reid", role: "VP Engineering, Velocity" },
-    { name: "Priya Nair", role: "Founder, Meridian" },
-  ],
-  business: [
-    { name: "Sarah Chen", role: "CEO, MarketWise" },
-    { name: "Tom Adler", role: "Growth Lead, Velocity" },
-    { name: "Venture Panel", role: "Angel Investors Collective" },
-  ],
-  workshop: [
-    { name: "Alex Rivera", role: "Senior Engineer, Coreflow" },
-    { name: "Jamie Kim", role: "UX Lead, Northwind" },
-  ],
-}
+import { usePaymentConfig, useCreateCheckoutSession } from "@/lib/queries/payments"
+import { formatPrice, isFreeEvent } from "@/lib/price"
 
 type RoleEventDetailProps = {
   eventId: string
@@ -77,6 +43,18 @@ type RoleEventDetailProps = {
   ticketHref: string
   registerLabel?: string
   registerIcon?: LucideIcon
+}
+
+// Haversine distance in km — mirrors the backend's utils/geo.js so the
+// event detail page can show "X km away" without an extra API round-trip.
+function distanceKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
+  const R = 6371
+  const dLat = ((b.lat - a.lat) * Math.PI) / 180
+  const dLng = ((b.lng - a.lng) * Math.PI) / 180
+  const s =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((a.lat * Math.PI) / 180) * Math.cos((b.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s))
 }
 
 export function RoleEventDetail({
@@ -91,13 +69,19 @@ export function RoleEventDetail({
   registerIcon: RegisterIcon = Ticket,
 }: RoleEventDetailProps) {
   const router = useRouter()
+  const isAttendee = role === "Attendee"
+
   const { data: eventData, isLoading, isError } = useEvent(eventId)
   const { data: ticketData } = useMyTickets()
   const { data: userData } = useCurrentUser()
+  const { data: paymentConfig } = usePaymentConfig()
   const registerMutation = useRegisterForEvent()
+  const cancelMutation = useCancelTicket()
+  const checkoutMutation = useCreateCheckoutSession()
   const updateLocation = useUpdateLocation()
   const [saved, setSaved] = useState(false)
   const [showShareFeedback, setShowShareFeedback] = useState(false)
+  const [confirmingCancel, setConfirmingCancel] = useState(false)
 
   const event = eventData?.event
   const tickets = ticketData?.tickets ?? []
@@ -107,7 +91,7 @@ export function RoleEventDetail({
     const ev = typeof t.event === "object" ? t.event : null
     return ev?._id === eventId
   })
-  const isRegistered = !!registeredTicket
+  const isRegistered = !!registeredTicket && registeredTicket.status !== "cancelled"
 
   if (isLoading) {
     return (
@@ -121,18 +105,32 @@ export function RoleEventDetail({
 
   if (isError || !event) notFound()
 
-  const pct = Math.round((event.registered / event.capacity) * 100)
+  const pct = event.capacity > 0 ? Math.round((event.registered / event.capacity) * 100) : 0
   const isFull = event.registered >= event.capacity
-  const categoryKey = event.category?.toLowerCase() || "technology"
-  const agenda = PREDEFINED_AGENDAS[categoryKey] || PREDEFINED_AGENDAS.technology
-  const speakers = PREDEFINED_SPEAKERS[categoryKey] || PREDEFINED_SPEAKERS.technology
+  const isPast = new Date(event.date) <= new Date()
+  const free = isFreeEvent(event.price)
 
   const userHasLocation = currentUser?.location?.lat != null
-  const distanceInfo = null
+  const distance =
+    userHasLocation && event.coordinates?.lat != null
+      ? distanceKm(currentUser!.location as any, event.coordinates as any)
+      : null
 
-  const handleRegister = async () => {
+  const handlePrimaryAction = async () => {
+    if (!isAttendee) {
+      router.push(ticketHref)
+      return
+    }
     if (isRegistered) {
       router.push(ticketHref)
+      return
+    }
+    if (!free) {
+      checkoutMutation.mutate(eventId, {
+        onSuccess: (res) => {
+          window.location.href = res.url
+        },
+      })
       return
     }
     registerMutation.mutate(eventId, {
@@ -142,45 +140,62 @@ export function RoleEventDetail({
     })
   }
 
+  const handleCancel = () => {
+    if (!registeredTicket) return
+    cancelMutation.mutate(registeredTicket._id, {
+      onSuccess: () => setConfirmingCancel(false),
+    })
+  }
+
+  // Always the public, no-login-required URL — sharing the authed route
+  // (e.g. /attendee/123) would send recipients straight to a login wall.
+  const publicUrl = typeof window !== "undefined" ? `${window.location.origin}/events/${eventId}` : ""
+
   const handleShare = async () => {
     if (navigator.share) {
       try {
         await navigator.share({
           title: event.title,
           text: `Check out ${event.title} on EventNexus!`,
-          url: window.location.href,
+          url: publicUrl,
         })
       } catch {}
     } else {
-      await navigator.clipboard.writeText(window.location.href)
+      await navigator.clipboard.writeText(publicUrl)
       setShowShareFeedback(true)
       setTimeout(() => setShowShareFeedback(false), 2000)
     }
   }
 
-  const generateAIInsight = () => {
-    const fillRate = event.registered / event.capacity
+  const aiInsight = (() => {
+    const fillRate = event.capacity > 0 ? event.registered / event.capacity : 0
     const daysUntil = Math.max(0, Math.ceil((new Date(event.date).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
 
-    let insight = `Based on current demand, ${event.title} `
-    if (fillRate > 0.8) {
-      insight += "is nearly full. Register soon to secure your spot!"
-    } else if (fillRate > 0.5) {
-      insight += `is filling steadily at ${pct}% capacity. With ${daysUntil} days to go, spots are going fast.`
-    } else if (fillRate > 0.2) {
-      insight += `has ${event.capacity - event.registered} spots left. Good availability, but early registration is recommended.`
-    } else {
-      insight += "has plenty of availability. Great time to register!"
+    if (isPast) {
+      return `This event has concluded with ${event.registered}/${event.capacity} registered (${pct}% of capacity).`
     }
-
-    if (categoryKey === "technology") {
-      insight += " AI-driven analysis shows this category has a 4.5/5 attendee satisfaction rating."
-    } else if (categoryKey === "business") {
-      insight += " Business events in this network see 40%+ networking conversion rates."
+    if (fillRate > 0.8) return `${event.title} is nearly full at ${pct}% capacity. Register soon to secure a spot.`
+    if (fillRate > 0.5) {
+      return `Filling steadily at ${pct}% capacity, with ${daysUntil} day${daysUntil === 1 ? "" : "s"} to go — spots are going fast.`
     }
+    if (fillRate > 0.2) {
+      return `${event.capacity - event.registered} spots left. Good availability, but early registration is recommended.`
+    }
+    return "Plenty of availability right now — a great time to register."
+  })()
 
-    return insight
-  }
+  const canLeaveFeedback = isAttendee && isPast && isRegistered
+
+  const primaryLabel = (() => {
+    if (!isAttendee) return registerLabel
+    if (isRegistered) return "View my ticket"
+    if (isFull) return "Event full"
+    if (!free) return `Buy ticket — ${formatPrice(event.price)}`
+    return registerLabel
+  })()
+
+  const primaryPending = isAttendee && (registerMutation.isPending || checkoutMutation.isPending)
+  const primaryDisabled = isAttendee ? primaryPending || (isFull && !isRegistered) || (!free && !isRegistered && paymentConfig?.enabled === false) : false
 
   return (
     <AppShell role={role} userName={userName} title={title}>
@@ -199,10 +214,13 @@ export function RoleEventDetail({
               <div className="flex flex-wrap items-center gap-2">
                 <span className="rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-ink">{event.category}</span>
                 <span className="rounded-full bg-black/25 px-3 py-1 text-xs font-medium backdrop-blur">{event.type}</span>
-                {distanceInfo && (
+                {distance != null && (
                   <span className="inline-flex items-center gap-1 rounded-full bg-black/25 px-3 py-1 text-xs font-medium backdrop-blur">
-                    <MapPin className="size-3" /> {distanceInfo}
+                    <MapPin className="size-3" /> {distance < 1 ? `${Math.round(distance * 1000)}m away` : `${distance.toFixed(1)} km away`}
                   </span>
+                )}
+                {isPast && (
+                  <span className="rounded-full bg-white/20 px-3 py-1 text-xs font-medium backdrop-blur">Concluded</span>
                 )}
               </div>
               <h1 className="font-display mt-3 text-3xl font-bold">{event.title}</h1>
@@ -220,13 +238,13 @@ export function RoleEventDetail({
               <div className="rounded-2xl border border-border bg-card p-6">
                 <h2 className="font-display text-lg font-bold text-ink">About this event</h2>
                 <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-                  {event.description || `Join us for ${event.title}, a ${event.category.toLowerCase()} gathering bringing together builders, leaders, and innovators. Expect hands-on workshops, keynote talks, and curated networking.`}
+                  {event.description || `Join us for ${event.title}, a ${event.category.toLowerCase()} gathering bringing together builders, leaders, and innovators.`}
                 </p>
                 <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
                   {[
                     { icon: Calendar, label: "Date", value: new Date(event.date).toLocaleDateString("en-US", { dateStyle: "medium" }) },
                     { icon: Clock, label: "Time", value: new Date(event.date).toLocaleTimeString("en-US", { timeStyle: "short" }) },
-                    { icon: MapPin, label: "Venue", value: event.coordinates?.lat ? `${event.venue} (${event.coordinates.lat.toFixed(4)}, ${event.coordinates.lng.toFixed(4)})` : event.venue },
+                    { icon: MapPin, label: "Venue", value: event.venue },
                     { icon: Users, label: "Registered", value: `${event.registered}/${event.capacity}` },
                   ].map((meta) => (
                     <div key={meta.label} className="rounded-xl bg-muted/50 p-3">
@@ -239,106 +257,143 @@ export function RoleEventDetail({
               </div>
             </Reveal>
 
-            <Reveal>
-              <div className="rounded-2xl border border-border bg-card p-6">
-                <h2 className="font-display text-lg font-bold text-ink">Agenda</h2>
-                <ul className="mt-4 space-y-1">
-                  {agenda.map((item, index) => (
-                    <li key={index} className="flex gap-4 rounded-xl p-3 transition-colors hover:bg-muted/50">
-                      <span className="font-mono text-sm font-semibold text-primary">{item.time}</span>
-                      <div>
-                        <div className="text-sm font-medium text-ink">{item.title}</div>
-                        {item.speaker !== "—" && <div className="text-xs text-muted-foreground">{item.speaker}</div>}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </Reveal>
+            {event.coordinates?.lat != null && event.coordinates?.lng != null && (
+              <Reveal>
+                <VenueMap lat={event.coordinates.lat} lng={event.coordinates.lng} venue={event.venue} />
+              </Reveal>
+            )}
 
-            <Reveal>
-              <div className="rounded-2xl border border-border bg-card p-6">
-                <h2 className="font-display text-lg font-bold text-ink">Speakers</h2>
-                <div className="mt-4 grid gap-4 sm:grid-cols-3">
-                  {speakers.map((speaker) => (
-                    <div key={speaker.name} className="rounded-xl border border-border p-4 text-center">
-                      <span className="mx-auto flex size-12 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
-                        {speaker.name
-                          .split(" ")
-                          .map((n) => n[0])
-                          .join("")}
-                      </span>
-                      <div className="mt-3 text-sm font-semibold text-ink">{speaker.name}</div>
-                      <div className="text-xs text-muted-foreground">{speaker.role}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </Reveal>
+            {!isAttendee && (
+              <Reveal>
+                <EventQrPoster eventId={eventId} eventTitle={event.title} />
+              </Reveal>
+            )}
+
+            {!isAttendee && <FeedbackSummaryPanel eventId={eventId} />}
+
+            {isAttendee && canLeaveFeedback && (
+              <Reveal>
+                <FeedbackForm eventId={eventId} />
+              </Reveal>
+            )}
+
+            {isAttendee && !isPast && (
+              <Reveal>
+                <NetworkingPanel eventId={eventId} isRegistered={isRegistered} />
+              </Reveal>
+            )}
           </div>
 
           <div>
             <Reveal x={20} y={0}>
               <div className="sticky top-24 rounded-2xl border border-border bg-card p-6 shadow-[0_2px_24px_rgba(0,0,0,0.05)]">
                 <div className="flex items-baseline justify-between">
-                  <span className="font-display text-3xl font-extrabold text-ink">
-                    {event.price === "Free" || !event.price ? "Free" : `$${event.price}`}
-                  </span>
+                  <span className="font-display text-3xl font-extrabold text-ink">{formatPrice(event.price)}</span>
                   <span className="text-xs text-muted-foreground">per ticket</span>
                 </div>
 
                 <div className="mt-4">
                   <div className="flex items-center justify-between text-xs text-muted-foreground">
                     <span>{pct}% full</span>
-                    <span>{event.capacity - event.registered} spots left</span>
+                    <span>{Math.max(0, event.capacity - event.registered)} spots left</span>
                   </div>
                   <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-muted">
                     <div
-                      className={`h-full rounded-full transition-all ${
-                        isFull ? "bg-flame" : "bg-primary"
-                      }`}
-                      style={{ width: `${pct}%` }}
+                      className={`h-full rounded-full transition-all ${isFull ? "bg-flame" : "bg-primary"}`}
+                      style={{ width: `${Math.min(100, pct)}%` }}
                     />
                   </div>
                 </div>
 
+                {isAttendee && isRegistered && registeredTicket && registeredTicket.status === "valid" && (
+                  <div className="mt-4 flex flex-col items-center rounded-xl border border-border bg-muted/30 p-4">
+                    <QrCode seed={registeredTicket.qrToken} size={120} />
+                    <p className="mt-2 text-center text-[11px] text-muted-foreground">
+                      Ticket #{registeredTicket._id.slice(-8).toUpperCase()} — present at check-in
+                    </p>
+                  </div>
+                )}
+
                 <button
-                  onClick={handleRegister}
-                  disabled={registerMutation.isPending || (isFull && !isRegistered)}
+                  onClick={handlePrimaryAction}
+                  disabled={primaryDisabled}
                   className={`mt-5 flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition-all ${
-                    isRegistered
+                    isAttendee && isRegistered
                       ? "bg-secondary text-secondary-foreground"
-                      : isFull
+                      : isAttendee && isFull
                         ? "bg-muted text-muted-foreground cursor-not-allowed"
                         : "bg-primary text-primary-foreground hover:-translate-y-0.5 shadow-[0_8px_20px_-10px_rgba(91,76,245,0.8)]"
                   }`}
                 >
-                  {registerMutation.isPending ? (
+                  {primaryPending ? (
                     <Loader2 className="size-4 animate-spin" />
-                  ) : isRegistered ? (
+                  ) : isAttendee && isRegistered ? (
                     <>
-                      <Check className="size-4" /> Registered
+                      <Check className="size-4" /> {primaryLabel}
                     </>
-                  ) : isFull ? (
-                    "Event full"
                   ) : (
                     <>
-                      <RegisterIcon className="size-4" /> {registerLabel}
+                      <RegisterIcon className="size-4" /> {primaryLabel}
                     </>
                   )}
                 </button>
 
-                {registerMutation.isError && (
+                {isAttendee && !free && !isRegistered && paymentConfig?.enabled === false && (
                   <p className="mt-2 text-xs text-amber-600">
-                    {(registerMutation.error as any)?.response?.data?.message || "Registration failed"}
+                    Payments aren&apos;t configured on this server yet — contact the organizer.
                   </p>
+                )}
+                {(registerMutation.isError || checkoutMutation.isError) && (
+                  <p className="mt-2 text-xs text-amber-600">
+                    {(registerMutation.error as any)?.response?.data?.message ||
+                      (checkoutMutation.error as any)?.response?.data?.message ||
+                      "Something went wrong"}
+                  </p>
+                )}
+
+                {isAttendee && isRegistered && !isPast && registeredTicket?.status === "valid" && (
+                  <div className="mt-2">
+                    {confirmingCancel ? (
+                      <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3">
+                        <p className="text-xs text-ink">Cancel your registration? This frees your spot for someone else.</p>
+                        {cancelMutation.isError && (
+                          <p className="mt-1 text-xs text-destructive">
+                            {(cancelMutation.error as any)?.response?.data?.message || "Couldn't cancel"}
+                          </p>
+                        )}
+                        <div className="mt-2 flex gap-2">
+                          <button
+                            onClick={handleCancel}
+                            disabled={cancelMutation.isPending}
+                            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-destructive px-3 py-2 text-xs font-semibold text-destructive-foreground disabled:opacity-60"
+                          >
+                            {cancelMutation.isPending && <Loader2 className="size-3.5 animate-spin" />}
+                            Yes, cancel
+                          </button>
+                          <button
+                            onClick={() => setConfirmingCancel(false)}
+                            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-medium text-ink hover:bg-muted"
+                          >
+                            <X className="size-3.5" /> Keep it
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmingCancel(true)}
+                        className="w-full rounded-xl border border-border py-2 text-center text-xs font-medium text-muted-foreground transition-colors hover:border-destructive/40 hover:text-destructive"
+                      >
+                        Cancel registration
+                      </button>
+                    )}
+                  </div>
                 )}
 
                 <Link
                   href={ticketHref}
                   className="mt-2 block rounded-xl border border-border py-2.5 text-center text-sm font-medium text-ink transition-colors hover:bg-muted"
                 >
-                  {isRegistered ? "View my ticket" : "View related workspace"}
+                  {isAttendee && isRegistered ? "View my ticket" : isAttendee ? "View related workspace" : registerLabel}
                 </Link>
 
                 <div className="mt-3 flex gap-2">
@@ -362,12 +417,10 @@ export function RoleEventDetail({
                   <div className="flex items-center gap-1.5 text-xs font-semibold text-primary">
                     <Sparkles className="size-3.5" /> AI Insight
                   </div>
-                  <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-                    {generateAIInsight()}
-                  </p>
+                  <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{aiInsight}</p>
                 </div>
 
-                {!userHasLocation && (
+                {isAttendee && !userHasLocation && (
                   <div className="mt-4 rounded-xl border border-dashed border-primary/30 bg-primary/[0.03] p-3.5">
                     <div className="flex items-center gap-1.5 text-xs font-semibold text-primary">
                       <MapPin className="size-3.5" /> Enable location

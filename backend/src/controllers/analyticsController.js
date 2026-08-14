@@ -82,4 +82,111 @@ const getAdminAnalytics = async (req, res) => {
   }
 };
 
-module.exports = { getOrganizerAnalytics, getAdminAnalytics };
+// Segments the caller's attendee base by interest category (drawn from real
+// ticket history, not survey data), engagement tier (first-timer vs.
+// returning), and check-in rate — genuine aggregation over existing
+// Event/Ticket data rather than a trained clustering model.
+const getAudienceSegments = async (req, res) => {
+  try {
+    const filter =
+      req.user.role === "admin"
+        ? { organization: req.user.organization }
+        : { organizer: req.user._id };
+
+    const events = await Event.find(filter).select("_id category");
+    const eventIds = events.map((e) => e._id);
+    const categoryByEvent = Object.fromEntries(
+      events.map((e) => [e._id.toString(), e.category])
+    );
+
+    const tickets = await Ticket.find({
+      event: { $in: eventIds },
+      status: { $ne: "cancelled" },
+    }).select("event attendee status");
+
+    const byCategory = {};
+    const ticketCountByAttendee = {};
+    let checkedIn = 0;
+
+    tickets.forEach((t) => {
+      const cat = categoryByEvent[t.event.toString()] || "Other";
+      byCategory[cat] = (byCategory[cat] || 0) + 1;
+      const aid = t.attendee.toString();
+      ticketCountByAttendee[aid] = (ticketCountByAttendee[aid] || 0) + 1;
+      if (t.status === "checked-in") checkedIn += 1;
+    });
+
+    const attendeeIds = Object.keys(ticketCountByAttendee);
+    const newAttendees = attendeeIds.filter((id) => ticketCountByAttendee[id] === 1).length;
+    const returningAttendees = attendeeIds.filter((id) => ticketCountByAttendee[id] > 1).length;
+
+    res.json({
+      totalAttendees: attendeeIds.length,
+      byInterestCategory: Object.entries(byCategory)
+        .map(([category, count]) => ({ category, count }))
+        .sort((a, b) => b.count - a.count),
+      byEngagement: [
+        { tier: "New (1 event)", count: newAttendees },
+        { tier: "Returning (2+ events)", count: returningAttendees },
+      ],
+      checkInRate: tickets.length > 0 ? Math.round((checkedIn / tickets.length) * 100) : 0,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Suggests a send-time window from when past registrations actually
+// happened (real timestamp aggregation), plus which category is converting
+// best — feeds the organizer's notification/marketing workflow.
+const getMarketingInsight = async (req, res) => {
+  try {
+    const filter =
+      req.user.role === "admin"
+        ? { organization: req.user.organization }
+        : { organizer: req.user._id };
+
+    const events = await Event.find(filter).select("_id category registered capacity");
+    const eventIds = events.map((e) => e._id);
+    const tickets = await Ticket.find({ event: { $in: eventIds } }).select("createdAt");
+
+    const hourCounts = new Array(24).fill(0);
+    const dayCounts = new Array(7).fill(0);
+    tickets.forEach((t) => {
+      const d = new Date(t.createdAt);
+      hourCounts[d.getHours()] += 1;
+      dayCounts[d.getDay()] += 1;
+    });
+
+    const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const bestHour = hourCounts.indexOf(Math.max(...hourCounts));
+    const bestDayIdx = dayCounts.indexOf(Math.max(...dayCounts));
+
+    const bestCategory = events
+      .filter((e) => e.capacity > 0)
+      .map((e) => ({ category: e.category, fillRate: e.registered / e.capacity }))
+      .sort((a, b) => b.fillRate - a.fillRate)[0];
+
+    const hasEnoughData = tickets.length >= 5;
+
+    res.json({
+      hasEnoughData,
+      suggestedSendWindow: hasEnoughData
+        ? `${dayNames[bestDayIdx]}s around ${bestHour % 12 || 12}${bestHour < 12 ? "am" : "pm"}`
+        : null,
+      topPerformingCategory: bestCategory?.category || null,
+      note: hasEnoughData
+        ? "Based on when your past registrations actually happened — send reminders and promotions in this window for the highest response rate."
+        : "Not enough registration history yet to recommend a send window. Suggestions appear once your events collect more registrations.",
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+module.exports = {
+  getOrganizerAnalytics,
+  getAdminAnalytics,
+  getAudienceSegments,
+  getMarketingInsight,
+};

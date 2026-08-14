@@ -11,6 +11,8 @@ const notificationRoutes = require("./routes/notifications");
 const recommendationRoutes = require("./routes/recommendations");
 const analyticsRoutes = require("./routes/analytics");
 const chatbotRoutes = require("./routes/chatbot");
+const paymentRoutes = require("./routes/payments");
+const { handleWebhook } = require("./controllers/paymentController");
 
 const app = express();
 
@@ -22,6 +24,16 @@ app.use(
     credentials: true,
   })
 );
+
+// Stripe needs the raw, unparsed body to verify the webhook signature, so
+// this route is registered with express.raw() *before* the global
+// express.json() body parser below.
+app.post(
+  "/api/payments/webhook",
+  express.raw({ type: "application/json" }),
+  handleWebhook
+);
+
 app.use(express.json());
 
 app.use("/api/auth", authRoutes);
@@ -33,6 +45,7 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/recommendations", recommendationRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/chatbot", chatbotRoutes);
+app.use("/api/payments", paymentRoutes);
 
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });

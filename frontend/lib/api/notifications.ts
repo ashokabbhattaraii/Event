@@ -2,7 +2,7 @@ import apiClient from "./client";
 
 export interface Notification {
   _id: string;
-  type: "registration" | "reminder" | "event-update" | "system";
+  type: "registration" | "reminder" | "event-update" | "system" | "nearby-event";
   title: string;
   message: string;
   event?: { _id: string; title: string; date: string } | null;

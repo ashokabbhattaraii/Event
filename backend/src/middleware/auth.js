@@ -27,6 +27,24 @@ const protect = async (req, res, next) => {
   }
 };
 
+// Like protect, but doesn't reject when there's no/invalid token — it just
+// leaves req.user unset. Used by routes that serve different data to
+// anonymous vs. authenticated callers (e.g. public event browsing vs.
+// tenant-scoped visibility of draft events).
+const optionalAuth = async (req, res, next) => {
+  const header = req.headers.authorization;
+  if (!header || !header.startsWith("Bearer")) return next();
+
+  try {
+    const token = header.split(" ")[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = await User.findById(decoded.id);
+  } catch (error) {
+    // Invalid/expired token on an optional route — proceed as anonymous.
+  }
+  next();
+};
+
 const authorize = (...roles) => {
   return (req, res, next) => {
     if (!roles.includes(req.user.role)) {
@@ -68,4 +86,4 @@ const requirePermission = (permission) => {
   };
 };
 
-module.exports = { protect, authorize, requireRole, requirePermission };
+module.exports = { protect, optionalAuth, authorize, requireRole, requirePermission };

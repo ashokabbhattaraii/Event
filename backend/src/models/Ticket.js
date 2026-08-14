@@ -34,6 +34,20 @@ const ticketSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
     },
+    cancelledAt: {
+      type: Date,
+    },
+    payment: {
+      status: {
+        type: String,
+        enum: ["none", "pending", "paid", "refunded"],
+        default: "none",
+      },
+      amount: { type: Number, default: 0 },
+      currency: { type: String, default: "USD" },
+      stripeSessionId: { type: String },
+      stripePaymentIntentId: { type: String },
+    },
   },
   { timestamps: true }
 );

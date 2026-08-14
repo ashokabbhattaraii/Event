@@ -25,7 +25,7 @@ export default function CreateEventPage() {
     type: "In-person" as (typeof eventTypes)[number],
     category: "Technology",
     capacity: 100,
-    price: "Free",
+    price: 0,
     status: "Draft" as (typeof statuses)[number],
   })
 
@@ -36,7 +36,7 @@ export default function CreateEventPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     createEvent.mutate(
-      { ...form, capacity: Number(form.capacity) },
+      { ...form, capacity: Number(form.capacity), price: Number(form.price) || 0 },
       { onSuccess: () => router.push("/organizer/events") }
     )
   }
@@ -141,13 +141,20 @@ export default function CreateEventPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-sm font-medium text-ink">Price</label>
-              <input
-                value={form.price}
-                onChange={(e) => update("price", e.target.value)}
-                placeholder="Free or amount (e.g. $25)"
-                className="w-full rounded-xl border border-border bg-card px-4 py-3 text-sm text-ink outline-none focus:border-primary focus:ring-4 focus:ring-primary/10"
-              />
+              <label className="text-sm font-medium text-ink">Price (USD)</label>
+              <div className="relative">
+                <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={form.price}
+                  onChange={(e) => update("price", e.target.value)}
+                  placeholder="0"
+                  className="w-full rounded-xl border border-border bg-card py-3 pl-7 pr-4 text-sm text-ink outline-none focus:border-primary focus:ring-4 focus:ring-primary/10"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">Leave at 0 for a free event — attendees register directly with no payment step.</p>
             </div>
           </div>
 

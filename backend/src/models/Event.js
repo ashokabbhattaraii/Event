@@ -25,6 +25,14 @@ const eventSchema = new mongoose.Schema(
     coordinates: {
       lat: { type: Number },
       lng: { type: Number },
+      // GeoJSON mirror of lat/lng (kept in sync below), indexed with
+      // 2dsphere so "notify people near this event" is a real geo query
+      // instead of an application-level scan.
+      // No defaults — see the matching comment on User.location.geo.
+      geo: {
+        type: { type: String, enum: ["Point"] },
+        coordinates: { type: [Number] },
+      },
     },
     type: {
       type: String,
@@ -41,9 +49,12 @@ const eventSchema = new mongoose.Schema(
       required: [true, "Capacity is required"],
       min: 1,
     },
+    // Structured price so payment amounts are computable server-side (not a
+    // free-text label). amount === 0 means the event is free — registration
+    // skips the payment flow entirely in that case.
     price: {
-      type: String,
-      default: "Free",
+      amount: { type: Number, default: 0, min: 0 },
+      currency: { type: String, default: "USD", uppercase: true, trim: true },
     },
     status: {
       type: String,
@@ -67,5 +78,14 @@ const eventSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+eventSchema.index({ "coordinates.geo": "2dsphere" });
+
+eventSchema.pre("save", function (next) {
+  if (this.isModified("coordinates") && this.coordinates?.lat != null && this.coordinates?.lng != null) {
+    this.coordinates.geo = { type: "Point", coordinates: [this.coordinates.lng, this.coordinates.lat] };
+  }
+  next();
+});
 
 module.exports = mongoose.model("Event", eventSchema);

@@ -14,7 +14,7 @@ const notificationSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ["registration", "reminder", "event-update", "system"],
+      enum: ["registration", "reminder", "event-update", "system", "nearby-event"],
       default: "system",
     },
     title: {

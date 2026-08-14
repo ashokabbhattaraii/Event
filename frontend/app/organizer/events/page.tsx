@@ -11,6 +11,7 @@ import { Pagination } from "@/components/app/pagination"
 import { useMyEvents } from "@/lib/queries/events"
 import { useCurrentUser } from "@/lib/queries/auth"
 import { useDebounce } from "@/lib/hooks/use-debounce"
+import { formatPrice, isFreeEvent } from "@/lib/price"
 
 const statusOptions = [
   { label: "All statuses", value: "all" },
@@ -47,7 +48,7 @@ export default function OrganizerEventsPage() {
     setPage(1)
   }
 
-  const revenueEvents = events.filter((e) => e.price !== "Free").length
+  const revenueEvents = events.filter((e) => !isFreeEvent(e.price)).length
   const registrations = events.reduce((sum, e) => sum + e.registered, 0)
 
   return (
@@ -141,7 +142,7 @@ export default function OrganizerEventsPage() {
                 </p>
                 <div className="mt-4 flex items-center justify-between text-xs">
                   <span className="text-muted-foreground">{event.registered}/{event.capacity} registered</span>
-                  <span className="font-semibold text-ink">{event.price}</span>
+                  <span className="font-semibold text-ink">{formatPrice(event.price)}</span>
                 </div>
               </div>
             ))}

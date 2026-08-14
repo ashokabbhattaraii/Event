@@ -17,7 +17,9 @@ const Organization = require("./models/Organization");
 const Event = require("./models/Event");
 const Ticket = require("./models/Ticket");
 const Notification = require("./models/Notification");
+const Feedback = require("./models/Feedback");
 const { signTicketToken } = require("./utils/qrToken");
+const { classifySentiment } = require("./utils/sentiment");
 
 const DEMO_PASSWORD = "password123";
 
@@ -37,6 +39,7 @@ async function seed() {
     Event.deleteMany({}),
     Ticket.deleteMany({}),
     Notification.deleteMany({}),
+    Feedback.deleteMany({}),
   ]);
   console.log("✓ Cleared existing collections");
 
@@ -71,7 +74,23 @@ async function seed() {
       updatedAt: new Date(),
     },
   });
-  console.log("✓ Created users (admin, organizer, attendee)");
+
+  // Two more attendees so the networking/matchmaking and audience
+  // segmentation features have more than one person to work with.
+  const attendee2 = await User.create({
+    name: "Priya Sharma",
+    email: "priya@eventnexus.dev",
+    password: DEMO_PASSWORD,
+    role: "attendee",
+    location: { lat: 27.7, lng: 85.33, city: "Kathmandu", updatedAt: new Date() },
+  });
+  const attendee3 = await User.create({
+    name: "Sam Gurung",
+    email: "sam@eventnexus.dev",
+    password: DEMO_PASSWORD,
+    role: "attendee",
+  });
+  console.log("✓ Created users (admin, organizer, 3 attendees)");
 
   // --- Organization --------------------------------------------------------
   const org = await Organization.create({
@@ -83,7 +102,7 @@ async function seed() {
 
   // Link users to the organization.
   await User.updateMany(
-    { _id: { $in: [admin._id, organizer._id, attendee._id] } },
+    { _id: { $in: [admin._id, organizer._id, attendee._id, attendee2._id, attendee3._id] } },
     { organization: org._id }
   );
   console.log("✓ Created organization");
@@ -102,7 +121,7 @@ async function seed() {
       type: "In-person",
       category: "Technology",
       capacity: 300,
-      price: "Free",
+      price: { amount: 0, currency: "USD" },
       status: "Upcoming",
       organizer: organizer._id,
       organization: org._id,
@@ -117,7 +136,7 @@ async function seed() {
       type: "Hybrid",
       category: "Business",
       capacity: 120,
-      price: "Rs. 500",
+      price: { amount: 15, currency: "USD" },
       status: "Upcoming",
       organizer: organizer._id,
       organization: org._id,
@@ -132,7 +151,7 @@ async function seed() {
       type: "In-person",
       category: "Music",
       capacity: 500,
-      price: "Rs. 1500",
+      price: { amount: 45, currency: "USD" },
       status: "Live",
       organizer: organizer._id,
       organization: org._id,
@@ -144,32 +163,61 @@ async function seed() {
       date: new Date(now - 20 * day),
       venue: "Innovation Lab",
       type: "Virtual",
-      category: "Education",
+      category: "Technology",
       capacity: 80,
-      price: "Free",
+      price: { amount: 0, currency: "USD" },
       status: "Past",
       organizer: organizer._id,
       organization: org._id,
-      registered: 0,
+      registered: 2,
     },
   ]);
   console.log(`✓ Created ${events.length} events`);
 
-  // --- Ticket (attendee registered for the Tech Conference) ----------------
-  const ticketDoc = new Ticket({
-    event: events[0]._id,
-    attendee: attendee._id,
-    organization: org._id,
-    qrToken: "placeholder", // replaced below once we have the ticket _id
-    status: "valid",
-  });
-  ticketDoc.qrToken = signTicketToken(
-    ticketDoc._id.toString(),
-    events[0]._id.toString(),
-    attendee._id.toString()
-  );
-  await ticketDoc.save();
-  console.log("✓ Created ticket for attendee");
+  // --- Tickets ---------------------------------------------------------------
+  // A small mesh of registrations across attendees/events so networking
+  // (shared-interest matching), audience segmentation, and feedback all have
+  // real data to work with instead of being empty on first load.
+  const makeTicket = async ({ event, user, status = "valid", payment }) => {
+    const doc = new Ticket({
+      event: event._id,
+      attendee: user._id,
+      organization: org._id,
+      qrToken: "placeholder",
+      status,
+      payment: payment || { status: "none" },
+    });
+    doc.qrToken = signTicketToken(doc._id.toString(), event._id.toString(), user._id.toString());
+    if (status === "checked-in") doc.checkedInAt = new Date();
+    await doc.save();
+    return doc;
+  };
+
+  await makeTicket({ event: events[0], user: attendee }); // Tech Conference — Alex
+  await makeTicket({ event: events[0], user: attendee2 }); // Tech Conference — Priya (shared interest w/ Alex)
+  await makeTicket({ event: events[3], user: attendee, status: "checked-in" }); // ML Workshop (past) — Alex
+  await makeTicket({ event: events[3], user: attendee2, status: "checked-in" }); // ML Workshop (past) — Priya
+  await makeTicket({ event: events[1], user: attendee3 }); // Networking Night — Sam
+  console.log("✓ Created tickets");
+
+  // --- Feedback (for the past event) ----------------------------------------
+  const feedbackEntries = [
+    { user: attendee, rating: 5, comment: "Fantastic workshop, the instructors were excellent and very helpful!" },
+    { user: attendee2, rating: 4, comment: "Really enjoyed it, well organized. Venue was a bit crowded though." },
+  ];
+  for (const entry of feedbackEntries) {
+    const { sentiment, sentimentScore } = classifySentiment(entry);
+    await Feedback.create({
+      event: events[3]._id,
+      attendee: entry.user._id,
+      organization: org._id,
+      rating: entry.rating,
+      comment: entry.comment,
+      sentiment,
+      sentimentScore,
+    });
+  }
+  console.log("✓ Created feedback");
 
   // --- Notifications -------------------------------------------------------
   await Notification.insertMany([
@@ -210,6 +258,8 @@ async function seed() {
   console.log(` Admin      admin@eventnexus.dev     / ${DEMO_PASSWORD}`);
   console.log(` Organizer  organizer@eventnexus.dev / ${DEMO_PASSWORD}`);
   console.log(` Attendee   attendee@eventnexus.dev  / ${DEMO_PASSWORD}`);
+  console.log(` Attendee   priya@eventnexus.dev     / ${DEMO_PASSWORD}`);
+  console.log(` Attendee   sam@eventnexus.dev       / ${DEMO_PASSWORD}`);
   console.log("─────────────────────────────────────────\n");
 
   await mongoose.disconnect();

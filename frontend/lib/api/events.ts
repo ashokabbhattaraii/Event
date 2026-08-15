@@ -21,6 +21,12 @@ export interface EventSpeaker {
   photoUrl?: string;
 }
 
+export interface EventReminderSettings {
+  enabled: boolean;
+  offsets: number[];
+  feedbackDelayHours: number;
+}
+
 export interface EventData {
   _id: string;
   title: string;
@@ -48,6 +54,7 @@ export interface EventData {
   contactEmail?: string;
   contactPhone?: string;
   website?: string;
+  reminderSettings?: EventReminderSettings;
 }
 
 export interface CreateEventPayload {
@@ -71,6 +78,7 @@ export interface CreateEventPayload {
   contactEmail?: string;
   contactPhone?: string;
   website?: string;
+  reminderSettings?: EventReminderSettings;
 }
 
 export interface EventsResponse {

@@ -1,6 +1,7 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
+const helmet = require("helmet");
 const connectDB = require("./config/db");
 const authRoutes = require("./routes/auth");
 const eventRoutes = require("./routes/events");
@@ -13,12 +14,32 @@ const analyticsRoutes = require("./routes/analytics");
 const chatbotRoutes = require("./routes/chatbot");
 const paymentRoutes = require("./routes/payments");
 const aiRoutes = require("./routes/ai");
+const auditRoutes = require("./routes/audit");
+const iamRoutes = require("./routes/iam");
+const systemRoutes = require("./routes/system");
 const { handleWebhook } = require("./controllers/paymentController");
 const aiHealth = require("./utils/aiClient").health;
+const { notFound, errorHandler } = require("./middleware/errors");
 
 const app = express();
 
-connectDB();
+connectDB().then(() => {
+  // Start the in-process reminder scheduler once the DB is ready.
+  const { startScheduler } = require("./utils/reminderScheduler");
+  startScheduler();
+});
+
+// Secure HTTP headers (report §18): HSTS, X-Content-Type-Options, frame
+// protections, and friends. CSP is relaxed for the admin panel / image
+// data URLs (cover images are inline base64) — tightened via a proper CDN
+// when object storage is added.
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+  })
+);
+app.disable("x-powered-by");
 
 app.use(
   cors({
@@ -63,9 +84,18 @@ app.get("/api/ai/health", async (req, res) => {
 // Admin-only AI training console (proxies the Python AI service).
 app.use("/api/ai", aiRoutes);
 
+app.use("/api/audit", auditRoutes);
+app.use("/api/iam", iamRoutes);
+app.use("/api/system", systemRoutes);
+
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
+
+// Standardized 404 + error responses (report §23) — registered last so any
+// thrown error anywhere above lands here.
+app.use(notFound);
+app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {

@@ -1,4 +1,4 @@
-import apiClient from "./client";
+import apiClient, { REFRESH_KEY, TOKEN_KEY } from "./client";
 
 export interface User {
   _id: string;
@@ -14,11 +14,25 @@ export interface User {
   };
   // True for accounts created via Google sign-in — no password to change.
   googleAccount?: boolean;
+  // True once the email address has been confirmed (report §7).
+  emailVerified?: boolean;
+  // Whether to receive email reminders for events.
+  reminderEmail?: boolean;
 }
 
 export interface AuthResponse {
   user: User;
   token: string;
+  refreshToken: string;
+}
+
+export interface SessionInfo {
+  _id: string;
+  ip: string;
+  userAgent: string;
+  createdAt: string;
+  lastUsedAt: string;
+  expiresAt: string;
 }
 
 export interface RegisterPayload {
@@ -35,6 +49,12 @@ export interface LoginPayload {
   email: string;
   password: string;
 }
+
+// Persist the access/refresh pair issued by the server.
+export const storeSession = (data: { token: string; refreshToken: string }) => {
+  localStorage.setItem(TOKEN_KEY, data.token);
+  localStorage.setItem(REFRESH_KEY, data.refreshToken);
+};
 
 export const authApi = {
   register: async (data: RegisterPayload): Promise<AuthResponse> => {
@@ -55,6 +75,46 @@ export const authApi = {
 
   getMe: async (): Promise<{ user: User }> => {
     const res = await apiClient.get("/auth/me");
+    return res.data;
+  },
+
+  logout: async (): Promise<void> => {
+    const refreshToken = localStorage.getItem(REFRESH_KEY);
+    try {
+      if (refreshToken) await apiClient.post("/auth/logout", { refreshToken });
+    } finally {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(REFRESH_KEY);
+    }
+  },
+
+  listSessions: async (): Promise<{ sessions: SessionInfo[] }> => {
+    const res = await apiClient.get("/auth/sessions");
+    return res.data;
+  },
+
+  revokeSession: async (id: string): Promise<void> => {
+    await apiClient.delete(`/auth/sessions/${id}`);
+  },
+
+  // --- Email verification (report §7) ---------------------------------------
+  verifyEmail: async (token: string): Promise<{ message: string }> => {
+    const res = await apiClient.post(`/auth/verify-email/${token}`);
+    return res.data;
+  },
+
+  resendVerification: async (): Promise<{ message: string }> => {
+    const res = await apiClient.post("/auth/resend-verification");
+    return res.data;
+  },
+
+  forgotPassword: async (email: string): Promise<{ message: string }> => {
+    const res = await apiClient.post("/auth/forgot-password", { email });
+    return res.data;
+  },
+
+  resetPassword: async (token: string, password: string): Promise<{ message: string }> => {
+    const res = await apiClient.post("/auth/reset-password", { token, password });
     return res.data;
   },
 };

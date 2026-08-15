@@ -1,5 +1,8 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
+const Role = require("../models/Role");
+const Organization = require("../models/Organization");
+const OrganizationMember = require("../models/OrganizationMember");
 
 const protect = async (req, res, next) => {
   let token;
@@ -21,6 +24,13 @@ const protect = async (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({ message: "User not found" });
     }
+    // Token-version check: a role/password change bumps tokenVersion, which
+    // invalidates every JWT minted before it — the user must re-authenticate
+    // instead of continuing on the old session. (?? 0 keeps pre-version
+    // tokens — and pre-field users — working.)
+    if ((decoded.ver ?? 0) !== (req.user.tokenVersion ?? 0)) {
+      return res.status(401).json({ message: "Session invalidated, please log in again" });
+    }
     next();
   } catch (error) {
     return res.status(401).json({ message: "Not authorized, token invalid" });
@@ -38,7 +48,12 @@ const optionalAuth = async (req, res, next) => {
   try {
     const token = header.split(" ")[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = await User.findById(decoded.id);
+    const user = await User.findById(decoded.id);
+    // Stale-version tokens (role/password changed) are treated as anonymous
+    // — an old JWT must not unlock privileged views on optional routes.
+    if (user && (decoded.ver ?? 0) === (user.tokenVersion ?? 0)) {
+      req.user = user;
+    }
   } catch (error) {
     // Invalid/expired token on an optional route — proceed as anonymous.
   }
@@ -60,23 +75,79 @@ const authorize = (...roles) => {
 // role itself; requirePermission checks intent (action on a resource), which is
 // more resilient to a role gaining/losing a capability without touching every route.
 const ROLE_PERMISSIONS = {
+  // "admin" is the OVERALL system administrator (PDF: controls all tenant
+  // companies). An admin WITHOUT an organization is platform-level (approves
+  // org registrations, sees every tenant); an admin WITH an organization is
+  // that tenant's org admin (scoped to their org by every route).
   admin: [
+    "org:approve",
     "org:manage",
     "user:manage",
     "security:view",
     "event:manage",
     "analytics:view",
     "ticket:verify",
+    "audit:view",
+    "iam:manage",
+    "collaboration:invite",
+    "session:manage",
   ],
-  organizer: ["event:manage", "analytics:view", "ticket:verify"],
+  organizer: [
+    "event:manage",
+    "analytics:view",
+    "ticket:verify",
+    "collaboration:invite",
+    "session:manage",
+  ],
   attendee: ["event:register", "ticket:view", "feedback:submit"],
+};
+
+// Roles live in MongoDB (seeded from the matrix above, editable by admins).
+// Keep an in-memory cache so requirePermission doesn't hit the DB on every
+// request; invalidated when an admin updates roles via the IAM API.
+const roleCache = new Map();
+let roleCacheLoaded = false;
+
+const loadRoleCache = async () => {
+  try {
+    const roles = await Role.find({}).lean();
+    roleCache.clear();
+    roles.forEach((r) => roleCache.set(r.name, r.permissions || []));
+    roleCacheLoaded = true;
+  } catch (error) {
+    // DB not ready (early boot) — fall back to the static matrix below.
+    roleCacheLoaded = false;
+  }
+};
+
+const getRolePermissions = (role) => {
+  const fromDb = roleCache.get(role);
+  if (fromDb) return fromDb;
+  return ROLE_PERMISSIONS[role] || [];
+};
+
+// Invalidate the cache when an admin edits roles (called by the IAM API).
+const invalidateRoleCache = () => {
+  roleCache.clear();
+  roleCacheLoaded = false;
 };
 
 const requireRole = (...roles) => authorize(...roles);
 
+// Platform-level guard: the OVERALL system admin — an "admin" user with no
+// organization attached (org admins carry an organization and are scoped to
+// their tenant). Used by the org-approval console and platform functions.
+const requireSystemAdmin = (req, res, next) => {
+  if (req.user?.role !== "admin" || req.user.organization) {
+    return res.status(403).json({ message: "System admin privileges required" });
+  }
+  next();
+};
+
 const requirePermission = (permission) => {
-  return (req, res, next) => {
-    const allowed = ROLE_PERMISSIONS[req.user.role] || [];
+  return async (req, res, next) => {
+    if (!roleCacheLoaded) await loadRoleCache();
+    const allowed = getRolePermissions(req.user.role);
     if (!allowed.includes(permission)) {
       return res
         .status(403)
@@ -86,4 +157,48 @@ const requirePermission = (permission) => {
   };
 };
 
-module.exports = { protect, optionalAuth, authorize, requireRole, requirePermission };
+// Organization-level admin: the tenant owner (Organization.owner, kept for
+// back-compat) or an active OrganizationMember with an admin-level
+// roleInOrg (owner/admin/manager). Used for tenant-scoped management
+// (membership, settings, collaboration invitations).
+const requireOrgAdmin = async (req, res, next) => {
+  try {
+    const orgId = req.user?.organization;
+    if (!orgId) {
+      return res.status(403).json({ message: "User has no organization assigned" });
+    }
+    const [membership, organization] = await Promise.all([
+      OrganizationMember.findOne({
+        organization: orgId,
+        user: req.user._id,
+        status: "active",
+      }).lean(),
+      Organization.findById(orgId).lean(),
+    ]);
+    const isOwner =
+      membership?.roleInOrg === "owner" ||
+      (organization?.owner?.toString() === req.user._id.toString() && !membership);
+    const isOrgAdmin = ["admin", "manager"].includes(membership?.roleInOrg);
+    if (!isOwner && !isOrgAdmin) {
+      return res.status(403).json({ message: "Not authorized for this organization" });
+    }
+    req.orgAdminRole = membership?.roleInOrg || "owner";
+    next();
+  } catch (error) {
+    next(error);
+  }
+};
+
+module.exports = {
+  protect,
+  optionalAuth,
+  authorize,
+  requireRole,
+  requireSystemAdmin,
+  requirePermission,
+  requireOrgAdmin,
+  loadRoleCache,
+  invalidateRoleCache,
+  getRolePermissions,
+  ROLE_PERMISSIONS,
+};

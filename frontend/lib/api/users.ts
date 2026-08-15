@@ -3,6 +3,9 @@ import { toQueryString, type ListParams, type Pagination } from "./list";
 
 export interface UserListParams extends ListParams {
   role?: string;
+  // System admin (admin w/o org) passes organizationId to view another
+  // tenant; org admins always see their own tenant.
+  organizationId?: string;
 }
 
 export interface OrgUser {
@@ -12,6 +15,15 @@ export interface OrgUser {
   role: "admin" | "organizer" | "attendee";
   organization: string;
   createdAt: string;
+}
+
+export interface CreateUserPayload {
+  name: string;
+  email: string;
+  password: string;
+  role: "admin" | "organizer" | "attendee";
+  // The system admin (platform view) scopes the new account to a tenant.
+  organizationId?: string;
 }
 
 export interface OrgStats {
@@ -44,6 +56,11 @@ export const usersApi = {
     return res.data;
   },
 
+  create: async (data: CreateUserPayload): Promise<{ user: OrgUser }> => {
+    const res = await apiClient.post("/users", data);
+    return res.data;
+  },
+
   // Settings — any authenticated role can update their own profile.
   updateMyProfile: async (
     name: string
@@ -57,6 +74,13 @@ export const usersApi = {
     newPassword: string;
   }): Promise<{ message: string }> => {
     const res = await apiClient.patch("/users/me/password", payload);
+    return res.data;
+  },
+
+  updateReminderPreference: async (
+    reminderEmail: boolean
+  ): Promise<{ reminderEmail: boolean }> => {
+    const res = await apiClient.patch("/users/me/reminders", { reminderEmail });
     return res.data;
   },
 };

@@ -123,6 +123,17 @@ const eventSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    // Reminder configuration for this event.
+    // When enabled, attendees with reminderEmail=true receive in-app + email
+    // reminders at the specified offsets (minutes before start) and a feedback
+    // nudge after the event ends. Organizers manage this in the event workspace.
+    reminderSettings: {
+      enabled: { type: Boolean, default: true },
+      // Minutes before event start to send a reminder. Defaults to 24h and 1h.
+      offsets: { type: [Number], default: [1440, 60] },
+      // Hours after event end to send a feedback reminder nudge.
+      feedbackDelayHours: { type: Number, default: 24 },
+    },
     organizer: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

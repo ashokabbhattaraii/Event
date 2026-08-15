@@ -54,3 +54,22 @@ detail page.
 - [x] De-faked all dashboard charts — organizer/admin analytics, registration trend, ticket mix, predicted-vs-actual attendance, role distribution, and category breakdown now render real backend data instead of hardcoded demo arrays
 - [x] Audience segments and marketing-insight endpoints (built in round 1 but never surfaced) now have real chart/card UI on the organizer analytics page
 - [x] `getOrgStats` extended with real per-role user counts
+
+## Round 3 — IAM, session security, email verification
+- [x] IAM API (`/api/iam` roles/permissions), organization membership API, `/api/audit` admin audit trail with audit() wired into auth/event/user/role/session flows
+- [x] Central error middleware `{success:false,message,code}`, sanitized validator, helmet
+- [x] `Session` model: SHA-256 hashed tokens, rotation on refresh, reuse → revoke whole token family, TTL
+- [x] Refresh/logout/sessions-list/revoke endpoints; axios single-flight 401 auto-refresh on the frontend
+- [x] Email verification (`/verify-email`, resend), forgot/reset password flows; dev-mode mail log (console + Mail collection, no SMTP)
+- [x] Frontend `/verify-email`, `/forgot-password`, `/reset-password` pages, unverified-email banner, sessions manager in Settings
+
+## Round 4 — org registration + system-admin approval workflow (per PDF roles)
+- [x] `Organization` extended: registration details (email/phone/address/city/country/type/description/website) + approval fields (pending/active/rejected/suspended, approvedBy/At, rejectionReason)
+- [x] `POST /api/auth/org-register` — org self-registers with full details + org-admin credentials → org is **pending**; admin can't log in yet
+- [x] Login gate: pending/rejected/suspended orgs return 403 with clear reason (rejection reason shown to the org admin)
+- [x] System admin = `admin` role **without** an organization (controls all tenants per PDF); org admin = `admin` **with** organization (tenant-scoped). `requireSystemAdmin` guard
+- [x] `GET /api/system/orgs` (filter by status), `POST /api/system/orgs/:id/approve`, `POST /api/system/orgs/:id/reject` — approval emails + audit (`org_registered`/`org_approved`/`org_rejected`)
+- [x] `POST /api/users` — org/system admin creates user credentials with full RBAC (name/email/password/role) for their tenant
+- [x] User listing/stats: system admin sees all tenants, org admin only their own
+- [x] Frontend: `/org-register` form, `/admin/approvals` console (approve/reject with reason), nav item, register/login page links
+- [x] Seed: system admin `admin@eventnexus.dev` (no org) + org admin `orgadmin@eventnexus.dev` (tenant-scoped), roles seeded with `org:approve` permission

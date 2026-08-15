@@ -2,10 +2,12 @@ const express = require("express");
 const { body } = require("express-validator");
 const {
   listOrgUsers,
+  createUser,
   updateUserRole,
   updateMyLocation,
   updateMyProfile,
   updateMyPassword,
+  updateReminderPreference,
   getOrgStats,
 } = require("../controllers/userController");
 const { protect, requireRole } = require("../middleware/auth");
@@ -39,6 +41,14 @@ router.patch(
 );
 
 router.patch(
+  "/me/reminders",
+  protect,
+  [body("reminderEmail").isBoolean().withMessage("reminderEmail must be a boolean")],
+  validate,
+  updateReminderPreference
+);
+
+router.patch(
   "/me/password",
   protect,
   [
@@ -51,6 +61,25 @@ router.patch(
 
 router.get("/", protect, requireRole("admin"), listOrgUsers);
 router.get("/stats", protect, requireRole("admin"), getOrgStats);
+router.post(
+  "/",
+  protect,
+  requireRole("admin"),
+  [
+    body("name").notEmpty().withMessage("Name is required"),
+    body("email").isEmail().withMessage("Valid email is required"),
+    body("password")
+      .isLength({ min: 6 })
+      .withMessage("Password must be at least 6 characters"),
+    body("role").optional().isIn(["admin", "organizer", "attendee"]).withMessage("Invalid role"),
+    body("organizationId")
+      .optional()
+      .isMongoId()
+      .withMessage("organizationId must be a valid id"),
+  ],
+  validate,
+  createUser
+);
 router.put(
   "/:id/role",
   protect,

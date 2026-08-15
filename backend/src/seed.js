@@ -13,7 +13,12 @@ require("dotenv").config();
 const mongoose = require("mongoose");
 
 const User = require("./models/User");
+const Session = require("./models/Session");
+const Mail = require("./models/Mail");
 const Organization = require("./models/Organization");
+const OrganizationMember = require("./models/OrganizationMember");
+const Role = require("./models/Role");
+const Permission = require("./models/Permission");
 const Event = require("./models/Event");
 const Ticket = require("./models/Ticket");
 const Notification = require("./models/Notification");
@@ -33,9 +38,16 @@ async function seed() {
   console.log(`MongoDB connected: ${mongoose.connection.host}`);
 
   // --- Clean slate ---------------------------------------------------------
+  // AuditLog is intentionally NOT wiped: the audit trail is append-only by
+  // design (report §24) and should survive reseeds.
   await Promise.all([
     User.deleteMany({}),
     Organization.deleteMany({}),
+    OrganizationMember.deleteMany({}),
+    Role.deleteMany({}),
+    Permission.deleteMany({}),
+    Session.deleteMany({}),
+    Mail.deleteMany({}),
     Event.deleteMany({}),
     Ticket.deleteMany({}),
     Notification.deleteMany({}),
@@ -51,6 +63,10 @@ async function seed() {
     email: "admin@eventnexus.dev",
     password: DEMO_PASSWORD,
     role: "admin",
+    // The seeded admin is the OVERALL system admin (no organization): they
+    // approve organization registrations and control every tenant. Seeded
+    // users are pre-verified so demo flows work immediately.
+    emailVerifiedAt: new Date(),
   });
 
   const organizer = await User.create({
@@ -58,6 +74,17 @@ async function seed() {
     email: "organizer@eventnexus.dev",
     password: DEMO_PASSWORD,
     role: "organizer",
+    emailVerifiedAt: new Date(),
+  });
+
+  // Org admin for the demo tenant: role "admin" WITH an organization —
+  // scoped to their own org (vs. the system admin above, who has none).
+  const orgAdmin = await User.create({
+    name: "Dev Adhikari",
+    email: "orgadmin@eventnexus.dev",
+    password: DEMO_PASSWORD,
+    role: "admin",
+    emailVerifiedAt: new Date(),
   });
 
   const attendee = await User.create({
@@ -65,6 +92,7 @@ async function seed() {
     email: "attendee@eventnexus.dev",
     password: DEMO_PASSWORD,
     role: "attendee",
+    emailVerifiedAt: new Date(),
     // Seeded so distance-based recommendations work without a browser
     // (central Kathmandu). Real users' locations are captured on login.
     location: {
@@ -82,6 +110,7 @@ async function seed() {
     email: "priya@eventnexus.dev",
     password: DEMO_PASSWORD,
     role: "attendee",
+    emailVerifiedAt: new Date(),
     location: { lat: 27.7, lng: 85.33, city: "Kathmandu", updatedAt: new Date() },
   });
   const attendee3 = await User.create({
@@ -89,6 +118,7 @@ async function seed() {
     email: "sam@eventnexus.dev",
     password: DEMO_PASSWORD,
     role: "attendee",
+    emailVerifiedAt: new Date(),
   });
   console.log("✓ Created users (admin, organizer, 3 attendees)");
 
@@ -98,14 +128,92 @@ async function seed() {
     slug: "eventnexus-demo",
     owner: organizer._id,
     status: "active",
+    email: "hello@eventnexus.dev",
+    phone: "+977-1-5551234",
+    address: "Durbar Marg",
+    city: "Kathmandu",
+    country: "Nepal",
+    type: "Company",
+    description: "Demo organization for the EventNexus platform.",
+    website: "https://eventnexus.dev",
+    approvedAt: new Date(),
   });
 
-  // Link users to the organization.
+  // Link users to the organization. The system admin (admin@eventnexus.dev)
+  // stays org-less — platform-level, controls all tenants (PDF).
   await User.updateMany(
-    { _id: { $in: [admin._id, organizer._id, attendee._id, attendee2._id, attendee3._id] } },
+    { _id: { $in: [organizer._id, orgAdmin._id, attendee._id, attendee2._id, attendee3._id] } },
     { organization: org._id }
   );
   console.log("✓ Created organization");
+
+  // --- Roles & permissions --------------------------------------------------
+  // Mirrors the RBAC matrix in middleware/auth.js (ROLE_PERMISSIONS). The
+  // DB copy is authoritative when present; the static fallback keeps the
+  // system working on a fresh database before seeding.
+  const PERMISSIONS = [
+    { code: "event:view", name: "View events", scope: "system" },
+    { code: "event:create", name: "Create events", scope: "system" },
+    { code: "event:update", name: "Update events", scope: "system" },
+    { code: "event:delete", name: "Delete events", scope: "system" },
+    { code: "event:publish", name: "Publish events", scope: "system" },
+    { code: "ticket:view", name: "View tickets", scope: "system" },
+    { code: "ticket:checkin", name: "Check in attendees", scope: "system" },
+    { code: "user:view", name: "View users", scope: "system" },
+    { code: "user:manage", name: "Manage users", scope: "system" },
+    { code: "report:view", name: "View reports", scope: "system" },
+    { code: "audit:view", name: "View audit logs", scope: "system" },
+    { code: "role:manage", name: "Manage roles", scope: "system" },
+    { code: "ai:use", name: "Use AI features", scope: "system" },
+    { code: "org:approve", name: "Approve organization registrations", scope: "system" },
+  ];
+
+  const ROLES = [
+    {
+      name: "admin",
+      description: "Overall system administrator — controls all tenant companies (PDF §2.4)",
+      scope: "system",
+      permissions: PERMISSIONS.map((p) => p.code),
+    },
+    {
+      name: "organizer",
+      description: "Creates and manages events, checks in attendees",
+      scope: "system",
+      permissions: [
+        "event:view",
+        "event:create",
+        "event:update",
+        "event:delete",
+        "event:publish",
+        "ticket:view",
+        "ticket:checkin",
+        "user:view",
+        "report:view",
+      ],
+    },
+    {
+      name: "attendee",
+      description: "Registers for events and manages their tickets",
+      scope: "system",
+      permissions: ["event:view", "ticket:view", "ai:use"],
+    },
+  ];
+
+  await Permission.deleteMany({});
+  await Permission.insertMany(PERMISSIONS);
+  await Role.deleteMany({});
+  await Role.insertMany(ROLES);
+  console.log(`✓ Created ${PERMISSIONS.length} permissions, ${ROLES.length} roles`);
+
+  // --- Organization members --------------------------------------------------
+  await OrganizationMember.insertMany([
+    { user: organizer._id, organization: org._id, roleInOrg: "owner", status: "active" },
+    { user: orgAdmin._id, organization: org._id, roleInOrg: "owner", status: "active" },
+    { user: attendee._id, organization: org._id, roleInOrg: "member", status: "active" },
+    { user: attendee2._id, organization: org._id, roleInOrg: "member", status: "active" },
+    { user: attendee3._id, organization: org._id, roleInOrg: "member", status: "active" },
+  ]);
+  console.log("✓ Created organization members");
 
   // --- Events --------------------------------------------------------------
   const day = 24 * 60 * 60 * 1000;
@@ -334,8 +442,9 @@ async function seed() {
   console.log("\n─────────────────────────────────────────");
   console.log(" Seed complete. Login credentials:");
   console.log("─────────────────────────────────────────");
-  console.log(` Admin      admin@eventnexus.dev     / ${DEMO_PASSWORD}`);
-  console.log(` Organizer  organizer@eventnexus.dev / ${DEMO_PASSWORD}`);
+  console.log(` System admin admin@eventnexus.dev     / ${DEMO_PASSWORD}`);
+  console.log(` Org admin    orgadmin@eventnexus.dev   / ${DEMO_PASSWORD}`);
+  console.log(` Organizer    organizer@eventnexus.dev  / ${DEMO_PASSWORD}`);
   console.log(` Attendee   attendee@eventnexus.dev  / ${DEMO_PASSWORD}`);
   console.log(` Attendee   priya@eventnexus.dev     / ${DEMO_PASSWORD}`);
   console.log(` Attendee   sam@eventnexus.dev       / ${DEMO_PASSWORD}`);

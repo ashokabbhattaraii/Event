@@ -101,6 +101,12 @@ export default function RegisterPage() {
             Log In
           </Link>
         </p>
+        <p className="auth-field text-center text-sm text-muted-foreground">
+          New organization?{" "}
+          <Link href="/org-register" className="font-semibold text-primary hover:underline">
+            Register your organization
+          </Link>
+        </p>
       </form>
     </AuthShell>
   )

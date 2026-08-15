@@ -3,9 +3,9 @@
 import { useState } from "react"
 import { AppShell } from "@/components/app/app-shell"
 import { Reveal } from "@/components/anim/reveal"
-import { useCurrentUser } from "@/lib/queries/auth"
+import { useCurrentUser, useLogout, useSessions, useRevokeSession } from "@/lib/queries/auth"
 import { useSaveLocationCoords } from "@/lib/queries/location"
-import { useUpdateMyPassword, useUpdateMyProfile } from "@/lib/queries/users"
+import { useUpdateMyPassword, useUpdateMyProfile, useUpdateReminderPreference } from "@/lib/queries/users"
 import { captureAndSaveLocation, getBrowserLocation } from "@/lib/api/location"
 import {
   MapPin,
@@ -21,6 +21,11 @@ import {
   Eye,
   EyeOff,
   UserRound,
+  MonitorSmartphone,
+  LogOut,
+  Smartphone,
+  Bell,
+  BellOff,
 } from "lucide-react"
 
 const roleToShell = (role?: string) =>
@@ -31,6 +36,8 @@ export default function AttendeeSettingsPage() {
   const saveCoords = useSaveLocationCoords()
   const updateProfile = useUpdateMyProfile()
   const updatePassword = useUpdateMyPassword()
+  const updateReminderPref = useUpdateReminderPreference()
+  const logout = useLogout()
   const user = userData?.user
 
   const [manualLat, setManualLat] = useState(user?.location?.lat?.toString() || "")
@@ -50,6 +57,9 @@ export default function AttendeeSettingsPage() {
   const [showPasswords, setShowPasswords] = useState(false)
   const [passwordStatus, setPasswordStatus] = useState<"idle" | "saving" | "saved" | "error">("idle")
   const [passwordError, setPasswordError] = useState("")
+
+  const [reminderEmail, setReminderEmail] = useState(user?.reminderEmail ?? true)
+  const [reminderStatus, setReminderStatus] = useState<"idle" | "saving" | "saved" | "error">("idle")
 
   const hasLocation = user?.location?.lat != null
 
@@ -148,10 +158,9 @@ export default function AttendeeSettingsPage() {
       {
         onSuccess: () => {
           setPasswordStatus("saved")
-          setCurrentPassword("")
-          setNewPassword("")
-          setConfirmPassword("")
-          setTimeout(() => setPasswordStatus("idle"), 2500)
+          // The backend invalidates every session on password change — the
+          // current one included — so this device must re-authenticate now.
+          setTimeout(() => logout(), 1200)
         },
         onError: (err) => {
           setPasswordStatus("error")
@@ -161,7 +170,31 @@ export default function AttendeeSettingsPage() {
     )
   }
 
+  const handleReminderToggle = () => {
+    const next = !reminderEmail
+    setReminderEmail(next)
+    setReminderStatus("saving")
+    updateReminderPref.mutate(next, {
+      onSuccess: () => {
+        setReminderStatus("saved")
+        setTimeout(() => setReminderStatus("idle"), 2000)
+      },
+      onError: (err) => {
+        setReminderStatus("error")
+        setReminderEmail(reminderEmail) // revert on error
+        setTimeout(() => setReminderStatus("idle"), 2000)
+        console.error("Failed to update reminder preference:", err)
+      },
+    })
+  }
+
   const shellRole = roleToShell(user?.role)
+  const sessions = useSessions()
+  const revokeSession = useRevokeSession()
+  const deviceIcon = (ua: string) => {
+    if (/mobile|iphone|android/i.test(ua)) return <Smartphone className="size-4" />
+    return <MonitorSmartphone className="size-4" />
+  }
   const pwInput = (label: string, value: string, onChange: (v: string) => void, placeholder: string) => (
     <div className="relative">
       <label className="text-xs font-medium text-ink">{label}</label>
@@ -185,15 +218,13 @@ export default function AttendeeSettingsPage() {
 
   return (
     <AppShell role={shellRole} userName={user?.name || "User"} title="Settings">
-      <div className="mx-auto max-w-2xl space-y-8">
-        <Reveal y={16}>
-          <div>
-            <h1 className="font-display text-2xl font-bold tracking-tight text-ink">Settings</h1>
-            <p className="mt-1 text-sm text-muted-foreground">Manage your profile, location, and preferences.</p>
-          </div>
+      <div className="space-y-8">
+        <Reveal className="flex flex-col gap-1">
+          <h1 className="font-display text-2xl font-bold tracking-tight text-ink">Settings</h1>
+          <p className="text-sm text-muted-foreground">Manage your profile, location, and preferences.</p>
         </Reveal>
 
-        <Reveal y={16}>
+        <Reveal stagger={0.1} y={24} className="grid gap-6 lg:grid-cols-2">
           <div className="rounded-2xl border border-border bg-card p-6">
             <div className="flex items-center gap-3">
               <span className="flex size-10 items-center justify-center rounded-xl bg-primary/10">
@@ -332,9 +363,59 @@ export default function AttendeeSettingsPage() {
               )}
             </div>
           </div>
-        </Reveal>
 
-        <Reveal y={16}>
+          <div className="rounded-2xl border border-border bg-card p-6">
+            <div className="flex items-center gap-3">
+              <span className="flex size-10 items-center justify-center rounded-xl bg-primary/10">
+                <Bell className="size-5 text-primary" />
+              </span>
+              <div>
+                <h2 className="font-display text-base font-bold text-ink">Notifications</h2>
+                <p className="text-xs text-muted-foreground">
+                  Choose whether to receive email reminders for upcoming events and post-event feedback.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="flex size-10 items-center justify-center rounded-xl bg-primary/10">
+                    {reminderEmail ? <Bell className="size-5 text-primary" /> : <BellOff className="size-5 text-muted-foreground" />}
+                  </span>
+                  <div>
+                    <h3 className="font-display text-sm font-bold text-ink">Email reminders</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Get reminded before events start and nudged for feedback after events end.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleReminderToggle}
+                  disabled={reminderStatus === "saving"}
+                  className={`flex shrink-0 items-center h-6 rounded-lg px-3 transition-colors ${
+                    reminderEmail
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground"
+                  } disabled:opacity-60`}
+                  aria-label={reminderEmail ? "Disable email reminders" : "Enable email reminders"}
+                >
+                  <span className="text-xs font-medium">{reminderEmail ? "On" : "Off"}</span>
+                  {reminderStatus === "saving" && (
+                    <Loader2 className="size-3 ml-1 animate-spin" />
+                  )}
+                </button>
+              </div>
+
+              {reminderStatus === "error" && (
+                <p className="text-xs text-amber-600">Could not save preference. Please try again.</p>
+              )}
+              {reminderStatus === "saved" && (
+                <p className="text-xs text-emerald-600">Saved.</p>
+              )}
+            </div>
+          </div>
+
           <div className="rounded-2xl border border-border bg-card p-6">
             <div className="flex items-center gap-3">
               <span className="flex size-10 items-center justify-center rounded-xl bg-muted">
@@ -387,10 +468,8 @@ export default function AttendeeSettingsPage() {
               {profileStatus === "error" && <p className="text-xs text-amber-600">{profileError}</p>}
             </div>
           </div>
-        </Reveal>
 
-        {!user?.googleAccount && (
-          <Reveal y={16}>
+          {!user?.googleAccount && (
             <div className="rounded-2xl border border-border bg-card p-6">
               <div className="flex items-center gap-3">
                 <span className="flex size-10 items-center justify-center rounded-xl bg-primary/10">
@@ -439,8 +518,64 @@ export default function AttendeeSettingsPage() {
                 )}
               </div>
             </div>
-          </Reveal>
-        )}
+          )}
+
+          <div className="rounded-2xl border border-border bg-card p-6 lg:col-span-2">
+            <div className="flex items-center gap-3">
+              <span className="flex size-10 items-center justify-center rounded-xl bg-primary/10">
+                <MonitorSmartphone className="size-5 text-primary" />
+              </span>
+              <div>
+                <h2 className="font-display text-base font-bold text-ink">Active sessions</h2>
+                <p className="text-xs text-muted-foreground">
+                  Devices currently signed in to your account. Revoke any you don&apos;t recognize.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 space-y-3">
+              {sessions.isLoading && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="size-4 animate-spin" /> Loading sessions…
+                </div>
+              )}
+              {sessions.data?.sessions.length === 0 && (
+                <p className="text-sm text-muted-foreground">No active sessions.</p>
+              )}
+              {sessions.data?.sessions.map((s) => (
+                <div
+                  key={s._id}
+                  className="flex items-center gap-3 rounded-xl border border-border bg-background px-4 py-3"
+                >
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-ink">
+                    {deviceIcon(s.userAgent || "")}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-ink">
+                      {s.userAgent?.split("(")[0].trim() || "Unknown device"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {s.ip || "IP hidden"} · Last active{" "}
+                      {s.lastUsedAt
+                        ? new Date(s.lastUsedAt).toLocaleString()
+                        : new Date(s.createdAt).toLocaleString()}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => revokeSession.mutate(s._id)}
+                    disabled={revokeSession.isPending}
+                    className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                  >
+                    <LogOut className="size-3.5" /> Revoke
+                  </button>
+                </div>
+              ))}
+              {sessions.isError && (
+                <p className="text-xs text-amber-600">Could not load sessions.</p>
+              )}
+            </div>
+          </div>
+        </Reveal>
       </div>
     </AppShell>
   )

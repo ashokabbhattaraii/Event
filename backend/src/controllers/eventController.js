@@ -1,6 +1,7 @@
 const Event = require("../models/Event");
 const Ticket = require("../models/Ticket");
 const Notification = require("../models/Notification");
+const { audit } = require("../utils/audit");
 const {
   parsePagination,
   buildSearch,
@@ -118,6 +119,14 @@ const createEvent = async (req, res) => {
       );
     }
 
+    audit({
+      req,
+      action: "event_created",
+      resourceType: "Event",
+      resourceId: event._id,
+      metadata: { title: event.title, status: event.status },
+    });
+
     res.status(201).json({ event });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -199,6 +208,7 @@ const UPDATABLE_EVENT_FIELDS = [
   "contactEmail",
   "contactPhone",
   "website",
+  "reminderSettings",
 ];
 
 const updateEvent = async (req, res) => {
@@ -270,6 +280,14 @@ const updateEvent = async (req, res) => {
       );
     }
 
+    audit({
+      req,
+      action: "event_updated",
+      resourceType: "Event",
+      resourceId: event._id,
+      metadata: { title: event.title, fields: Object.keys(updates) },
+    });
+
     res.json({ event });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -294,6 +312,15 @@ const deleteEvent = async (req, res) => {
       Notification.deleteMany({ event: event._id }),
       event.deleteOne(),
     ]);
+
+    audit({
+      req,
+      action: "event_deleted",
+      resourceType: "Event",
+      resourceId: event._id,
+      metadata: { title: event.title },
+    });
+
     res.json({ message: "Event deleted" });
   } catch (error) {
     res.status(500).json({ message: error.message });

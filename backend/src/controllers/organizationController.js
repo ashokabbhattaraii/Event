@@ -1,4 +1,7 @@
 const Organization = require("../models/Organization");
+const OrganizationMember = require("../models/OrganizationMember");
+const User = require("../models/User");
+const { audit } = require("../utils/audit");
 
 const slugify = (name) =>
   name
@@ -49,7 +52,171 @@ const updateMyOrganization = async (req, res) => {
     if (status) organization.status = status;
     await organization.save();
 
+    audit({
+      req,
+      action: "organization_updated",
+      resourceType: "Organization",
+      resourceId: organization._id,
+      metadata: { name, status },
+    });
+
     res.json({ organization });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// --- Organization membership (tenant-level roles, report §15) -------------
+
+// Members of the caller's organization, with their org-level roles.
+const listMembers = async (req, res) => {
+  try {
+    const orgId = req.user.organization;
+    const members = await OrganizationMember.find({
+      organization: orgId,
+      status: { $ne: "removed" },
+    })
+      .populate("user", "name email role")
+      .sort({ roleInOrg: 1, joinedAt: 1 });
+
+    res.json({
+      members: members.map((m) => ({
+        _id: m._id,
+        userId: m.user?._id,
+        name: m.user?.name,
+        email: m.user?.email,
+        systemRole: m.user?.role,
+        roleInOrg: m.roleInOrg,
+        status: m.status,
+        joinedAt: m.joinedAt,
+      })),
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Add an existing platform user to the organization (by email) and grant an
+// org-level role. Only org admins (requireOrgAdmin) may do this.
+const addMember = async (req, res) => {
+  try {
+    const { email, roleInOrg = "member" } = req.body;
+    if (!email) {
+      return res.status(400).json({ message: "email is required" });
+    }
+    if (!["owner", "admin", "manager", "member"].includes(roleInOrg)) {
+      return res.status(400).json({ message: "Invalid roleInOrg" });
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user) {
+      return res.status(404).json({ message: "No user found with that email" });
+    }
+
+    const orgId = req.user.organization;
+    // Re-adding someone who was removed: revive the membership.
+    let member = await OrganizationMember.findOne({ organization: orgId, user: user._id });
+    if (member?.status === "removed") {
+      member.status = "active";
+      member.roleInOrg = roleInOrg;
+    } else if (member) {
+      return res.status(409).json({ message: "User is already a member" });
+    } else {
+      member = await OrganizationMember.create({
+        organization: orgId,
+        user: user._id,
+        roleInOrg,
+        invitedBy: req.user._id,
+      });
+    }
+    await member.save();
+
+    // Keep the user's tenant pointer in sync.
+    if (!user.organization) {
+      user.organization = orgId;
+      await user.save();
+    }
+
+    audit({
+      req,
+      action: "member_added",
+      resourceType: "Organization",
+      resourceId: orgId,
+      metadata: { userId: user._id, email, roleInOrg },
+    });
+
+    res.status(201).json({ member });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+const updateMemberRole = async (req, res) => {
+  try {
+    const { roleInOrg } = req.body;
+    if (!["owner", "admin", "manager", "member"].includes(roleInOrg)) {
+      return res.status(400).json({ message: "Invalid roleInOrg" });
+    }
+    const orgId = req.user.organization;
+    const member = await OrganizationMember.findOne({
+      organization: orgId,
+      user: req.params.userId,
+      status: { $ne: "removed" },
+    });
+    if (!member) {
+      return res.status(404).json({ message: "Membership not found" });
+    }
+    if (member.roleInOrg === "owner" && req.user._id.toString() !== member.user.toString()) {
+      return res.status(403).json({ message: "Only the owner can change the owner role" });
+    }
+
+    member.roleInOrg = roleInOrg;
+    await member.save();
+
+    audit({
+      req,
+      action: "member_role_changed",
+      resourceType: "Organization",
+      resourceId: orgId,
+      metadata: { userId: req.params.userId, roleInOrg },
+    });
+
+    res.json({ member });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+const removeMember = async (req, res) => {
+  try {
+    const orgId = req.user.organization;
+    const member = await OrganizationMember.findOne({
+      organization: orgId,
+      user: req.params.userId,
+      status: { $ne: "removed" },
+    });
+    if (!member) {
+      return res.status(404).json({ message: "Membership not found" });
+    }
+    if (member.roleInOrg === "owner") {
+      return res.status(403).json({ message: "The owner cannot be removed" });
+    }
+    if (req.user._id.toString() === member.user.toString()) {
+      return res.status(403).json({ message: "You cannot remove yourself" });
+    }
+
+    member.status = "removed";
+    await member.save();
+
+    audit({
+      req,
+      action: "member_removed",
+      resourceType: "Organization",
+      resourceId: orgId,
+      metadata: { userId: req.params.userId },
+    });
+
+    res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -60,4 +227,8 @@ module.exports = {
   listOrganizations,
   getMyOrganization,
   updateMyOrganization,
+  listMembers,
+  addMember,
+  updateMemberRole,
+  removeMember,
 };

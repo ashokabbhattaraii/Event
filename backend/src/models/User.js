@@ -38,10 +38,37 @@ const userSchema = new mongoose.Schema(
       enum: ["admin", "organizer", "attendee"],
       default: "attendee",
     },
+    // Bumped whenever the account's privileges change (role change, password
+    // change/reset). Access tokens carry the version at mint time, and
+    // protect() rejects tokens whose version is stale — so a privilege
+    // change invalidates every outstanding JWT and forces a re-login instead
+    // of letting old sessions keep running with their previous role.
+    tokenVersion: { type: Number, default: 0 },
+    // Set the first time the ADMIN_EMAILS allowlist grants the admin role
+    // (Google sign-in or privileged registration). A deliberate demotion
+    // sticks: once granted, allowlist logins never re-promote — without this
+    // a demoted admin would silently flip back to admin on their next
+    // Google sign-in.
+    adminGrantedAt: { type: Date },
+    // Email verification (report §7). Set when the user confirms their email
+    // address via the verification link; Google-verified accounts get it on
+    // sign-up. A user without it may log in but the UI surfaces a banner.
+    emailVerifiedAt: { type: Date },
+    // One-time verification token (hashed) + expiry. Only stored while a
+    // verification email is outstanding.
+    emailVerificationToken: { type: String, select: false },
+    emailVerificationExpiresAt: { type: Date },
+    // Password-reset token (hashed) + expiry (report §7).
+    passwordResetToken: { type: String, select: false },
+    passwordResetExpiresAt: { type: Date },
     organization: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Organization",
     },
+    // Whether to send email reminders for upcoming events and post-event feedback.
+    // Defaults to true so attendees get reminders out of the box; can be toggled
+    // in Settings → Notifications.
+    reminderEmail: { type: Boolean, default: true },
     // Captured (with permission) from the browser on login. Powers
     // distance-based recommendations and the chatbot's "near me" answers.
     location: {

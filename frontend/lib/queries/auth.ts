@@ -2,10 +2,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import {
   authApi,
+  storeSession,
   type AuthResponse,
   type LoginPayload,
   type RegisterPayload,
 } from "../api/auth";
+import { clearSession } from "../api/client";
 import { captureAndSaveLocation } from "../api/location";
 import { useHasToken } from "../hooks/use-has-token";
 
@@ -34,7 +36,7 @@ function useAuthSuccess() {
   const router = useRouter();
 
   return (data: AuthResponse) => {
-    localStorage.setItem("token", data.token);
+    storeSession(data);
     localStorage.setItem("user", JSON.stringify(data.user));
     queryClient.setQueryData(authKeys.me, { user: data.user });
 
@@ -78,10 +80,63 @@ export function useLogout() {
   const queryClient = useQueryClient();
   const router = useRouter();
 
+  // Revoke the server-side session (fire-and-forget) then drop local state.
+  // Revoking is best-effort: the client clears its tokens regardless so the
+  // user is never stranded on a page that thinks it's still logged in.
   return () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
-    queryClient.clear();
-    router.push("/login");
+    authApi
+      .logout()
+      .catch(() => {})
+      .finally(() => {
+        clearSession();
+        queryClient.clear();
+        router.push("/login");
+      });
   };
+}
+
+// --- Email verification + password reset (report §7) ------------------------
+export function useVerifyEmail() {
+  return useMutation({
+    mutationFn: (token: string) => authApi.verifyEmail(token),
+  });
+}
+
+export function useResendVerification() {
+  return useMutation({
+    mutationFn: () => authApi.resendVerification(),
+  });
+}
+
+export function useForgotPassword() {
+  return useMutation({
+    mutationFn: (email: string) => authApi.forgotPassword(email),
+  });
+}
+
+export function useResetPassword() {
+  return useMutation({
+    mutationFn: ({ token, password }: { token: string; password: string }) =>
+      authApi.resetPassword(token, password),
+  });
+}
+
+// --- Active sessions management ---------------------------------------------
+export function useSessions() {
+  return useQuery({
+    queryKey: ["auth", "sessions"],
+    queryFn: authApi.listSessions,
+    retry: false,
+    enabled: useHasToken(),
+  });
+}
+
+export function useRevokeSession() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => authApi.revokeSession(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["auth", "sessions"] });
+    },
+  });
 }

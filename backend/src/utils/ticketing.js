@@ -3,6 +3,7 @@ const Event = require("../models/Event");
 const Ticket = require("../models/Ticket");
 const { signTicketToken } = require("./qrToken");
 const { createNotification } = require("../controllers/notificationController");
+const { ensureJobsForEvent } = require("./reminderScheduler");
 
 // Atomically reserves one capacity slot then issues the ticket. The capacity
 // check-and-increment happens as a single findOneAndUpdate so two concurrent
@@ -61,6 +62,9 @@ const claimAndIssueTicket = async ({ event, attendeeId, attendeeName, payment })
     message: `${attendeeName} registered for ${event.title}.`,
     event: event._id,
   });
+
+  // Ensure reminder jobs exist for this new attendee (fire-and-forget).
+  ensureJobsForEvent(event).catch((e) => console.error("[reminder] ensureJobsForEvent error:", e.message));
 
   return ticket;
 };

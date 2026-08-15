@@ -13,6 +13,7 @@ import {
   type LucideIcon,
 } from "lucide-react"
 import { EventBot } from "@/components/chatbot/event-bot"
+import { EmailVerificationBanner } from "@/components/app/email-verification-banner"
 import { adminNav, attendeeNav, organizerNav } from "@/components/app/nav-configs"
 import { ensureGsap, prefersReducedMotion } from "@/lib/gsap"
 import { useNotifications } from "@/lib/queries/notifications"
@@ -207,6 +208,8 @@ export function AppShell({ children, role, userName, title = "Welcome back" }: A
             </button>
           </div>
         </header>
+
+        <EmailVerificationBanner />
 
         <main className="flex-1 px-6 py-6">{children}</main>
       </div>

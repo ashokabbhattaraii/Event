@@ -14,12 +14,14 @@ import {
   QrCode,
   UserCircle,
   Brain,
+  ClipboardCheck,
 } from "lucide-react"
 import type { NavItem } from "@/components/app/app-shell"
 
 export const adminNav: NavItem[] = [
   { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
   { label: "Organizations", href: "/admin/organizations", icon: Building2 },
+  { label: "Org Approvals", href: "/admin/approvals", icon: ClipboardCheck },
   { label: "Users & Roles", href: "/admin/users", icon: Users },
   { label: "Events", href: "/admin/events", icon: CalendarDays },
   { label: "Security & IAM", href: "/admin/security", icon: ShieldCheck },

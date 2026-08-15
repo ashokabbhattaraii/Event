@@ -33,7 +33,7 @@ import { FeedbackSummaryPanel } from "@/components/app/feedback-summary"
 import { NetworkingPanel } from "@/components/app/networking-panel"
 import { VenueMap } from "@/components/app/venue-map"
 import { EventQrPoster } from "@/components/app/event-qr-poster"
-import { useEvent } from "@/lib/queries/events"
+import { useEvent, useUpdateEvent } from "@/lib/queries/events"
 import { useMyTickets, useRegisterForEvent, useCancelTicket } from "@/lib/queries/tickets"
 import { useCurrentUser } from "@/lib/queries/auth"
 import { useUpdateLocation } from "@/lib/queries/location"
@@ -89,6 +89,7 @@ export function RoleEventDetail({
   const checkoutMutation = useCreateCheckoutSession()
   const esewaMutation = useInitiateEsewaPayment()
   const updateLocation = useUpdateLocation()
+  const updateEvent = useUpdateEvent()
   // Persisted in localStorage (same key as /saved-events) so the heart
   // state survives reloads and stays in sync with the saved page — the old
   // code kept it in component state only, so nothing was ever saved.
@@ -191,8 +192,139 @@ export function RoleEventDetail({
       await navigator.clipboard.writeText(publicUrl)
       setShowShareFeedback(true)
       setTimeout(() => setShowShareFeedback(false), 2000)
-    }
+}
+}
+
+function RemindersPanel({
+  event,
+  onUpdate,
+}: {
+  event: {
+    reminderSettings?: { enabled: boolean; offsets: number[]; feedbackDelayHours: number };
+    _id: string;
+    title: string;
+  };
+  onUpdate: (vars: { id: string; data: Partial<{ reminderSettings: { enabled: boolean; offsets: number[]; feedbackDelayHours: number } }> }) => void;
+}) {
+  const [enabled, setEnabled] = useState(event.reminderSettings?.enabled ?? true)
+  const [offsets, setOffsets] = useState<number[]>(event.reminderSettings?.offsets ?? [1440, 60])
+  const [feedbackDelay, setFeedbackDelay] = useState(event.reminderSettings?.feedbackDelayHours ?? 24)
+  const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle")
+  const [error, setError] = useState("")
+
+  const presetOffsets = [
+    { label: "1h", value: 60 },
+    { label: "3h", value: 180 },
+    { label: "6h", value: 360 },
+    { label: "12h", value: 720 },
+    { label: "24h", value: 1440 },
+    { label: "48h", value: 2880 },
+    { label: "1 week", value: 10080 },
+  ]
+
+  const handleSave = () => {
+    setStatus("saving")
+    setError("")
+    onUpdate({
+      id: event._id,
+      data: { reminderSettings: { enabled, offsets: offsets.length ? offsets : [1440, 60], feedbackDelayHours: feedbackDelay } },
+    })
+    // The mutation callback in the query handles invalidation; we just track UI state.
+    setTimeout(() => {
+      setStatus("saved")
+      setTimeout(() => setStatus("idle"), 2000)
+    }, 500)
   }
+
+  const formatOffset = (min: number) => {
+    if (min >= 1440) return `${min / 1440}d`
+    if (min >= 60) return `${min / 60}h`
+    return `${min}min`
+  }
+
+  return (
+    <Reveal>
+      <div className="rounded-2xl border border-border bg-card p-6">
+        <h2 className="flex items-center gap-1.5 font-display text-lg font-bold text-ink">
+          <Calendar className="size-4 text-primary" /> Reminders
+        </h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Configure when attendees receive email + in-app reminders before this event and a
+          feedback nudge after it ends. Requires attendees to have email reminders enabled in
+          their Settings.
+        </p>
+
+        <div className="mt-4 flex items-center gap-3">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={(e) => setEnabled(e.target.checked)}
+              className="size-4 rounded border-border text-primary focus:ring-primary/20"
+            />
+            <span className="text-sm font-medium text-ink">Enable reminders for this event</span>
+          </label>
+        </div>
+
+        {enabled && (
+          <div className="mt-4 space-y-4">
+            <div>
+              <label className="text-xs font-medium text-ink">Remind before event (minutes/hours before start)</label>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {presetOffsets.map((p) => (
+                  <button
+                    key={p.value}
+                    type="button"
+                    onClick={() => setOffsets((o) => (o.includes(p.value) ? o.filter((v) => v !== p.value) : [...o, p.value]))}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                      offsets.includes(p.value)
+                        ? "bg-primary text-primary-foreground"
+                        : "border border-border bg-card text-ink hover:bg-muted"
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+              {offsets.length === 0 && <p className="mt-1 text-xs text-amber-600">Select at least one reminder time.</p>}
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-ink">Feedback nudge delay</label>
+              <select
+                value={feedbackDelay}
+                onChange={(e) => setFeedbackDelay(Number(e.target.value))}
+                className="mt-1.5 w-full max-w-xs rounded-xl border border-border bg-card px-3 py-2 text-sm text-ink outline-none focus:border-primary focus:ring-4 focus:ring-primary/10"
+              >
+                <option value={1}>1 hour</option>
+                <option value={6}>6 hours</option>
+                <option value={12}>12 hours</option>
+                <option value={24}>24 hours (default)</option>
+                <option value={48}>48 hours</option>
+                <option value={72}>3 days</option>
+              </select>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Hours after the event ends to send a "How was the event?" feedback reminder.
+              </p>
+            </div>
+
+            <button
+              onClick={handleSave}
+              disabled={status === "saving" || offsets.length === 0}
+              className="flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-60"
+            >
+              {status === "saving" && <Loader2 className="size-4 animate-spin" />}
+              {status === "saved" ? <Check className="size-4" /> : "Save reminder settings"}
+              {status === "saved" && <span className="text-xs ml-2">Saved</span>}
+            </button>
+
+            {error && <p className="text-xs text-amber-600">{error}</p>}
+          </div>
+        )}
+      </div>
+    </Reveal>
+  )
+}
 
   const aiInsight = (() => {
     const fillRate = event.capacity > 0 ? event.registered / event.capacity : 0
@@ -424,6 +556,8 @@ export function RoleEventDetail({
             </Reveal>
 
             {!isAttendee && <FeedbackSummaryPanel eventId={eventId} />}
+
+            {!isAttendee && <RemindersPanel event={event} onUpdate={updateEvent.mutate} />}
 
             {isAttendee && canLeaveFeedback && (
               <Reveal>

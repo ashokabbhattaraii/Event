@@ -4,6 +4,8 @@ const {
   listOrgUsers,
   updateUserRole,
   updateMyLocation,
+  updateMyProfile,
+  updateMyPassword,
   getOrgStats,
 } = require("../controllers/userController");
 const { protect, requireRole } = require("../middleware/auth");
@@ -11,21 +13,40 @@ const validate = require("../middleware/validate");
 
 const router = express.Router();
 
-// Available to any authenticated user (not just admins).
+// Available to any authenticated user (not just admins). lat/lng are
+// optional: omitting them clears the saved location (used by the settings
+// page's "Remove location").
 router.patch(
   "/me/location",
   protect,
   [
-    body("lat")
-      .isFloat({ min: -90, max: 90 })
-      .withMessage("lat must be between -90 and 90"),
-    body("lng")
-      .isFloat({ min: -180, max: 180 })
-      .withMessage("lng must be between -180 and 180"),
+    body("lat").optional().isFloat({ min: -90, max: 90 }).withMessage("lat must be between -90 and 90"),
+    body("lng").optional().isFloat({ min: -180, max: 180 }).withMessage("lng must be between -180 and 180"),
     body("city").optional().isString(),
   ],
   validate,
   updateMyLocation
+);
+
+// Settings endpoints — available to every authenticated role so the same
+// settings UI works on the attendee, organizer and admin dashboards.
+router.patch(
+  "/me/profile",
+  protect,
+  [body("name").notEmpty().withMessage("Name is required")],
+  validate,
+  updateMyProfile
+);
+
+router.patch(
+  "/me/password",
+  protect,
+  [
+    body("currentPassword").notEmpty().withMessage("Current password is required"),
+    body("newPassword").isLength({ min: 6 }).withMessage("New password must be at least 6 characters"),
+  ],
+  validate,
+  updateMyPassword
 );
 
 router.get("/", protect, requireRole("admin"), listOrgUsers);

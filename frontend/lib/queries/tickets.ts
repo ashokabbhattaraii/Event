@@ -41,3 +41,17 @@ export function useCancelTicket() {
     },
   });
 }
+
+// Organizer/admin: attendee roster for one managed event. Refetches after
+// a check-in so the roster counts stay in sync with the Verify panel.
+export function useEventAttendees(eventId?: string) {
+  const queryClient = useQueryClient();
+  const query = useQuery({
+    queryKey: ["events", eventId, "attendees"] as const,
+    queryFn: () => ticketsApi.getEventAttendees(eventId!),
+    enabled: Boolean(eventId) && useHasToken(),
+  });
+  const refetch = () =>
+    queryClient.invalidateQueries({ queryKey: ["events", eventId, "attendees"] as const });
+  return { ...query, refetchAttendees: refetch };
+}

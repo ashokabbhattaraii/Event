@@ -5,13 +5,13 @@ import { AppShell } from "@/components/app/app-shell"
 import { EventCard } from "@/components/app/event-card"
 import { StatCard } from "@/components/app/stat-card"
 import { Reveal } from "@/components/anim/reveal"
-import { useAllEvents } from "@/lib/queries/events"
+import { useOrgEvents } from "@/lib/queries/events"
 import { useCurrentUser } from "@/lib/queries/auth"
 import { toAppEvent } from "@/lib/adapters/event"
 
 export default function AdminEventsPage() {
   const { data: userData } = useCurrentUser()
-  const { data, isLoading, isError } = useAllEvents({ limit: 50 })
+  const { data, isLoading, isError } = useOrgEvents({ limit: 50 })
   const user = userData?.user
   const events = data?.events ?? []
   const total = data?.pagination?.total ?? events.length

@@ -57,6 +57,7 @@ const ticketSchema = new mongoose.Schema(
       currency: { type: String, default: "NPR" },
       stripeSessionId: { type: String },
       stripePaymentIntentId: { type: String },
+      amountRefunded: { type: Number },
       esewaTransactionUuid: { type: String },
       esewaRefId: { type: String },
     },
@@ -64,6 +65,13 @@ const ticketSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-ticketSchema.index({ event: 1, attendee: 1 }, { unique: true });
+// One live ticket per attendee per event. Cancelled tickets are excluded so
+// a user can cancel and re-register (or re-purchase) for the same event —
+// the old (event, attendee) unique index made re-registration after a cancel
+// fail with a duplicate-key error.
+ticketSchema.index(
+  { event: 1, attendee: 1 },
+  { unique: true, partialFilterExpression: { status: { $ne: "cancelled" } } }
+);
 
 module.exports = mongoose.model("Ticket", ticketSchema);

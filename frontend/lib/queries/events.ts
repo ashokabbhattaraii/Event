@@ -34,6 +34,14 @@ export function useMyEvents(params: EventListParams = {}) {
   });
 }
 
+export function useOrgEvents(params: EventListParams = {}) {
+  return useQuery({
+    queryKey: ["events", "org", params] as const,
+    queryFn: () => eventsApi.getOrg(params),
+    placeholderData: keepPreviousData,
+  });
+}
+
 export function useEvent(id: string) {
   return useQuery({
     queryKey: eventKeys.detail(id),

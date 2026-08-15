@@ -20,9 +20,18 @@ apiClient.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       if (typeof window !== "undefined") {
+        // Only treat a 401 from the session check (/auth/me) as "session
+        // expired". Other endpoints may 401 transiently (e.g. the fire-and-
+        // forget location save right after login, or a permission-scoped
+        // call) — hard-redirecting there would log the user out even though
+        // their session is still valid.
+        const url = error.config?.url ?? "";
+        const isSessionCheck = url.includes("/auth/me");
         localStorage.removeItem("token");
         localStorage.removeItem("user");
-        window.location.href = "/login";
+        if (isSessionCheck) {
+          window.location.href = "/login";
+        }
       }
     }
     return Promise.reject(error);

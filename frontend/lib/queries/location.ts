@@ -25,7 +25,7 @@ export function useUpdateLocation() {
 export function useSaveLocationCoords() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (coords: { lat: number; lng: number; city?: string }) =>
+    mutationFn: (coords: { lat?: number; lng?: number; city?: string }) =>
       locationApi.update(coords),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: recommendationKeys.list });

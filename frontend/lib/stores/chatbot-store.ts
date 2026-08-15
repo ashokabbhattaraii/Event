@@ -1,0 +1,230 @@
+"use client"
+
+import { create } from "zustand"
+import { persist } from "zustand/middleware"
+import { chatbotApi, type ChatMessage } from "@/lib/api/chatbot"
+
+// Chatbot state lives here (not inside the EventBot component) so the
+// conversation survives page switches: AppShell unmounts and remounts per
+// route, which used to wipe messages + backend context on every navigation.
+// Conversations are persisted to localStorage, so history also survives
+// full reloads — with multiple conversations to switch between, clear, or
+// delete.
+
+export type ChatFrom = "bot" | "user"
+
+export interface ChatMsg {
+  from: ChatFrom
+  text: string
+}
+
+export interface ChatConversation {
+  id: string
+  title: string
+  createdAt: number
+  updatedAt: number
+  messages: ChatMsg[]
+  // role/content pairs kept in sync with messages — sent to the backend so
+  // follow-ups ("and its price?") resolve in conversation context.
+  context: ChatMessage[]
+}
+
+export interface AiStatus {
+  online: boolean
+  attendance: boolean
+  cf: boolean
+  intent: boolean
+}
+
+const SEED_MSG: ChatMsg = {
+  from: "bot",
+  text: "Hi, I'm EventBot 👋 — I can recommend events, check tickets, pricing, capacity and more. Try a suggestion below!",
+}
+
+// The backend only consumes the last ~8 turns per query; keeping ~20 on the
+// conversation keeps enough for multi-turn follow-ups without unbounded
+// growth in localStorage.
+const MAX_CONTEXT = 20
+const MAX_STORED_CONVERSATIONS = 20
+
+const uid = () =>
+  typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+
+export function newConversation(): ChatConversation {
+  return {
+    id: uid(),
+    title: "New chat",
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    messages: [SEED_MSG],
+    context: [],
+  }
+}
+
+interface ChatbotState {
+  open: boolean
+  conversations: ChatConversation[]
+  activeId: string
+  input: string
+  typing: boolean
+  suggestions: string[]
+  suggestionsFetched: boolean
+  aiStatus: AiStatus | null
+
+  setOpen: (open: boolean) => void
+  setInput: (value: string) => void
+  setTyping: (value: boolean) => void
+  setAiStatus: (status: AiStatus | null) => void
+  setSuggestions: (suggestions: string[]) => void
+  setSuggestionsFetched: (fetched: boolean) => void
+  startNewConversation: () => void
+  switchConversation: (id: string) => void
+  deleteConversation: (id: string) => void
+  clearActiveConversation: () => void
+  send: (text: string, eventId?: string) => Promise<void>
+}
+
+export const useChatbotStore = create<ChatbotState>()(
+  persist(
+    (set, get) => ({
+      open: false,
+      conversations: [newConversation()],
+      activeId: "",
+      input: "",
+      typing: false,
+      suggestions: [],
+      suggestionsFetched: false,
+      aiStatus: null,
+
+      setOpen: (open) => set({ open }),
+      setInput: (input) => set({ input }),
+      setTyping: (typing) => set({ typing }),
+      setAiStatus: (aiStatus) => set({ aiStatus }),
+      setSuggestions: (suggestions) => set({ suggestions }),
+      setSuggestionsFetched: (suggestionsFetched) => set({ suggestionsFetched }),
+
+      startNewConversation: () => {
+        const conversation = newConversation()
+        set((s) => ({
+          conversations: [conversation, ...s.conversations].slice(0, MAX_STORED_CONVERSATIONS),
+          activeId: conversation.id,
+          input: "",
+        }))
+      },
+
+      switchConversation: (id) => {
+        if (get().conversations.some((c) => c.id === id)) set({ activeId: id })
+      },
+
+      deleteConversation: (id) => {
+        set((s) => {
+          const rest = s.conversations.filter((c) => c.id !== id)
+          if (!rest.length) {
+            const fresh = newConversation()
+            return { conversations: [fresh], activeId: fresh.id, input: "" }
+          }
+          return { conversations: rest, activeId: s.activeId === id ? rest[0].id : s.activeId }
+        })
+      },
+
+      clearActiveConversation: () => {
+        const fresh = newConversation()
+        set((s) => ({
+          conversations: s.conversations.map((c) =>
+            c.id === s.activeId ? fresh : c
+          ),
+          input: "",
+        }))
+      },
+
+      send: async (text, eventId) => {
+        const { typing, conversations, activeId } = get()
+        const trimmed = text.trim()
+        if (!trimmed || typing) return
+        if (!conversations.some((c) => c.id === activeId)) return
+
+        const history = [...get().conversations.find((c) => c.id === activeId)!.context, { role: "user" as const, content: trimmed }]
+
+        set({ input: "", typing: true })
+
+        // Append the user message and (on first real message) name the
+        // conversation after it. Functional update so concurrent sends stay
+        // consistent even though the UI disables sending while typing.
+        const appendUser = (state: ChatbotState) => ({
+          conversations: state.conversations.map((c) =>
+            c.id === state.activeId
+              ? {
+                  ...c,
+                  title: c.messages.length <= 1 ? trimmed.slice(0, 40) : c.title,
+                  messages: [...c.messages, { from: "user" as const, text: trimmed }],
+                  context: history.slice(-MAX_CONTEXT),
+                  updatedAt: Date.now(),
+                }
+              : c
+          ),
+        })
+        set(appendUser)
+
+        try {
+          // The backend only needs the most recent turns for context.
+          const { reply } = await chatbotApi.query(trimmed, eventId, history.slice(-9))
+          set((state) => ({
+            conversations: state.conversations.map((c) =>
+              c.id === state.activeId
+                ? {
+                    ...c,
+                    messages: [...c.messages, { from: "bot" as const, text: reply }],
+                    context: [...history, { role: "assistant", content: reply }].slice(-MAX_CONTEXT),
+                    updatedAt: Date.now(),
+                  }
+                : c
+            ),
+          }))
+        } catch {
+          set((state) => ({
+            conversations: state.conversations.map((c) =>
+              c.id === state.activeId
+                ? {
+                    ...c,
+                    messages: [...c.messages, { from: "bot" as const, text: "I couldn't reach the server just now — please try again." }],
+                    updatedAt: Date.now(),
+                  }
+                : c
+            ),
+          }))
+        } finally {
+          set({ typing: false })
+        }
+      },
+    }),
+    {
+      name: "eventnexus-chatbot",
+      partialize: (s) => ({
+        conversations: s.conversations,
+        activeId: s.activeId || s.conversations[0]?.id,
+      }),
+      // Repair rehydrated data (schema changes, hand-edited localStorage):
+      // every conversation gets a seed greeting if empty, a title, and a
+      // context array; the active conversation must exist in the list.
+      merge: (persisted, current) => {
+        const p = (persisted ?? {}) as Partial<ChatbotState>
+        const stored = Array.isArray(p.conversations) && p.conversations.length ? p.conversations : current.conversations
+        const conversations = stored
+          .map((c) => ({
+            ...newConversation(),
+            ...c,
+            title: c.title || "New chat",
+            messages: c.messages?.length ? c.messages : [SEED_MSG],
+            context: Array.isArray(c.context) ? c.context : [],
+          }))
+          .slice(0, MAX_STORED_CONVERSATIONS)
+        const activeId = conversations.some((c) => c.id === p.activeId)
+          ? (p.activeId as string)
+          : conversations[0].id
+        return { ...current, conversations, activeId }
+      },
+    }
+  )
+)

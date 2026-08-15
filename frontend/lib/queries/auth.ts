@@ -16,7 +16,7 @@ export const authKeys = {
 const roleRoutes: Record<string, string> = {
   admin: "/admin",
   organizer: "/organizer",
-  attendee: "/attendee",
+  attendee: "/dashboard",
 };
 
 export function useCurrentUser() {
@@ -46,7 +46,7 @@ function useAuthSuccess() {
       })
       .catch(() => {});
 
-    router.push(roleRoutes[data.user.role] || "/attendee");
+    router.push(roleRoutes[data.user.role] || "/dashboard");
   };
 }
 

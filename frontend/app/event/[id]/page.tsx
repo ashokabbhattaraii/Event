@@ -16,9 +16,9 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
       role="Attendee"
       userName={displayName}
       title="Event Details"
-      backHref="/attendee"
+      backHref="/dashboard"
       backLabel="Back to discover"
-      ticketHref="/attendee/tickets"
+      ticketHref="/my-tickets"
       registerLabel="Register now"
     />
   )

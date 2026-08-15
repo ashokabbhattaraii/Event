@@ -3,6 +3,7 @@ const Ticket = require("../models/Ticket");
 const { verifyTicketToken } = require("../utils/qrToken");
 const { createNotification } = require("./notificationController");
 const { claimAndIssueTicket } = require("../utils/ticketing");
+const { canManageEvent } = require("./eventController");
 const {
   parsePagination,
   buildFilters,
@@ -15,6 +16,13 @@ const registerForEvent = async (req, res) => {
     const event = await Event.findById(req.params.id);
     if (!event) {
       return res.status(404).json({ message: "Event not found" });
+    }
+
+    if (event.status === "Draft") {
+      return res.status(400).json({ message: "This event is not open for registration yet" });
+    }
+    if (new Date(event.date) <= new Date()) {
+      return res.status(400).json({ message: "This event has already started" });
     }
 
     if (event.price?.amount > 0) {
@@ -87,6 +95,11 @@ const cancelTicket = async (req, res) => {
     if (ticket.status === "checked-in") {
       return res.status(400).json({ message: "Cannot cancel a ticket that's already checked in" });
     }
+    if (ticket.payment?.status === "paid") {
+      return res.status(400).json({
+        message: "Paid tickets can't be cancelled online — contact the organizer to arrange a refund.",
+      });
+    }
     if (ticket.event && new Date(ticket.event.date) <= new Date()) {
       return res.status(400).json({ message: "Cannot cancel — this event has already started" });
     }
@@ -133,8 +146,19 @@ const verifyTicket = async (req, res) => {
       return res.status(404).json({ message: "Ticket not found" });
     }
 
+    // Defensive: a caller (or ticket) without an organization used to crash
+    // on .toString() of undefined → 500, revealing internals. It's a
+    // legitimate "not set up for check-in" condition, so it gets a clean 403.
+    if (!req.user.organization || !ticket.organization) {
+      return res.status(403).json({ message: "Check-in requires an organization on both ends" });
+    }
+
     if (ticket.organization.toString() !== req.user.organization.toString()) {
       return res.status(403).json({ message: "Ticket belongs to a different organization" });
+    }
+
+    if (ticket.event && ticket.event.status === "Draft") {
+      return res.status(400).json({ message: "This event isn't open yet — tickets can't be checked in" });
     }
 
     if (ticket.status === "checked-in") {
@@ -155,4 +179,60 @@ const verifyTicket = async (req, res) => {
   }
 };
 
-module.exports = { registerForEvent, getMyTickets, cancelTicket, verifyTicket };
+// Organizer/admin: full attendee roster for one of their own events, with
+// check-in status so the Tickets & Check-in dashboard can show who's
+// registered, who's arrived, and drill into each attendee's detail. Scoped
+// by canManageEvent (owner or same-org admin) — never cross-tenant.
+const getEventAttendees = async (req, res) => {
+  try {
+    const event = await Event.findById(req.params.id);
+    if (!event) {
+      return res.status(404).json({ message: "Event not found" });
+    }
+    if (!canManageEvent(event, req.user)) {
+      return res.status(403).json({ message: "Not authorized" });
+    }
+
+    const tickets = await Ticket.find({ event: event._id })
+      .populate("attendee", "name email")
+      .sort({ createdAt: 1 });
+
+    const attendees = tickets.map((t) => ({
+      ticketId: t._id,
+      status: t.status,
+      registeredAt: t.createdAt,
+      checkedInAt: t.checkedInAt,
+      cancelledAt: t.cancelledAt,
+      payment: {
+        status: t.payment?.status ?? "none",
+        provider: t.payment?.provider ?? "none",
+        amount: t.payment?.amount ?? 0,
+        currency: t.payment?.currency ?? "NPR",
+      },
+      attendee: t.attendee,
+    }));
+
+    const counts = {
+      total: tickets.length,
+      checkedIn: tickets.filter((t) => t.status === "checked-in").length,
+      valid: tickets.filter((t) => t.status === "valid").length,
+      cancelled: tickets.filter((t) => t.status === "cancelled").length,
+    };
+
+    res.json({
+      event: {
+        _id: event._id,
+        title: event.title,
+        date: event.date,
+        capacity: event.capacity,
+        registered: event.registered,
+      },
+      attendees,
+      counts,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+module.exports = { registerForEvent, getMyTickets, cancelTicket, verifyTicket, getEventAttendees };

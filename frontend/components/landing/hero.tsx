@@ -108,7 +108,7 @@ export function Hero() {
                   <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" />
                 </Link>
                 <Link
-                  href="/attendee"
+                  href="/dashboard"
                   className="inline-flex items-center gap-2 rounded-full border border-border bg-card dark:bg-zinc-900 px-7 py-3.5 text-sm font-semibold text-ink dark:text-white transition-colors hover:bg-muted dark:hover:bg-zinc-800"
                 >
                   <Play className="size-4 fill-current text-primary" />

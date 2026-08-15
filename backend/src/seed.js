@@ -155,7 +155,7 @@ async function seed() {
       status: "Live",
       organizer: organizer._id,
       organization: org._id,
-      registered: 0,
+      registered: 2,
     },
     {
       title: "Intro to Machine Learning Workshop",
@@ -170,6 +170,80 @@ async function seed() {
       organizer: organizer._id,
       organization: org._id,
       registered: 2,
+    },
+    // --- Historical events --------------------------------------------------
+    // 5+ concluded events give the attendance-prediction model real training
+    // samples (MIN_ATTENDANCE_SAMPLES is 5); without them the model stays
+    // untrained and every forecast falls back to a rough heuristic.
+    {
+      title: "Startup Pitch Night",
+      description: "Local founders pitch to investors. Concluded.",
+      date: new Date(now - 35 * day),
+      venue: "Yala House",
+      type: "In-person",
+      category: "Business",
+      capacity: 60,
+      price: { amount: 0, currency: "NPR" },
+      status: "Past",
+      organizer: organizer._id,
+      organization: org._id,
+      registered: 43,
+    },
+    {
+      title: "Web Dev Bootcamp",
+      description: "Two-day intensive. Concluded.",
+      date: new Date(now - 55 * day),
+      venue: "Innovation Lab",
+      type: "In-person",
+      category: "Technology",
+      capacity: 40,
+      price: { amount: 800, currency: "NPR" },
+      status: "Past",
+      organizer: organizer._id,
+      organization: org._id,
+      registered: 27,
+    },
+    {
+      title: "Jazz Under the Stars",
+      description: "Outdoor jazz evening. Concluded.",
+      date: new Date(now - 75 * day),
+      venue: "Open Air Amphitheatre, Bhaktapur",
+      type: "In-person",
+      category: "Music",
+      capacity: 200,
+      price: { amount: 700, currency: "NPR" },
+      status: "Past",
+      organizer: organizer._id,
+      organization: org._id,
+      registered: 168,
+    },
+    {
+      title: "Design Sprint Workshop",
+      description: "Hands-on design sprint. Concluded.",
+      date: new Date(now - 95 * day),
+      venue: "Yala House",
+      type: "Virtual",
+      category: "Design",
+      capacity: 50,
+      price: { amount: 0, currency: "NPR" },
+      status: "Past",
+      organizer: organizer._id,
+      organization: org._id,
+      registered: 11,
+    },
+    {
+      title: "Wellness & Yoga Retreat",
+      description: "Weekend retreat. Concluded.",
+      date: new Date(now - 115 * day),
+      venue: "Rooftop Lounge, Lalitpur",
+      type: "In-person",
+      category: "Health",
+      capacity: 30,
+      price: { amount: 900, currency: "NPR" },
+      status: "Past",
+      organizer: organizer._id,
+      organization: org._id,
+      registered: 6,
     },
   ]);
   console.log(`✓ Created ${events.length} events`);
@@ -198,6 +272,11 @@ async function seed() {
   await makeTicket({ event: events[3], user: attendee, status: "checked-in" }); // ML Workshop (past) — Alex
   await makeTicket({ event: events[3], user: attendee2, status: "checked-in" }); // ML Workshop (past) — Priya
   await makeTicket({ event: events[1], user: attendee3 }); // Networking Night — Sam
+  // Overlapping interests give the collaborative filter real signal: Priya
+  // and Sam both booked Live Music, so Alex (same taste as Priya) gets it
+  // recommended instead of an empty CF result falling back to heuristics.
+  await makeTicket({ event: events[2], user: attendee2 }); // Live Music — Priya
+  await makeTicket({ event: events[2], user: attendee3 }); // Live Music — Sam
   console.log("✓ Created tickets");
 
   // --- Feedback (for the past event) ----------------------------------------

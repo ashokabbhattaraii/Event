@@ -5,6 +5,7 @@ import { AppShell } from "@/components/app/app-shell"
 import { Reveal } from "@/components/anim/reveal"
 import { useCurrentUser } from "@/lib/queries/auth"
 import { useSaveLocationCoords } from "@/lib/queries/location"
+import { useUpdateMyPassword, useUpdateMyProfile } from "@/lib/queries/users"
 import { captureAndSaveLocation, getBrowserLocation } from "@/lib/api/location"
 import {
   MapPin,
@@ -15,11 +16,21 @@ import {
   Globe,
   Save,
   AlertCircle,
+  KeyRound,
+  Lock,
+  Eye,
+  EyeOff,
+  UserRound,
 } from "lucide-react"
+
+const roleToShell = (role?: string) =>
+  role === "admin" ? "Administrator" : role === "organizer" ? "Organizer" : "Attendee"
 
 export default function AttendeeSettingsPage() {
   const { data: userData, refetch: refetchUser } = useCurrentUser()
   const saveCoords = useSaveLocationCoords()
+  const updateProfile = useUpdateMyProfile()
+  const updatePassword = useUpdateMyPassword()
   const user = userData?.user
 
   const [manualLat, setManualLat] = useState(user?.location?.lat?.toString() || "")
@@ -28,6 +39,17 @@ export default function AttendeeSettingsPage() {
   const [isDetecting, setIsDetecting] = useState(false)
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle")
   const [detectError, setDetectError] = useState("")
+
+  const [editName, setEditName] = useState(user?.name || "")
+  const [profileStatus, setProfileStatus] = useState<"idle" | "saving" | "saved" | "error">("idle")
+  const [profileError, setProfileError] = useState("")
+
+  const [currentPassword, setCurrentPassword] = useState("")
+  const [newPassword, setNewPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
+  const [showPasswords, setShowPasswords] = useState(false)
+  const [passwordStatus, setPasswordStatus] = useState<"idle" | "saving" | "saved" | "error">("idle")
+  const [passwordError, setPasswordError] = useState("")
 
   const hasLocation = user?.location?.lat != null
 
@@ -78,8 +100,11 @@ export default function AttendeeSettingsPage() {
     setManualLat("")
     setManualLng("")
     setManualCity("")
+    // Omitting lat/lng tells the backend to clear the location entirely —
+    // the old code sent (0, 0), which "removed" the location to null island
+    // while the UI still thought a location existed.
     saveCoords.mutate(
-      { lat: 0, lng: 0, city: "" },
+      { city: "" },
       {
         onSuccess: () => {
           refetchUser()
@@ -88,8 +113,78 @@ export default function AttendeeSettingsPage() {
     )
   }
 
+  const handleSaveProfile = () => {
+    const name = editName.trim()
+    if (!name) {
+      setProfileStatus("error")
+      setProfileError("Name can't be empty")
+      return
+    }
+    setProfileStatus("saving")
+    setProfileError("")
+    updateProfile.mutate(name, {
+      onSuccess: () => {
+        setProfileStatus("saved")
+        refetchUser()
+        setTimeout(() => setProfileStatus("idle"), 2000)
+      },
+      onError: (err) => {
+        setProfileStatus("error")
+        setProfileError((err as any)?.response?.data?.message || "Couldn't save your name")
+      },
+    })
+  }
+
+  const handleChangePassword = () => {
+    setPasswordError("")
+    if (newPassword !== confirmPassword) {
+      setPasswordStatus("error")
+      setPasswordError("New passwords don't match")
+      return
+    }
+    setPasswordStatus("saving")
+    updatePassword.mutate(
+      { currentPassword, newPassword },
+      {
+        onSuccess: () => {
+          setPasswordStatus("saved")
+          setCurrentPassword("")
+          setNewPassword("")
+          setConfirmPassword("")
+          setTimeout(() => setPasswordStatus("idle"), 2500)
+        },
+        onError: (err) => {
+          setPasswordStatus("error")
+          setPasswordError((err as any)?.response?.data?.message || "Couldn't change your password")
+        },
+      }
+    )
+  }
+
+  const shellRole = roleToShell(user?.role)
+  const pwInput = (label: string, value: string, onChange: (v: string) => void, placeholder: string) => (
+    <div className="relative">
+      <label className="text-xs font-medium text-ink">{label}</label>
+      <input
+        type={showPasswords ? "text" : "password"}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="mt-1 w-full rounded-xl border border-border bg-background px-3 py-2 pr-10 text-sm text-ink outline-none focus:border-primary focus:ring-4 focus:ring-primary/10"
+      />
+      <button
+        type="button"
+        onClick={() => setShowPasswords((v) => !v)}
+        className="absolute bottom-3 right-3 text-muted-foreground transition-colors hover:text-ink"
+        aria-label={showPasswords ? "Hide passwords" : "Show passwords"}
+      >
+        {showPasswords ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+      </button>
+    </div>
+  )
+
   return (
-    <AppShell role="Attendee" userName={user?.name || "Attendee"} title="Settings">
+    <AppShell role={shellRole} userName={user?.name || "User"} title="Settings">
       <div className="mx-auto max-w-2xl space-y-8">
         <Reveal y={16}>
           <div>
@@ -243,9 +338,7 @@ export default function AttendeeSettingsPage() {
           <div className="rounded-2xl border border-border bg-card p-6">
             <div className="flex items-center gap-3">
               <span className="flex size-10 items-center justify-center rounded-xl bg-muted">
-                <span className="font-display text-sm font-bold text-ink">
-                  {user?.name?.split(" ").map((n) => n[0]).join("") || "?"}
-                </span>
+                <UserRound className="size-5 text-ink" />
               </span>
               <div>
                 <h2 className="font-display text-base font-bold text-ink">Profile</h2>
@@ -253,10 +346,16 @@ export default function AttendeeSettingsPage() {
               </div>
             </div>
 
-            <div className="mt-5 space-y-3">
-              <div className="rounded-xl bg-muted/50 px-4 py-3">
-                <div className="text-xs text-muted-foreground">Name</div>
-                <div className="text-sm font-semibold text-ink">{user?.name || "—"}</div>
+            <div className="mt-5 space-y-4">
+              <div>
+                <label className="text-xs font-medium text-ink">Name</label>
+                <input
+                  type="text"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  maxLength={80}
+                  className="mt-1 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-ink outline-none focus:border-primary focus:ring-4 focus:ring-primary/10"
+                />
               </div>
               <div className="rounded-xl bg-muted/50 px-4 py-3">
                 <div className="text-xs text-muted-foreground">Email</div>
@@ -266,9 +365,82 @@ export default function AttendeeSettingsPage() {
                 <div className="text-xs text-muted-foreground">Role</div>
                 <div className="text-sm font-semibold text-ink capitalize">{user?.role || "—"}</div>
               </div>
+
+              <button
+                onClick={handleSaveProfile}
+                disabled={profileStatus === "saving" || !editName.trim() || editName.trim() === user?.name}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-transform hover:-translate-y-0.5 disabled:opacity-60"
+              >
+                {profileStatus === "saving" ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : profileStatus === "saved" ? (
+                  <>
+                    <Check className="size-4" /> Saved
+                  </>
+                ) : (
+                  <>
+                    <Save className="size-4" /> Save profile
+                  </>
+                )}
+              </button>
+
+              {profileStatus === "error" && <p className="text-xs text-amber-600">{profileError}</p>}
             </div>
           </div>
         </Reveal>
+
+        {!user?.googleAccount && (
+          <Reveal y={16}>
+            <div className="rounded-2xl border border-border bg-card p-6">
+              <div className="flex items-center gap-3">
+                <span className="flex size-10 items-center justify-center rounded-xl bg-primary/10">
+                  <KeyRound className="size-5 text-primary" />
+                </span>
+                <div>
+                  <h2 className="font-display text-base font-bold text-ink">Password</h2>
+                  <p className="text-xs text-muted-foreground">
+                    Change the password for your {user?.email} account
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-5 space-y-4">
+                {pwInput("Current password", currentPassword, setCurrentPassword, "Enter current password")}
+                {pwInput("New password", newPassword, setNewPassword, "At least 6 characters")}
+                {pwInput("Confirm new password", confirmPassword, setConfirmPassword, "Repeat new password")}
+
+                <button
+                  onClick={handleChangePassword}
+                  disabled={
+                    passwordStatus === "saving" ||
+                    !currentPassword ||
+                    newPassword.length < 6 ||
+                    !confirmPassword
+                  }
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-transform hover:-translate-y-0.5 disabled:opacity-60"
+                >
+                  {passwordStatus === "saving" ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : passwordStatus === "saved" ? (
+                    <>
+                      <Check className="size-4" /> Password updated
+                    </>
+                  ) : (
+                    <>
+                      <Lock className="size-4" /> Change password
+                    </>
+                  )}
+                </button>
+
+                {passwordStatus === "error" && (
+                  <p className="flex items-center gap-1.5 text-xs text-amber-600">
+                    <AlertCircle className="size-3.5" /> {passwordError}
+                  </p>
+                )}
+              </div>
+            </div>
+          </Reveal>
+        )}
       </div>
     </AppShell>
   )

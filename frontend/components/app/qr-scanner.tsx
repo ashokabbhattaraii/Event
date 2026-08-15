@@ -15,6 +15,12 @@ interface QrScannerProps {
 export function QrScanner({ onScan, active, onClose }: QrScannerProps) {
   const containerId = useRef(`qr-scanner-${Math.random().toString(36).slice(2)}`)
   const scannerRef = useRef<any>(null)
+  // Parents pass an inline handler that gets a new identity on every render
+  // (e.g. when a verify mutation flips isPending), which used to tear down
+  // and restart the camera after every scan attempt. Keep the latest
+  // callback in a ref so the effect only reacts to `active` toggling.
+  const onScanRef = useRef(onScan)
+  onScanRef.current = onScan
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -31,7 +37,7 @@ export function QrScanner({ onScan, active, onClose }: QrScannerProps) {
           { facingMode: "environment" },
           { fps: 10, qrbox: { width: 240, height: 240 } },
           (decodedText: string) => {
-            onScan(decodedText)
+            onScanRef.current(decodedText)
           },
           () => {
             // per-frame "no QR found" callback — expected constantly, ignore
@@ -52,7 +58,7 @@ export function QrScanner({ onScan, active, onClose }: QrScannerProps) {
           .catch(() => {})
       }
     }
-  }, [active, onScan])
+  }, [active])
 
   if (!active) return null
 

@@ -14,3 +14,10 @@ node_modules
 .next/
 .DS_Store
 .vercel
+
+# Python AI service
+ai-service/.venv/
+ai-service/models/
+ai-service/.env
+__pycache__/
+*.pyc

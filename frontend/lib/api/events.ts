@@ -89,6 +89,12 @@ export const eventsApi = {
     return res.data;
   },
 
+  // Admin's own-tenant events (the public browse endpoint is org-agnostic).
+  getOrg: async (params: EventListParams = {}): Promise<EventsResponse> => {
+    const res = await apiClient.get(`/events/org${toQueryString(params)}`);
+    return res.data;
+  },
+
   getById: async (id: string): Promise<{ event: EventData }> => {
     const res = await apiClient.get(`/events/${id}`);
     return res.data;

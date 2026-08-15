@@ -39,15 +39,17 @@ const getOrganizerAnalytics = async (req, res) => {
     const trend = await registrationsPerDay(filter);
     const categories = await categoryBreakdown(filter);
 
-    const eventStats = events.map((event) => ({
-      _id: event._id,
-      title: event.title,
-      date: event.date,
-      capacity: event.capacity,
-      registered: event.registered,
-      fillRate: event.capacity > 0 ? Math.round((event.registered / event.capacity) * 100) : 0,
-      predictedAttendance: predictAttendance(event),
-    }));
+    const eventStats = await Promise.all(
+      events.map(async (event) => ({
+        _id: event._id,
+        title: event.title,
+        date: event.date,
+        capacity: event.capacity,
+        registered: event.registered,
+        fillRate: event.capacity > 0 ? Math.round((event.registered / event.capacity) * 100) : 0,
+        predictedAttendance: await predictAttendance(event),
+      }))
+    );
 
     res.json({ trend, categories, events: eventStats });
   } catch (error) {

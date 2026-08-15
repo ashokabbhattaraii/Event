@@ -8,22 +8,7 @@ import { Reveal } from "@/components/anim/reveal"
 import { useAllEvents } from "@/lib/queries/events"
 import { toAppEvent } from "@/lib/adapters/event"
 import { useCurrentUser } from "@/lib/queries/auth"
-
-const STORAGE_KEY = "savedEventIds"
-
-function getSavedIds(): string[] {
-  if (typeof window === "undefined") return []
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch {
-    return []
-  }
-}
-
-function saveIds(ids: string[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(ids))
-}
+import { getSavedIds, saveIds } from "@/lib/saved-events"
 
 export default function SavedEventsPage() {
   const { data: userData } = useCurrentUser()
@@ -64,8 +49,19 @@ export default function SavedEventsPage() {
 
         <Reveal stagger={0.08} y={24} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           <StatCard label="Saved Events" value={savedEvents.length} icon={Bookmark} accent="primary" />
-          <StatCard label="High Match" value={savedEvents.filter((e) => (e as any).matchScore && (e as any).matchScore >= 80).length} icon={Sparkles} accent="secondary" />
-          <StatCard label="Wishlist Score" value={savedEvents.length > 0 ? Math.round(savedEvents.reduce((a, e) => a + (e as any).matchScore || 80, 0) / savedEvents.length) : 0} suffix="%" icon={Heart} accent="flame" />
+          <StatCard
+            label="High Demand"
+            value={savedEvents.filter((e) => e.capacity > 0 && e.registered / e.capacity >= 0.8).length}
+            icon={Sparkles}
+            accent="secondary"
+          />
+          <StatCard
+            label="Avg Fill Rate"
+            value={savedEvents.length > 0 ? Math.round(savedEvents.reduce((a, e) => a + (e.capacity > 0 ? (e.registered / e.capacity) * 100 : 0), 0) / savedEvents.length) : 0}
+            suffix="%"
+            icon={Heart}
+            accent="flame"
+          />
         </Reveal>
 
         {savedIds.length > 0 && (
@@ -97,7 +93,7 @@ export default function SavedEventsPage() {
                 key={event.id}
                 className="group relative flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-[0_2px_24px_rgba(0,0,0,0.04)] transition-all hover:-translate-y-1.5"
               >
-                <a href={`/attendee/${event.id}`} className="flex flex-1 flex-col">
+                <a href={`/event/${event.id}`} className="flex flex-1 flex-col">
                   <div className={`relative h-32 ${event.gradient}`}>
                     <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_20%,rgba(255,255,255,0.35),transparent_55%)]" />
                     <div className="absolute left-3 top-3 flex gap-2">

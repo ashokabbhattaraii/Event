@@ -2,7 +2,8 @@ const Stripe = require("stripe");
 const Event = require("../models/Event");
 const Ticket = require("../models/Ticket");
 const User = require("../models/User");
-const { claimAndIssueTicket } = require("../utils/ticketing");
+const { issueTicketOnce } = require("../utils/ticketing");
+const { createNotification } = require("./notificationController");
 const { nprToUsd, NPR_USD_RATE } = require("../utils/currency");
 const esewa = require("../utils/esewa");
 
@@ -38,6 +39,12 @@ const createCheckoutSession = async (req, res) => {
     const event = await Event.findById(req.params.id);
     if (!event) {
       return res.status(404).json({ message: "Event not found" });
+    }
+    if (event.status === "Draft") {
+      return res.status(400).json({ message: "This event is not open for registration yet" });
+    }
+    if (new Date(event.date) <= new Date()) {
+      return res.status(400).json({ message: "This event has already started" });
     }
     if (!event.price?.amount || event.price.amount <= 0) {
       return res.status(400).json({ message: "This event is free — register directly instead" });
@@ -86,8 +93,8 @@ const createCheckoutSession = async (req, res) => {
         eventId: event._id.toString(),
         attendeeId: req.user._id.toString(),
       },
-      success_url: `${FRONTEND_URL}/attendee/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${FRONTEND_URL}/attendee/${event._id}?checkout=cancelled`,
+      success_url: `${FRONTEND_URL}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${FRONTEND_URL}/events/${event._id}?checkout=cancelled`,
     });
 
     res.json({ url: session.url, chargeAmount, chargeCurrency: chargeCurrency.toUpperCase() });
@@ -122,12 +129,24 @@ const getCheckoutStatus = async (req, res) => {
 const handleWebhook = async (req, res) => {
   if (!stripe) return res.status(503).end();
 
+  // Signature verification is mandatory — without STRIPE_WEBHOOK_SECRET the
+  // endpoint must refuse to run, otherwise anyone could POST a forged
+  // checkout.session.completed event and mint free tickets. (The previous
+  // JSON.parse fallback silently skipped verification.)
+  if (!process.env.STRIPE_WEBHOOK_SECRET) {
+    return res
+      .status(400)
+      .json({ message: "Stripe webhook secret is not configured on this server" });
+  }
+
   let event;
   try {
     const signature = req.headers["stripe-signature"];
-    event = process.env.STRIPE_WEBHOOK_SECRET
-      ? stripe.webhooks.constructEvent(req.body, signature, process.env.STRIPE_WEBHOOK_SECRET)
-      : JSON.parse(req.body.toString());
+    event = stripe.webhooks.constructEvent(
+      req.body,
+      signature,
+      process.env.STRIPE_WEBHOOK_SECRET
+    );
   } catch (error) {
     return res.status(400).json({ message: `Webhook signature verification failed: ${error.message}` });
   }
@@ -136,6 +155,22 @@ const handleWebhook = async (req, res) => {
     const session = event.data.object;
     const { eventId, attendeeId } = session.metadata || {};
 
+    // checkout.session.completed also fires for sessions whose payment
+    // ended up "unpaid"/"processing" (async payment methods, later
+    // failures). Issuing a ticket in those cases would mint free tickets —
+    // only "paid" counts.
+    if (session.payment_status !== "paid") {
+      console.error(
+        `[stripe webhook] ignoring ${event.type} for session ${session.id} with payment_status "${session.payment_status}"`
+      );
+      return res.json({ received: true });
+    }
+
+    if (!eventId || !attendeeId) {
+      console.error(`[stripe webhook] session ${session.id} has no eventId/attendeeId metadata`);
+      return res.json({ received: true });
+    }
+
     try {
       const [eventDoc, attendee] = await Promise.all([
         Event.findById(eventId),
@@ -143,29 +178,80 @@ const handleWebhook = async (req, res) => {
       ]);
 
       if (eventDoc && attendee) {
-        const existing = await Ticket.findOne({
-          event: eventId,
-          attendee: attendeeId,
-          status: { $ne: "cancelled" },
+        // Idempotent: a webhook retry for the same session finds the ticket
+        // already issued and returns it instead of failing on the unique index.
+        await issueTicketOnce({
+          event: eventDoc,
+          attendeeId,
+          attendeeName: attendee.name,
+          payment: {
+            status: "paid",
+            provider: "stripe",
+            amount: (session.amount_total || 0) / 100,
+            currency: (session.currency || "usd").toUpperCase(),
+            stripeSessionId: session.id,
+            stripePaymentIntentId: session.payment_intent,
+          },
         });
-        if (!existing) {
-          await claimAndIssueTicket({
-            event: eventDoc,
-            attendeeId,
-            attendeeName: attendee.name,
-            payment: {
-              status: "paid",
-              provider: "stripe",
-              amount: (session.amount_total || 0) / 100,
-              currency: (session.currency || "usd").toUpperCase(),
-              stripeSessionId: session.id,
-              stripePaymentIntentId: session.payment_intent,
-            },
-          });
-        }
       }
     } catch (error) {
       console.error("[stripe webhook] failed to issue ticket:", error.message);
+    }
+  }
+
+  // Full refund: the ticket's payment is marked refunded and the ticket
+  // itself cancelled (releasing its capacity slot) so the attendee can't
+  // walk in with a QR for a purchase that was reversed. The refunded status
+  // existed on the model but nothing ever set it — refunds used to leave
+  // the ticket valid indefinitely. Partial refunds (amount_refunded <
+  // amount) only update the payment record; the ticket stays usable.
+  if (event.type === "charge.refunded") {
+    const charge = event.data.object;
+    const paymentIntentId = charge.payment_intent;
+
+    try {
+      const ticket = await Ticket.findOne({
+        "payment.stripePaymentIntentId": paymentIntentId,
+      }).populate("event");
+
+      if (!ticket) {
+        console.error(`[stripe webhook] no ticket found for payment intent ${paymentIntentId}`);
+        return res.json({ received: true });
+      }
+
+      const fullyRefunded =
+        Number(charge.amount_refunded) >= Number(charge.amount_captured || charge.amount);
+
+      if (ticket.payment.status === "refunded" || ticket.status === "cancelled") {
+        // Idempotent — Stripe may deliver the same refund more than once.
+        return res.json({ received: true });
+      }
+
+      ticket.payment.status = "refunded";
+      ticket.payment.amountRefunded = Number(charge.amount_refunded) / 100;
+
+      if (fullyRefunded && ticket.status !== "checked-in") {
+        ticket.status = "cancelled";
+        ticket.cancelledAt = new Date();
+        if (ticket.event) {
+          await Event.updateOne(
+            { _id: ticket.event._id, registered: { $gt: 0 } },
+            { $inc: { registered: -1 } }
+          );
+          await createNotification({
+            recipient: ticket.attendee,
+            organization: ticket.organization,
+            type: "registration",
+            title: "Payment refunded",
+            message: `Your payment for ${ticket.event.title} was refunded and your ticket cancelled.`,
+            event: ticket.event._id,
+          });
+        }
+      }
+
+      await ticket.save();
+    } catch (error) {
+      console.error("[stripe webhook] failed to process refund:", error.message);
     }
   }
 
@@ -181,6 +267,12 @@ const initiateEsewaPayment = async (req, res) => {
     const event = await Event.findById(req.params.id);
     if (!event) {
       return res.status(404).json({ message: "Event not found" });
+    }
+    if (event.status === "Draft") {
+      return res.status(400).json({ message: "This event is not open for registration yet" });
+    }
+    if (new Date(event.date) <= new Date()) {
+      return res.status(400).json({ message: "This event has already started" });
     }
     if (!event.price?.amount || event.price.amount <= 0) {
       return res.status(400).json({ message: "This event is free — register directly instead" });
@@ -220,7 +312,7 @@ const initiateEsewaPayment = async (req, res) => {
 // eSewa's API — never from the redirect alone — the same "redirect is not
 // proof of payment" principle the Stripe webhook above is built on.
 const handleEsewaSuccess = async (req, res) => {
-  const fail = (reason) => res.redirect(`${FRONTEND_URL}/attendee/checkout/success?provider=esewa&error=${reason}`);
+  const fail = (reason) => res.redirect(`${FRONTEND_URL}/checkout/success?provider=esewa&error=${reason}`);
 
   try {
     const raw = req.query.data;
@@ -258,7 +350,9 @@ const handleEsewaSuccess = async (req, res) => {
     });
 
     if (!ticket) {
-      ticket = await claimAndIssueTicket({
+      // Idempotent: a duplicated eSewa callback returns the already-issued
+      // ticket instead of erroring on the unique index.
+      ticket = await issueTicketOnce({
         event: eventDoc,
         attendeeId,
         attendeeName: attendee.name,
@@ -273,7 +367,7 @@ const handleEsewaSuccess = async (req, res) => {
       });
     }
 
-    res.redirect(`${FRONTEND_URL}/attendee/checkout/success?provider=esewa&ticketId=${ticket._id}`);
+    res.redirect(`${FRONTEND_URL}/checkout/success?provider=esewa&ticketId=${ticket._id}`);
   } catch (error) {
     console.error("[esewa] success handling failed:", error.message);
     fail("server");
@@ -281,7 +375,7 @@ const handleEsewaSuccess = async (req, res) => {
 };
 
 const handleEsewaFailure = (req, res) => {
-  res.redirect(`${FRONTEND_URL}/attendee/checkout/success?provider=esewa&error=cancelled`);
+  res.redirect(`${FRONTEND_URL}/checkout/success?provider=esewa&error=cancelled`);
 };
 
 module.exports = {

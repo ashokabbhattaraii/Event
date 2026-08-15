@@ -1,7 +1,10 @@
-// Lightweight heuristic, not a trained model: projects final turnout from the
-// registration velocity observed so far (registrations per day since the event
-// was created), extrapolated out to the event date and capped at capacity.
-const predictAttendance = (event) => {
+// Attendance forecast. AI-first: the Python service's trained regressor
+// (trained on historical registration/attendance data) is asked first; the
+// deterministic velocity heuristic below remains the fallback whenever the
+// AI service is unreachable or has no model yet.
+const ai = require("./aiClient");
+
+const heuristic = (event) => {
   const now = Date.now();
   const createdAt = new Date(event.createdAt).getTime();
   const eventDate = new Date(event.date).getTime();
@@ -19,4 +22,24 @@ const predictAttendance = (event) => {
   return Math.min(event.capacity, Math.round(projected));
 };
 
+const predictAttendance = async (event) => {
+  const predictions = await ai.predictAttendance([event]);
+  if (predictions && predictions.length && predictions[0].predicted != null) {
+    return predictions[0].predicted;
+  }
+  return heuristic(event);
+};
+
+// Batch variant for when many events need forecasting at once.
+const predictAttendanceBatch = async (events) => {
+  const predictions = await ai.predictAttendance(events);
+  if (!predictions || predictions.length !== events.length) {
+    return events.map(heuristic);
+  }
+  const byId = new Map(predictions.map((p) => [String(p.event_id), p.predicted]));
+  return events.map((e) => byId.get(String(e._id)) ?? heuristic(e));
+};
+
 module.exports = predictAttendance;
+module.exports.batch = predictAttendanceBatch;
+module.exports.heuristic = heuristic;

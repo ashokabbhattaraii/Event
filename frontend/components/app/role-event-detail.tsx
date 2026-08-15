@@ -40,6 +40,7 @@ import { useUpdateLocation } from "@/lib/queries/location"
 import { usePaymentConfig, useCreateCheckoutSession, useInitiateEsewaPayment } from "@/lib/queries/payments"
 import { submitEsewaForm } from "@/lib/esewa"
 import { formatPrice, isFreeEvent } from "@/lib/price"
+import { isSaved, toggleSaved } from "@/lib/saved-events"
 
 type RoleEventDetailProps = {
   eventId: string
@@ -88,7 +89,10 @@ export function RoleEventDetail({
   const checkoutMutation = useCreateCheckoutSession()
   const esewaMutation = useInitiateEsewaPayment()
   const updateLocation = useUpdateLocation()
-  const [saved, setSaved] = useState(false)
+  // Persisted in localStorage (same key as /saved-events) so the heart
+  // state survives reloads and stays in sync with the saved page — the old
+  // code kept it in component state only, so nothing was ever saved.
+  const [saved, setSaved] = useState(() => isSaved(eventId))
   const [showShareFeedback, setShowShareFeedback] = useState(false)
   const [confirmingCancel, setConfirmingCancel] = useState(false)
 
@@ -171,7 +175,7 @@ export function RoleEventDetail({
   }
 
   // Always the public, no-login-required URL — sharing the authed route
-  // (e.g. /attendee/123) would send recipients straight to a login wall.
+  // (e.g. /event/123) would send recipients straight to a login wall.
   const publicUrl = typeof window !== "undefined" ? `${window.location.origin}/events/${eventId}` : ""
 
   const handleShare = async () => {
@@ -577,7 +581,7 @@ export function RoleEventDetail({
 
                 <div className="mt-3 flex gap-2">
                   <button
-                    onClick={() => setSaved((value) => !value)}
+                    onClick={() => setSaved(toggleSaved(eventId))}
                     className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg border py-2 text-sm font-medium transition-colors ${
                       saved ? "border-flame bg-flame/10 text-flame" : "border-border text-ink hover:bg-muted"
                     }`}

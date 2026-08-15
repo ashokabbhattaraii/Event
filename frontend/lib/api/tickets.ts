@@ -22,6 +22,40 @@ export interface Ticket {
   createdAt: string;
 }
 
+// Attendee roster entry — attendee is populated with name/email, ticket
+// payment + check-in status so organizers can drill into a registration.
+export interface EventAttendee {
+  ticketId: string;
+  status: "valid" | "checked-in" | "cancelled";
+  registeredAt: string;
+  checkedInAt?: string;
+  cancelledAt?: string;
+  payment: {
+    status: "none" | "pending" | "paid" | "refunded";
+    provider: string;
+    amount: number;
+    currency: string;
+  };
+  attendee: { _id: string; name: string; email: string };
+}
+
+export interface EventAttendeesResponse {
+  event: {
+    _id: string;
+    title: string;
+    date: string;
+    capacity: number;
+    registered: number;
+  };
+  attendees: EventAttendee[];
+  counts: {
+    total: number;
+    checkedIn: number;
+    valid: number;
+    cancelled: number;
+  };
+}
+
 export const ticketsApi = {
   registerForEvent: async (eventId: string): Promise<{ ticket: Ticket }> => {
     const res = await apiClient.post(`/events/${eventId}/register`);
@@ -40,6 +74,11 @@ export const ticketsApi = {
 
   verify: async (qrToken: string): Promise<{ ticket: Ticket }> => {
     const res = await apiClient.post("/tickets/verify", { qrToken });
+    return res.data;
+  },
+
+  getEventAttendees: async (eventId: string): Promise<EventAttendeesResponse> => {
+    const res = await apiClient.get(`/events/${eventId}/attendees`);
     return res.data;
   },
 };

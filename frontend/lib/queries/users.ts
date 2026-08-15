@@ -36,3 +36,30 @@ export function useUpdateUserRole() {
     },
   });
 }
+
+// Settings mutations: after a profile/password update the cached /auth/me
+// user and the localStorage copy both need refreshing so the sidebar name
+// and the "googleAccount" flag stay current.
+export function useUpdateMyProfile() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => usersApi.updateMyProfile(name),
+    onSuccess: (data) => {
+      queryClient.setQueryData(["auth", "me"], data);
+      const stored = localStorage.getItem("user");
+      if (stored) {
+        localStorage.setItem(
+          "user",
+          JSON.stringify({ ...JSON.parse(stored), name: data.user.name })
+        );
+      }
+    },
+  });
+}
+
+export function useUpdateMyPassword() {
+  return useMutation({
+    mutationFn: (payload: { currentPassword: string; newPassword: string }) =>
+      usersApi.updateMyPassword(payload),
+  });
+}

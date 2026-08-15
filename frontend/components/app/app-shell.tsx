@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useEffect, useRef, type ReactNode } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
@@ -16,6 +16,8 @@ import { EventBot } from "@/components/chatbot/event-bot"
 import { adminNav, attendeeNav, organizerNav } from "@/components/app/nav-configs"
 import { ensureGsap, prefersReducedMotion } from "@/lib/gsap"
 import { useNotifications } from "@/lib/queries/notifications"
+import { useLogout } from "@/lib/queries/auth"
+import { useChatbotStore } from "@/lib/stores/chatbot-store"
 
 export type NavItem = { label: string; href: string; icon: LucideIcon; badge?: number }
 
@@ -45,7 +47,7 @@ function resolveShellFromPath(pathname: string, fallbackRole: AppShellProps["rol
   if (pathname.startsWith("/organizer")) {
     return { nav: organizerNav, role: "Organizer" as const }
   }
-  if (pathname.startsWith("/attendee")) {
+  if (pathname.startsWith("/dashboard") || pathname.startsWith("/event")) {
     return { nav: attendeeNav, role: "Attendee" as const }
   }
   return { nav: roleNavMap[fallbackRole], role: fallbackRole }
@@ -61,7 +63,7 @@ function matchesRoute(pathname: string, href: string) {
 // always fall back to "which event do you mean?". Matches the Mongo
 // ObjectId pattern so route segments like "create" or "check-in" are never
 // mistaken for an id.
-const EVENT_DETAIL_PATTERN = /^\/(?:attendee|organizer\/events|admin\/events)\/([0-9a-f]{24})$/i
+const EVENT_DETAIL_PATTERN = /^\/(?:event|organizer\/events|admin\/events)\/([0-9a-f]{24})$/i
 
 function extractEventIdFromPath(pathname: string): string | undefined {
   return EVENT_DETAIL_PATTERN.exec(pathname)?.[1]
@@ -70,7 +72,12 @@ function extractEventIdFromPath(pathname: string): string | undefined {
 export function AppShell({ children, role, userName, title = "Welcome back" }: AppShellProps) {
   const greeting = title
   const pathname = usePathname()
-  const [botOpen, setBotOpen] = useState(false)
+  const logout = useLogout()
+  // The chat panel's open state lives in the zustand store (with the whole
+  // conversation), so switching pages keeps both the chat open and its
+  // history intact — AppShell unmounts on every route change.
+  const botOpen = useChatbotStore((s) => s.open)
+  const setBotOpen = useChatbotStore((s) => s.setOpen)
   const aside = useRef<HTMLElement>(null)
   const resolvedShell = resolveShellFromPath(pathname, role)
   const resolvedNav = resolvedShell.nav
@@ -102,12 +109,12 @@ export function AppShell({ children, role, userName, title = "Welcome back" }: A
         ref={aside}
         className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-border bg-card lg:flex"
       >
-        <div className="flex items-center gap-2 border-b border-border px-5 py-4">
+        <Link href="/" className="flex items-center gap-2 border-b border-border px-5 py-4 transition-opacity hover:opacity-80">
           <span className="bg-brand-gradient flex size-8 items-center justify-center rounded-lg text-white">
             <Hexagon className="size-5" strokeWidth={2.5} />
           </span>
           <span className="font-display text-lg font-bold text-ink">EventNexus</span>
-        </div>
+        </Link>
 
         <div className="flex items-center gap-3 border-b border-border px-5 py-4">
           <span className="bg-brand-gradient flex size-10 items-center justify-center rounded-full font-display text-sm font-bold text-white">
@@ -158,12 +165,12 @@ export function AppShell({ children, role, userName, title = "Welcome back" }: A
           >
             <HelpCircle className="size-[18px]" /> Help
           </Link>
-          <Link
-            href="/login"
-            className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-ink"
+          <button
+            onClick={logout}
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-ink"
           >
             <LogOut className="size-[18px]" /> Logout
-          </Link>
+          </button>
         </div>
       </aside>
 
@@ -204,7 +211,7 @@ export function AppShell({ children, role, userName, title = "Welcome back" }: A
         <main className="flex-1 px-6 py-6">{children}</main>
       </div>
 
-      <EventBot open={botOpen} onClose={() => setBotOpen(false)} eventId={currentEventId} />
+      <EventBot eventId={currentEventId} />
     </div>
   )
 }

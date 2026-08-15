@@ -43,4 +43,20 @@ export const usersApi = {
     const res = await apiClient.put(`/users/${id}/role`, { role });
     return res.data;
   },
+
+  // Settings — any authenticated role can update their own profile.
+  updateMyProfile: async (
+    name: string
+  ): Promise<{ user: import("./auth").User }> => {
+    const res = await apiClient.patch("/users/me/profile", { name });
+    return res.data;
+  },
+
+  updateMyPassword: async (payload: {
+    currentPassword: string;
+    newPassword: string;
+  }): Promise<{ message: string }> => {
+    const res = await apiClient.patch("/users/me/password", payload);
+    return res.data;
+  },
 };

@@ -25,7 +25,7 @@ function EsewaResult({ ticketId, error }: { ticketId: string | null; error: stri
           Paid via eSewa — your ticket is ready in My Tickets, QR code included.
         </p>
         <Link
-          href="/attendee/tickets"
+          href="/my-tickets"
           className="mt-6 inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground"
         >
           <Ticket className="size-4" /> View my ticket
@@ -49,7 +49,7 @@ function EsewaResult({ ticketId, error }: { ticketId: string | null; error: stri
         {reasons[error || ""] || "Something went wrong with the eSewa payment. No charge should have gone through."}
       </p>
       <Link
-        href="/attendee/tickets"
+        href="/my-tickets"
         className="mt-6 inline-flex items-center gap-2 rounded-xl border border-border px-5 py-3 text-sm font-medium text-ink hover:bg-muted"
       >
         Go to My Tickets
@@ -74,6 +74,19 @@ function StripeResult({ sessionId }: { sessionId: string | null }) {
   }
 
   if (!isError && data?.paid) {
+    // Stripe webhooks can lag a beat behind the redirect — the query above
+    // polls until the ticket exists, so only claim it's ready when it is.
+    if (!data.ticket) {
+      return (
+        <>
+          <Loader2 className="mx-auto size-8 animate-spin text-primary" />
+          <h1 className="font-display mt-4 text-xl font-bold text-ink">Payment confirmed — issuing your ticket…</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Your payment went through. We&apos;re generating your QR ticket — this usually takes a few seconds.
+          </p>
+        </>
+      )
+    }
     return (
       <>
         <CheckCircle2 className="mx-auto size-10 text-secondary" />
@@ -82,7 +95,7 @@ function StripeResult({ sessionId }: { sessionId: string | null }) {
           Your ticket is ready. It&apos;s waiting for you in My Tickets, QR code included.
         </p>
         <Link
-          href="/attendee/tickets"
+          href="/my-tickets"
           className="mt-6 inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground"
         >
           <Ticket className="size-4" /> View my ticket
@@ -100,7 +113,7 @@ function StripeResult({ sessionId }: { sessionId: string | null }) {
         support if it doesn&apos;t appear.
       </p>
       <Link
-        href="/attendee/tickets"
+        href="/my-tickets"
         className="mt-6 inline-flex items-center gap-2 rounded-xl border border-border px-5 py-3 text-sm font-medium text-ink hover:bg-muted"
       >
         Go to My Tickets

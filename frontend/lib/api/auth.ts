@@ -12,6 +12,8 @@ export interface User {
     city?: string;
     updatedAt?: string;
   };
+  // True for accounts created via Google sign-in — no password to change.
+  googleAccount?: boolean;
 }
 
 export interface AuthResponse {

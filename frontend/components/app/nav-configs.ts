@@ -10,10 +10,10 @@ import {
   Network,
   Ticket,
   Sparkles,
-  Compass,
   Heart,
   QrCode,
   UserCircle,
+  Brain,
 } from "lucide-react"
 import type { NavItem } from "@/components/app/app-shell"
 
@@ -24,8 +24,10 @@ export const adminNav: NavItem[] = [
   { label: "Events", href: "/admin/events", icon: CalendarDays },
   { label: "Security & IAM", href: "/admin/security", icon: ShieldCheck },
   { label: "Analytics", href: "/analytics", icon: BarChart3 },
+  { label: "AI Training", href: "/admin/ai", icon: Brain },
   { label: "System Settings", href: "/admin/settings", icon: Settings },
   { label: "Notifications", href: "/admin/notifications", icon: Bell, badge: 5 },
+  { label: "Settings", href: "/settings", icon: UserCircle },
 ]
 
 export const organizerNav: NavItem[] = [
@@ -36,14 +38,15 @@ export const organizerNav: NavItem[] = [
   { label: "AI Insights", href: "/organizer/insights", icon: Sparkles },
   { label: "Tickets", href: "/organizer/tickets", icon: Ticket },
   { label: "Notifications", href: "/organizer/notifications", icon: Bell, badge: 3 },
+  { label: "Settings", href: "/settings", icon: UserCircle },
 ]
 
 export const attendeeNav: NavItem[] = [
-  { label: "Discover", href: "/attendee", icon: Compass },
-  { label: "My Tickets", href: "/attendee/tickets", icon: Ticket },
-  { label: "Saved", href: "/attendee/saved", icon: Heart },
-  { label: "Check-in", href: "/attendee/check-in", icon: QrCode },
-  { label: "Recommendations", href: "/attendee/recommendations", icon: Sparkles },
-  { label: "Notifications", href: "/attendee/notifications", icon: Bell, badge: 2 },
-  { label: "Settings", href: "/attendee/settings", icon: UserCircle },
+  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { label: "My Tickets", href: "/my-tickets", icon: Ticket },
+  { label: "Saved", href: "/saved-events", icon: Heart },
+  { label: "Check-in", href: "/check-in", icon: QrCode },
+  { label: "Recommendations", href: "/recommendations", icon: Sparkles },
+  { label: "Notifications", href: "/notifications", icon: Bell, badge: 2 },
+  { label: "Settings", href: "/settings", icon: UserCircle },
 ]

@@ -5,6 +5,9 @@ export interface Recommendation {
   event: EventData;
   score: number;
   distanceKm: number | null;
+  // One-line "why this pick" — AI-phrased from the scorer's own factors
+  // (fallback: deterministic sentence derived from the same factors).
+  reason?: string;
 }
 
 export interface RecommendationsResponse {

@@ -2,16 +2,10 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { Check, Loader2 } from "lucide-react"
+import { Loader2 } from "lucide-react"
 import { AuthShell } from "@/components/auth/auth-shell"
 import { useRegister } from "@/lib/queries/auth"
 import { useOrganizations } from "@/lib/queries/organizations"
-
-const roles = [
-  { id: "admin", label: "Admin" },
-  { id: "organizer", label: "Organizer" },
-  { id: "attendee", label: "Attendee" },
-]
 
 function Field({ label, ...props }: { label: string } & React.InputHTMLAttributes<HTMLInputElement>) {
   return (
@@ -30,34 +24,23 @@ export default function RegisterPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
-  const [organizationName, setOrganizationName] = useState("")
   const [organizationId, setOrganizationId] = useState("")
-  const [role, setRole] = useState("organizer")
 
   const registerMutation = useRegister()
   const { data: orgData, isLoading: orgsLoading } = useOrganizations()
   const organizations = orgData?.organizations ?? []
 
-  const isAdmin = role === "admin"
-
+  // Self-service registration is attendee-only. Admin/organizer roles are
+  // privileged (event management, tenant administration) and are assigned by
+  // an existing admin or via the ADMIN_EMAILS allowlist — the backend
+  // rejects privileged roles from this form (authController.register).
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (password !== confirmPassword) return
-    registerMutation.mutate({
-      name,
-      email,
-      password,
-      role,
-      ...(isAdmin ? { organizationName } : { organizationId }),
-    })
+    registerMutation.mutate({ name, email, password, role: "attendee", organizationId })
   }
 
-  const canSubmit =
-    !!name &&
-    !!email &&
-    !!password &&
-    password === confirmPassword &&
-    (isAdmin ? !!organizationName : !!organizationId)
+  const canSubmit = !!name && !!email && !!password && password === confirmPassword && !!organizationId
 
   return (
     <AuthShell heading="Create your account" sub="Set up your EventNexus workspace in minutes.">
@@ -82,51 +65,26 @@ export default function RegisterPage() {
         </div>
 
         <div className="auth-field">
-          <label className="text-sm font-medium text-ink">Role</label>
-          <div className="mt-1.5 grid grid-cols-3 gap-2 rounded-xl bg-muted p-1">
-            {roles.map((r) => (
-              <button
-                key={r.id}
-                type="button"
-                onClick={() => setRole(r.id)}
-                className={`rounded-lg px-3 py-2 text-sm font-medium transition-all ${
-                  role === r.id
-                    ? "bg-card text-ink shadow-sm"
-                    : "text-muted-foreground hover:text-ink"
-                }`}
-              >
-                {r.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {isAdmin ? (
-          <Field
-            label="Organization Name"
-            placeholder="Asia Pacific University"
-            value={organizationName}
-            onChange={(e) => setOrganizationName(e.target.value)}
-          />
-        ) : (
-          <div className="auth-field">
-            <label className="text-sm font-medium text-ink">Organization</label>
-            <select
-              value={organizationId}
-              onChange={(e) => setOrganizationId(e.target.value)}
-              className="mt-1.5 w-full rounded-xl border border-border bg-card px-4 py-3 text-sm text-ink outline-none transition-all focus:border-primary focus:ring-4 focus:ring-primary/10"
-            >
-              <option value="">
-                {orgsLoading ? "Loading organizations..." : "Select an organization"}
+          <label className="text-sm font-medium text-ink">Organization</label>
+          <select
+            value={organizationId}
+            onChange={(e) => setOrganizationId(e.target.value)}
+            className="mt-1.5 w-full rounded-xl border border-border bg-card px-4 py-3 text-sm text-ink outline-none transition-all focus:border-primary focus:ring-4 focus:ring-primary/10"
+          >
+            <option value="">
+              {orgsLoading ? "Loading organizations..." : "Select an organization"}
+            </option>
+            {organizations.map((org) => (
+              <option key={org._id} value={org._id}>
+                {org.name}
               </option>
-              {organizations.map((org) => (
-                <option key={org._id} value={org._id}>
-                  {org.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+            ))}
+          </select>
+          <p className="mt-2 text-xs text-muted-foreground">
+            You&apos;ll join as an attendee. Organizer and admin accounts are granted by your organization&apos;s
+            admin.
+          </p>
+        </div>
 
         <button
           type="submit"

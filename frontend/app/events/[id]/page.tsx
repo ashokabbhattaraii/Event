@@ -1,8 +1,8 @@
 "use client"
 
-import { use, useState } from "react"
+import { Suspense, use, useState } from "react"
 import Link from "next/link"
-import { notFound } from "next/navigation"
+import { notFound, useSearchParams } from "next/navigation"
 import {
   ArrowLeft,
   Calendar,
@@ -40,7 +40,31 @@ import { formatPrice, isFreeEvent } from "@/lib/price"
 const roleHome: Record<string, string> = {
   admin: "/admin",
   organizer: "/organizer",
-  attendee: "/attendee",
+  attendee: "/dashboard",
+}
+
+// Stripe redirects here with ?checkout=cancelled when the buyer abandons the
+// checkout page — surface that clearly instead of a silent return to the
+// event (previously nothing acknowledged the cancelled payment attempt).
+function CheckoutCancelledBanner() {
+  const params = useSearchParams()
+  const [dismissed, setDismissed] = useState(false)
+  if (params.get("checkout") !== "cancelled" || dismissed) return null
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-2xl border border-amber-400/40 bg-amber-500/10 p-4 text-sm text-amber-700 dark:text-amber-300">
+      <span className="flex items-center gap-2">
+        <XCircle className="size-4 shrink-0" />
+        You left checkout without paying — no charge was made. You can still register or buy a ticket below.
+      </span>
+      <button
+        onClick={() => setDismissed(true)}
+        aria-label="Dismiss"
+        className="shrink-0 rounded-lg p-1 transition-colors hover:bg-amber-500/20"
+      >
+        <X className="size-4" />
+      </button>
+    </div>
+  )
 }
 
 // Public, unauthenticated event page — the landing spot for the QR code on
@@ -147,7 +171,7 @@ export default function PublicEventPage({ params }: { params: Promise<{ id: stri
 
           {user ? (
             <Link
-              href={roleHome[user.role] || "/attendee"}
+              href={roleHome[user.role] || "/dashboard"}
               className="flex items-center gap-1.5 rounded-full border border-border px-4 py-2 text-sm font-medium text-ink transition-colors hover:bg-muted"
             >
               Go to my dashboard
@@ -172,6 +196,10 @@ export default function PublicEventPage({ params }: { params: Promise<{ id: stri
         <Link href="/" className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-ink">
           <ArrowLeft className="size-4" /> Back to EventNexus
         </Link>
+
+        <Suspense fallback={null}>
+          <CheckoutCancelledBanner />
+        </Suspense>
 
         <Reveal y={18}>
           <div className="relative h-64 overflow-hidden rounded-2xl bg-primary/10">
@@ -457,7 +485,7 @@ export default function PublicEventPage({ params }: { params: Promise<{ id: stri
                     )}
 
                     {isRegistered && (
-                      <Link href="/attendee/tickets" className="mt-2 block rounded-xl border border-border py-2.5 text-center text-sm font-medium text-ink transition-colors hover:bg-muted">
+                      <Link href="/my-tickets" className="mt-2 block rounded-xl border border-border py-2.5 text-center text-sm font-medium text-ink transition-colors hover:bg-muted">
                         View my ticket
                       </Link>
                     )}

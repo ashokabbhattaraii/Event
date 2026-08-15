@@ -80,7 +80,7 @@ export default function AttendeeRecommendationsPage() {
           </div>
         ) : (
           <Reveal stagger={0.08} y={24} className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
-            {recommendations.map(({ event, score, distanceKm }) => {
+            {recommendations.map(({ event, score, distanceKm, reason }) => {
               const isRegistered = registeredEventIds.has(event._id)
               const pct = Math.round((event.registered / event.capacity) * 100)
               return (
@@ -93,6 +93,11 @@ export default function AttendeeRecommendationsPage() {
                   <div className="flex flex-1 flex-col p-5">
                     <span className="text-xs font-medium text-primary">{event.category}</span>
                     <h3 className="font-display mt-1 text-base font-bold leading-snug text-ink">{event.title}</h3>
+                    {reason && (
+                      <p className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-muted-foreground">
+                        <Sparkles className="mt-0.5 size-3.5 shrink-0 text-primary" /> {reason}
+                      </p>
+                    )}
                     <div className="mt-3 space-y-1.5 text-xs text-muted-foreground">
                       <span className="flex items-center gap-1.5">
                         <Calendar className="size-3.5" /> {new Date(event.date).toLocaleString()}
@@ -108,6 +113,11 @@ export default function AttendeeRecommendationsPage() {
                       <span className="flex items-center gap-1.5">
                         <Users className="size-3.5" /> {event.registered}/{event.capacity} ({pct}%)
                       </span>
+                      {event.predictedAttendance != null && event.predictedAttendance > event.registered && (
+                        <span className="flex items-center gap-1.5 font-medium text-secondary">
+                          <Sparkles className="size-3.5" /> ~{event.predictedAttendance} predicted
+                        </span>
+                      )}
                     </div>
                     <button
                       onClick={() => !isRegistered && registerMutation.mutate(event._id)}

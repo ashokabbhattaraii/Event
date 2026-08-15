@@ -8,11 +8,13 @@ export interface UserLocation {
 }
 
 export const locationApi = {
+  // Omitting lat/lng clears the saved location (the backend treats a
+  // missing pair as "remove" — see userController.updateMyLocation).
   update: async (loc: {
-    lat: number;
-    lng: number;
+    lat?: number;
+    lng?: number;
     city?: string;
-  }): Promise<{ location: UserLocation }> => {
+  }): Promise<{ location: UserLocation | null }> => {
     const res = await apiClient.patch("/users/me/location", loc);
     return res.data;
   },

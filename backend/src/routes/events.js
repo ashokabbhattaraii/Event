@@ -7,8 +7,9 @@ const {
   updateEvent,
   deleteEvent,
   getAllEvents,
+  getOrgEvents,
 } = require("../controllers/eventController");
-const { registerForEvent } = require("../controllers/ticketController");
+const { registerForEvent, getEventAttendees } = require("../controllers/ticketController");
 const {
   submitFeedback,
   getMyFeedback,
@@ -28,7 +29,13 @@ router.get("/", getAllEvents);
 
 router.get("/my", protect, authorize("organizer", "admin"), getMyEvents);
 
+router.get("/org", protect, authorize("admin"), getOrgEvents);
+
 router.get("/:id", optionalAuth, getEventById);
+
+// Full attendee roster for a managed event (organizer/admin) — powers the
+// Tickets & Check-in dashboard's attendee list + per-attendee detail view.
+router.get("/:id/attendees", protect, authorize("organizer", "admin"), getEventAttendees);
 
 router.post(
   "/",

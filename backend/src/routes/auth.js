@@ -11,11 +11,15 @@ const validate = require("../middleware/validate");
 const rateLimit = require("../middleware/rateLimit");
 
 const router = express.Router();
-const authLimiter = rateLimit({ windowMs: 60_000, max: 10 });
+// One bucket per endpoint — sharing a single limiter across login, register
+// and google meant a burst on one blocked the other two as well.
+const registerLimiter = rateLimit({ windowMs: 60_000, max: 10 });
+const loginLimiter = rateLimit({ windowMs: 60_000, max: 10 });
+const googleLimiter = rateLimit({ windowMs: 60_000, max: 10 });
 
 router.post(
   "/register",
-  authLimiter,
+  registerLimiter,
   [
     body("name").notEmpty().withMessage("Name is required"),
     body("email").isEmail().withMessage("Valid email is required"),
@@ -42,7 +46,7 @@ router.post(
 
 router.post(
   "/login",
-  authLimiter,
+  loginLimiter,
   [
     body("email").isEmail().withMessage("Valid email is required"),
     body("password").notEmpty().withMessage("Password is required"),
@@ -53,7 +57,7 @@ router.post(
 
 router.post(
   "/google",
-  authLimiter,
+  googleLimiter,
   [body("credential").notEmpty().withMessage("Google credential is required")],
   validate,
   googleLogin

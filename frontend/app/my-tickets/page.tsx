@@ -7,7 +7,7 @@ import { QrCode } from "@/components/app/qr-code"
 import { useMyTickets } from "@/lib/queries/tickets"
 import { useCurrentUser } from "@/lib/queries/auth"
 import type { EventData } from "@/lib/api/events"
-import { Calendar, MapPin, CheckCircle2, Loader2 } from "lucide-react"
+import { Calendar, MapPin, CheckCircle2, Loader2, XCircle } from "lucide-react"
 
 const tabs = ["Upcoming", "Past"] as const
 
@@ -18,9 +18,12 @@ export default function MyTicketsPage() {
   const user = userData?.user
   const tickets = data?.tickets ?? []
 
+  // Bucketed by the event's actual date, not its (manually-maintained)
+  // status — an event can be past-dated while its status still says
+  // "Upcoming", which used to hide it from the Past tab entirely.
   const list = tickets.filter((t) => {
     const event = typeof t.event === "object" ? (t.event as EventData) : null
-    const isPast = event?.status === "Past"
+    const isPast = event ? new Date(event.date).getTime() <= Date.now() : true
     return tab === "Upcoming" ? !isPast : isPast
   })
 
@@ -55,8 +58,20 @@ export default function MyTicketsPage() {
                   <div className="flex flex-1 flex-col gap-4 p-5 sm:flex-row sm:items-center">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
-                          {ticket.status === "checked-in" ? "Checked In" : "Valid"}
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                            ticket.status === "checked-in"
+                              ? "bg-secondary/15 text-secondary"
+                              : ticket.status === "cancelled"
+                                ? "bg-destructive/10 text-destructive"
+                                : "bg-primary/10 text-primary"
+                          }`}
+                        >
+                          {ticket.status === "checked-in"
+                            ? "Checked In"
+                            : ticket.status === "cancelled"
+                              ? "Cancelled"
+                              : "Valid"}
                         </span>
                       </div>
                       <h3 className="font-display mt-2 text-lg font-bold text-ink">
@@ -79,17 +94,22 @@ export default function MyTicketsPage() {
                       </div>
                     </div>
                     <div className="flex shrink-0 flex-col items-center gap-2 border-t border-dashed border-border pt-4 sm:border-l sm:border-t-0 sm:pl-5 sm:pt-0">
-                      {ticket.status !== "checked-in" ? (
+                      {ticket.status === "valid" ? (
                         <>
                           <div className="rounded-xl border border-border p-2">
                             <QrCode seed={ticket.qrToken} size={84} />
                           </div>
                           <span className="text-[11px] font-medium text-muted-foreground">Scan to check in</span>
                         </>
-                      ) : (
+                      ) : ticket.status === "checked-in" ? (
                         <div className="flex flex-col items-center gap-1.5 text-secondary">
                           <CheckCircle2 className="size-10" />
                           <span className="text-xs font-semibold">Attended</span>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center gap-1.5 text-muted-foreground">
+                          <XCircle className="size-10 text-destructive/70" />
+                          <span className="text-xs font-semibold text-destructive">Cancelled</span>
                         </div>
                       )}
                     </div>

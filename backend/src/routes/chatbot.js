@@ -1,6 +1,6 @@
 const express = require("express");
 const { body } = require("express-validator");
-const { query } = require("../controllers/chatbotController");
+const { query, getSuggestions } = require("../controllers/chatbotController");
 const { protect } = require("../middleware/auth");
 const validate = require("../middleware/validate");
 
@@ -13,5 +13,7 @@ router.post(
   validate,
   query
 );
+
+router.get("/suggestions", protect, getSuggestions);
 
 module.exports = router;

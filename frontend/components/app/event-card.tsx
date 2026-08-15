@@ -12,7 +12,7 @@ export function EventCard({ event, href }: { event: AppEvent; href?: string }) {
   const pct = Math.round((event.registered / event.capacity) * 100)
   return (
     <Link
-      href={href ?? `/attendee/${event.id}`}
+      href={href ?? `/event/${event.id}`}
       className="group flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-[0_2px_24px_rgba(0,0,0,0.04)] transition-all hover:-translate-y-1.5 hover:shadow-[0_24px_50px_-28px_rgba(26,26,46,0.45)]"
     >
       {/* Banner */}

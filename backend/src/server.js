@@ -12,7 +12,9 @@ const recommendationRoutes = require("./routes/recommendations");
 const analyticsRoutes = require("./routes/analytics");
 const chatbotRoutes = require("./routes/chatbot");
 const paymentRoutes = require("./routes/payments");
+const aiRoutes = require("./routes/ai");
 const { handleWebhook } = require("./controllers/paymentController");
+const aiHealth = require("./utils/aiClient").health;
 
 const app = express();
 
@@ -49,6 +51,17 @@ app.use("/api/recommendations", recommendationRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/chatbot", chatbotRoutes);
 app.use("/api/payments", paymentRoutes);
+
+// AI health probe is public (used by status indicators/landing page), so it
+// must be registered BEFORE the admin-protected /api/ai router mounts below —
+// mounted after, the router's protect middleware swallows it with a 401.
+app.get("/api/ai/health", async (req, res) => {
+  const health = await aiHealth();
+  res.json(health ?? { online: false, attendance: false, cf: false, intent: false });
+});
+
+// Admin-only AI training console (proxies the Python AI service).
+app.use("/api/ai", aiRoutes);
 
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });

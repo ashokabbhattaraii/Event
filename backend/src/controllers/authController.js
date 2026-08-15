@@ -41,13 +41,37 @@ const serializeUser = (user) => ({
   role: user.role,
   organization: user.organization,
   location: user.location,
+  // True when the account was created via Google sign-in — such accounts
+  // have no password, so the UI hides the "change password" card.
+  googleAccount: Boolean(user.googleId),
 });
 
 const register = async (req, res) => {
   try {
     const { name, email, password, role, organizationId, organizationName } =
       req.body;
-    const resolvedRole = role || "attendee";
+
+    // Public self-service registration is attendee-only. Organizer/admin
+    // roles are privileged (event management, tenant administration), so
+    // they're granted by an existing admin (users/:id/role) or via the
+    // ADMIN_EMAILS allowlist on Google sign-in — never chosen on a form.
+    // Before this fix, anyone could register as an "organizer" (or even
+    // "admin" with a made-up org name) and get elevated permissions in an
+    // existing tenant.
+    const requestedRole = role || "attendee";
+    if (
+      (requestedRole === "admin" || requestedRole === "organizer") &&
+      !isAdminEmail(email)
+    ) {
+      return res.status(403).json({
+        message:
+          "Organizer/admin registration is invite-only. Contact your organization admin to assign this role.",
+      });
+    }
+    const resolvedRole =
+      requestedRole === "admin" || requestedRole === "organizer"
+        ? requestedRole
+        : "attendee";
 
     const existingUser = await User.findOne({ email });
     if (existingUser) {
@@ -193,6 +217,9 @@ const googleLogin = async (req, res) => {
     const token = generateToken(user._id);
     res.json({ user: serializeUser(user), token });
   } catch (error) {
+    // Log the real cause; the client still gets a generic message so no
+    // internal details (DB names, stack traces) leak through.
+    console.error("[google] login failed:", error.message);
     res.status(401).json({ message: "Google authentication failed" });
   }
 };

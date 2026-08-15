@@ -65,4 +65,26 @@ const claimAndIssueTicket = async ({ event, attendeeId, attendeeName, payment })
   return ticket;
 };
 
-module.exports = { claimAndIssueTicket };
+// Idempotent ticket issuance for payment callbacks (Stripe webhook, eSewa
+// success redirect). Payment providers may deliver the same successful
+// payment more than once (webhook retries, double redirects, concurrent
+// callbacks); each delivery must not create a second ticket or error out.
+// Claims a capacity slot and issues the ticket, or returns the already-
+// existing live ticket on a duplicate (11000) race.
+const issueTicketOnce = async ({ event, attendeeId, attendeeName, payment }) => {
+  try {
+    return await claimAndIssueTicket({ event, attendeeId, attendeeName, payment });
+  } catch (error) {
+    if (error?.code === 11000) {
+      const existing = await Ticket.findOne({
+        event: event._id,
+        attendee: attendeeId,
+        status: { $ne: "cancelled" },
+      });
+      if (existing) return existing;
+    }
+    throw error;
+  }
+};
+
+module.exports = { claimAndIssueTicket, issueTicketOnce };

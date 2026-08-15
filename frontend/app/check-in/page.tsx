@@ -13,7 +13,24 @@ export default function AttendeeCheckInPage() {
   const { data, isLoading } = useMyTickets()
   const user = userData?.user
   const tickets = data?.tickets ?? []
-  const nextTicket = tickets.find((t) => t.status === "valid")
+
+  // Show the NEXT upcoming valid ticket, not just any valid one — the old
+  // `tickets.find(status === "valid")` picked the most-recently-registered
+  // ticket regardless of its event date, so a stale ticket for an event
+  // that already happened (or one months away) was presented as the one
+  // to scan at the door today.
+  const upcomingTickets = tickets
+    .filter((t) => {
+      if (t.status !== "valid") return false
+      const ev = typeof t.event === "object" ? (t.event as EventData) : null
+      return ev ? new Date(ev.date).getTime() > Date.now() : false
+    })
+    .sort((a, b) => {
+      const da = typeof a.event === "object" ? new Date((a.event as EventData).date).getTime() : 0
+      const db = typeof b.event === "object" ? new Date((b.event as EventData).date).getTime() : 0
+      return da - db
+    })
+  const nextTicket = upcomingTickets[0]
   const event = nextTicket && typeof nextTicket.event === "object" ? (nextTicket.event as EventData) : null
 
   if (isLoading) {

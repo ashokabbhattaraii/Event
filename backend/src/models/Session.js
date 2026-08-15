@@ -5,6 +5,13 @@ const mongoose = require("mongoose");
 // POST /auth/refresh mints a new pair and replaces the stored hash) plus
 // reuse detection: presenting a token whose hash is no longer the stored one
 // marks it as theft and revokes every session for that user.
+//
+// NOTE: this is the auth "session" (refresh-token), NOT an event schedule
+// session. Event schedule items (talks/slots within an event) live in
+// models/EventSession.js. The two were previously collapsed onto the same
+// model name "Session", which made `Session.create({ user, refreshTokenHash })`
+// in the login flow fail validation against the event-schedule schema
+// (event/organization/title/startTime/endTime required) — login was broken.
 const sessionSchema = new mongoose.Schema(
   {
     user: {

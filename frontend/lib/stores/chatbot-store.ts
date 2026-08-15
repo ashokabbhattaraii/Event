@@ -1,8 +1,9 @@
 "use client"
 
 import { create } from "zustand"
-import { persist } from "zustand/middleware"
+import { persist, createJSONStorage, type StateStorage } from "zustand/middleware"
 import { chatbotApi, type ChatMessage } from "@/lib/api/chatbot"
+import { USER_KEY } from "@/lib/api/client"
 
 // Chatbot state lives here (not inside the EventBot component) so the
 // conversation survives page switches: AppShell unmounts and remounts per
@@ -51,6 +52,35 @@ const uid = () =>
   typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+
+// Whichever account is currently logged in (or "anon" when signed out) —
+// read FRESH on every storage call, never cached, so a login/logout swap
+// is picked up immediately rather than a stale id lingering in a closure.
+const getCurrentUserId = (): string => {
+  if (typeof window === "undefined") return "anon"
+  try {
+    const raw = localStorage.getItem(USER_KEY)
+    const parsed = raw ? JSON.parse(raw) : null
+    return parsed?._id || "anon"
+  } catch {
+    return "anon"
+  }
+}
+
+// Namespaces the persisted localStorage key by the logged-in user. Without
+// this, a single fixed key ("eventnexus-chatbot") means every account that
+// ever uses this browser reads and writes the SAME conversation history —
+// log out, a different person logs in, and they see the previous person's
+// entire chat. Each user's history now lives under its own key
+// ("eventnexus-chatbot:<their id>"), and callers must trigger a rehydrate
+// (see resetChatbotForUserChange below) after login/logout so the running
+// store re-reads from the newly-correct key instead of keeping whatever
+// was loaded for whoever was signed in when the page first loaded.
+const userScopedStorage: StateStorage = {
+  getItem: (name) => localStorage.getItem(`${name}:${getCurrentUserId()}`),
+  setItem: (name, value) => localStorage.setItem(`${name}:${getCurrentUserId()}`, value),
+  removeItem: (name) => localStorage.removeItem(`${name}:${getCurrentUserId()}`),
+}
 
 export function newConversation(): ChatConversation {
   return {
@@ -176,7 +206,7 @@ export const useChatbotStore = create<ChatbotState>()(
                 ? {
                     ...c,
                     messages: [...c.messages, { from: "bot" as const, text: reply }],
-                    context: [...history, { role: "assistant", content: reply }].slice(-MAX_CONTEXT),
+                    context: [...history, { role: "assistant" as const, content: reply }].slice(-MAX_CONTEXT),
                     updatedAt: Date.now(),
                   }
                 : c
@@ -201,6 +231,7 @@ export const useChatbotStore = create<ChatbotState>()(
     }),
     {
       name: "eventnexus-chatbot",
+      storage: createJSONStorage(() => userScopedStorage),
       partialize: (s) => ({
         conversations: s.conversations,
         activeId: s.activeId || s.conversations[0]?.id,
@@ -228,3 +259,23 @@ export const useChatbotStore = create<ChatbotState>()(
     }
   )
 )
+
+// Call this right after login/register/Google-login succeeds and right
+// after logout. The store is a module-level singleton created once when
+// the app loads, so it doesn't automatically notice that localStorage's
+// USER_KEY changed underneath it — without this, switching accounts in the
+// same tab (no full page reload) would keep showing whichever user's
+// conversations happened to be loaded first. Clears in-memory state to a
+// fresh conversation immediately (so nothing from the previous account
+// flashes on screen) then re-reads from the now-correct per-user key.
+export function resetChatbotForUserChange() {
+  const fresh = newConversation()
+  useChatbotStore.setState({
+    conversations: [fresh],
+    activeId: fresh.id,
+    open: false,
+    input: "",
+    typing: false,
+  })
+  void useChatbotStore.persist.rehydrate()
+}

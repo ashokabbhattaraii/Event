@@ -15,7 +15,8 @@ const EVENT_SEARCH_FIELDS = ["title", "venue", "category", "description"];
 const EVENT_SORT_FIELDS = ["date", "title", "createdAt", "registered"];
 
 // A user may manage an event if they created it, or if they're an admin of
-// the event's own organization (admins can't touch other tenants' events).
+// the event's own organization, or if they're an admin/owner of a co-host
+// organization (admins can't touch other tenants' events unless co-hosting).
 const canManageEvent = (event, user) => {
   const isOwner = event.organizer?.toString() === user._id.toString();
   const isOrgAdmin =
@@ -23,7 +24,12 @@ const canManageEvent = (event, user) => {
     event.organization &&
     user.organization &&
     event.organization.toString() === user.organization.toString();
-  return isOwner || isOrgAdmin;
+  const isCoHostAdmin =
+    user.role === "admin" &&
+    event.coHostOrganizations &&
+    user.organization &&
+    event.coHostOrganizations.some((oid) => oid.toString() === user.organization.toString());
+  return isOwner || isOrgAdmin || isCoHostAdmin;
 };
 
 // Accepts either a plain number (ticket amount) or an { amount, currency }
@@ -64,6 +70,7 @@ const createEvent = async (req, res) => {
       contactEmail,
       contactPhone,
       website,
+      reminderSettings,
     } = req.body;
 
     // Route-level express-validator covers presence; these guards turn the
@@ -109,6 +116,7 @@ const createEvent = async (req, res) => {
       contactEmail,
       contactPhone,
       website,
+      reminderSettings,
       organizer: req.user._id,
       organization: req.user.organization,
       price: normalizedPrice,
@@ -209,6 +217,7 @@ const UPDATABLE_EVENT_FIELDS = [
   "contactPhone",
   "website",
   "reminderSettings",
+  "coHostOrganizations",
 ];
 
 const updateEvent = async (req, res) => {
@@ -401,6 +410,74 @@ const getOrgEvents = async (req, res) => {
   }
 };
 
+// List co-host organizations for an event.
+const listCoHostOrganizations = async (req, res) => {
+  try {
+    const event = await Event.findById(req.params.id)
+      .populate("coHostOrganizations", "name email phone city country status")
+      .lean();
+    if (!event) {
+      return res.status(404).json({ message: "Event not found" });
+    }
+    if (!canManageEvent(event, req.user)) {
+      return res.status(403).json({ message: "Not authorized" });
+    }
+    res.json({ coHostOrganizations: event.coHostOrganizations || [] });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Add a co-host organization to an event.
+const addCoHostOrganization = async (req, res) => {
+  try {
+    const event = await Event.findById(req.params.id);
+    if (!event) {
+      return res.status(404).json({ message: "Event not found" });
+    }
+    if (!canManageEvent(event, req.user)) {
+      return res.status(403).json({ message: "Not authorized" });
+    }
+    const { organizationId } = req.body;
+    if (event.organization.toString() === organizationId) {
+      return res.status(400).json({ message: "Owning organization cannot be a co-host" });
+    }
+    if (event.coHostOrganizations?.some((oid) => oid.toString() === organizationId)) {
+      return res.status(400).json({ message: "Organization is already a co-host" });
+    }
+    event.coHostOrganizations = event.coHostOrganizations || [];
+    event.coHostOrganizations.push(organizationId);
+    await event.save();
+    await event.populate("coHostOrganizations", "name email phone city country status");
+    res.json({ coHostOrganizations: event.coHostOrganizations });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Remove a co-host organization from an event.
+const removeCoHostOrganization = async (req, res) => {
+  try {
+    const event = await Event.findById(req.params.id);
+    if (!event) {
+      return res.status(404).json({ message: "Event not found" });
+    }
+    if (!canManageEvent(event, req.user)) {
+      return res.status(403).json({ message: "Not authorized" });
+    }
+    const { orgId } = req.params;
+    if (!event.coHostOrganizations?.some((oid) => oid.toString() === orgId)) {
+      return res.status(404).json({ message: "Co-host organization not found" });
+    }
+    event.coHostOrganizations = event.coHostOrganizations.filter((oid) => oid.toString() !== orgId);
+    await event.save();
+    await event.populate("coHostOrganizations", "name email phone city country status");
+    res.json({ coHostOrganizations: event.coHostOrganizations });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   createEvent,
   getMyEvents,
@@ -409,5 +486,8 @@ module.exports = {
   deleteEvent,
   getAllEvents,
   getOrgEvents,
+  addCoHostOrganization,
+  removeCoHostOrganization,
+  listCoHostOrganizations,
   canManageEvent,
 };

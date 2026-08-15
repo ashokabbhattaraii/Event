@@ -8,6 +8,9 @@ const {
   deleteEvent,
   getAllEvents,
   getOrgEvents,
+  addCoHostOrganization,
+  removeCoHostOrganization,
+  listCoHostOrganizations,
 } = require("../controllers/eventController");
 const { registerForEvent, getEventAttendees } = require("../controllers/ticketController");
 const {
@@ -65,6 +68,30 @@ router.post(
 router.put("/:id", protect, authorize("organizer", "admin"), updateEvent);
 
 router.delete("/:id", protect, authorize("organizer", "admin"), deleteEvent);
+
+// Co-host organization management (event organizer or owning org admin)
+router.get(
+  "/:id/co-hosts",
+  protect,
+  authorize("organizer", "admin"),
+  listCoHostOrganizations
+);
+router.post(
+  "/:id/co-hosts",
+  protect,
+  authorize("organizer", "admin"),
+  [
+    body("organizationId").isMongoId().withMessage("Valid organizationId is required"),
+  ],
+  validate,
+  addCoHostOrganization
+);
+router.delete(
+  "/:id/co-hosts/:orgId",
+  protect,
+  authorize("organizer", "admin"),
+  removeCoHostOrganization
+);
 
 router.post(
   "/:id/register",

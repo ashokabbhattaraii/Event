@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, type ReactNode } from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import {
   Hexagon,
   LogOut,
@@ -13,11 +13,10 @@ import {
   type LucideIcon,
 } from "lucide-react"
 import { EventBot } from "@/components/chatbot/event-bot"
-import { EmailVerificationBanner } from "@/components/app/email-verification-banner"
 import { adminNav, attendeeNav, organizerNav } from "@/components/app/nav-configs"
 import { ensureGsap, prefersReducedMotion } from "@/lib/gsap"
 import { useNotifications } from "@/lib/queries/notifications"
-import { useLogout } from "@/lib/queries/auth"
+import { useCurrentUser, useLogout } from "@/lib/queries/auth"
 import { useChatbotStore } from "@/lib/stores/chatbot-store"
 
 export type NavItem = { label: string; href: string; icon: LucideIcon; badge?: number }
@@ -73,7 +72,23 @@ function extractEventIdFromPath(pathname: string): string | undefined {
 export function AppShell({ children, role, userName, title = "Welcome back" }: AppShellProps) {
   const greeting = title
   const pathname = usePathname()
+  const router = useRouter()
   const logout = useLogout()
+
+  // Local (email/password) accounts must confirm their address before
+  // using the app at all — Google accounts are verified on creation (see
+  // authController.js's googleLogin), so this only ever gates local,
+  // unverified accounts, never Google sign-ins. This used to be a
+  // dismissible banner that let an unverified user keep using every page
+  // regardless — now it's a hard block: render nothing from this shell
+  // (not even a flash of it) and redirect to the holding page instead.
+  const { data: userData } = useCurrentUser()
+  const currentUser = userData?.user
+  const needsVerification = !!currentUser && !currentUser.googleAccount && !currentUser.emailVerified
+
+  useEffect(() => {
+    if (needsVerification) router.replace("/verify-email")
+  }, [needsVerification, router])
   // The chat panel's open state lives in the zustand store (with the whole
   // conversation), so switching pages keeps both the chat open and its
   // history intact — AppShell unmounts on every route change.
@@ -209,12 +224,10 @@ export function AppShell({ children, role, userName, title = "Welcome back" }: A
           </div>
         </header>
 
-        <EmailVerificationBanner />
-
-        <main className="flex-1 px-6 py-6">{children}</main>
+        <main className="flex-1 px-6 py-6">{needsVerification ? null : children}</main>
       </div>
 
-      <EventBot eventId={currentEventId} />
+      {!needsVerification && <EventBot eventId={currentEventId} />}
     </div>
   )
 }

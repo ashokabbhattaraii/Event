@@ -4,6 +4,8 @@ const { verifyTicketToken } = require("../utils/qrToken");
 const { createNotification } = require("./notificationController");
 const { claimAndIssueTicket } = require("../utils/ticketing");
 const { canManageEvent } = require("./eventController");
+const { sendMail } = require("../utils/email");
+const { generateQRCodeDataURI } = require("../utils/qrCode");
 const {
   parsePagination,
   buildFilters,
@@ -47,6 +49,33 @@ const registerForEvent = async (req, res) => {
       attendeeName: req.user.name,
       payment: { status: "none", amount: 0, currency: event.price?.currency || "NPR" },
     });
+
+    // Send confirmation email with QR code
+    try {
+      const qrCodeDataUri = await generateQRCodeDataURI(ticket.qrToken);
+      await sendMail({
+        to: req.user.email,
+        subject: `Registration confirmed: ${event.title}`,
+        template: "ticket-confirmation",
+        templateData: {
+          name: req.user.name,
+          eventTitle: event.title,
+          eventDate: new Date(event.date).toLocaleDateString("en-US", { dateStyle: "full" }),
+          eventTime: new Date(event.date).toLocaleTimeString("en-US", { timeStyle: "short" }),
+          venue: event.venue || "TBA",
+          eventType: event.type || "In-person",
+          ticketType: event.price?.amount > 0 ? "Paid" : "Free",
+          quantity: 1,
+          orderId: ticket._id.toString().slice(-8).toUpperCase(),
+          eventId: event._id,
+          qrCodeUrl: qrCodeDataUri,
+        },
+        metadata: { ticketId: ticket._id, eventId: event._id },
+      });
+    } catch (mailErr) {
+      console.error("[ticket] Failed to send confirmation email:", mailErr.message);
+      // Don't fail the registration if email fails
+    }
 
     res.status(201).json({ ticket });
   } catch (error) {

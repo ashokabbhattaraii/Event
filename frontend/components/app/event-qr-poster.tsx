@@ -11,7 +11,7 @@ import { QrCodeCanvas } from "@/components/app/qr-code"
 export function EventQrPoster({ eventId, eventTitle }: { eventId: string; eventTitle: string }) {
   const [copied, setCopied] = useState(false)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const publicUrl = typeof window !== "undefined" ? `${window.location.origin}/events/${eventId}` : ""
+  const publicUrl = typeof window !== "undefined" ? `${window.location.origin}/event/${eventId}` : ""
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(publicUrl)

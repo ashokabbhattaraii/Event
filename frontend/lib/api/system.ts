@@ -53,4 +53,13 @@ export const systemAdminApi = {
     const res = await apiClient.post(`/system/orgs/${id}/reject`, { reason });
     return res.data;
   },
+
+  // System-admin tenant lifecycle: rename or flip active<->suspended.
+  updateOrganization: async (
+    id: string,
+    data: { name?: string; status?: "active" | "suspended" }
+  ): Promise<{ organization: PendingOrganization }> => {
+    const res = await apiClient.patch(`/system/orgs/${id}`, data);
+    return res.data;
+  },
 };

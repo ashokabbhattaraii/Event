@@ -140,4 +140,57 @@ const rejectOrg = async (req, res) => {
   }
 };
 
-module.exports = { listPendingOrgs, approveOrg, rejectOrg };
+// --- System-admin org lifecycle: rename / suspend / reactivate ----------------
+// Unlike approve/reject (pending → active/rejected), this mutates an already-
+// provisioned tenant: a system admin can rename it or flip active↔suspended
+// (e.g. when a tenant stops paying or violates policy).
+const updateOrganization = async (req, res) => {
+  try {
+    const { name, status } = req.body;
+    const org = await Organization.findById(req.params.id);
+    if (!org) {
+      return res.status(404).json({ message: "Organization not found" });
+    }
+    const validStatus = ["active", "suspended", "rejected"];
+    if (status && !validStatus.includes(status)) {
+      return res.status(400).json({ message: "Invalid status" });
+    }
+    if (name) org.name = name.trim();
+    if (status) org.status = status;
+    if (org.status === "active") {
+      // Re-activating a tenant: make sure its owner/admins can sign in again.
+      org.rejectionReason = undefined;
+      org.rejectedAt = undefined;
+    }
+    await org.save();
+
+    // If a tenant is being suspended, revoke every active session for its
+    // members so they're logged out immediately (the tokenVersion bump on
+    // the users would handle this too, but this catches all of them at once
+    // from the org level).
+    if (org.status === "suspended") {
+      const Session = require("../models/Session");
+      const User = require("../models/User");
+      const members = await User.find({ organization: org._id }).select("_id");
+      const ids = members.map((m) => m._id);
+      await Session.updateMany(
+        { user: { $in: ids }, revokedAt: null },
+        { revokedAt: new Date() }
+      );
+    }
+
+    audit({
+      req,
+      action: "organization_updated",
+      resourceType: "Organization",
+      resourceId: org._id,
+      metadata: { name, status },
+    });
+
+    res.json({ organization: org });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+module.exports = { listPendingOrgs, approveOrg, rejectOrg, updateOrganization };

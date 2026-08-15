@@ -5,6 +5,7 @@ import { AppShell } from "@/components/app/app-shell"
 import { EventCard } from "@/components/app/event-card"
 import { Reveal } from "@/components/anim/reveal"
 import { useAllEvents } from "@/lib/queries/events"
+import { useRecommendations } from "@/lib/queries/recommendations"
 import { useCurrentUser } from "@/lib/queries/auth"
 import { toAppEvent } from "@/lib/adapters/event"
 import { useDebounce } from "@/lib/hooks/use-debounce"
@@ -24,14 +25,19 @@ export default function AttendeeDiscoverPage() {
     category: active === "All" ? undefined : active,
     limit: 50,
   })
+  // The real recommendation engine (backend/src/utils/recommendationEngine.js
+  // — CF via the AI service, or a deterministic fallback) already filters to
+  // Upcoming/Live events and ranks by actual interest/proximity/demand
+  // signals. This used to be hand-rolled from the plain event list sorted by
+  // fill rate, which pulled in Past events since that list isn't
+  // status-filtered — a naive local sort is never a substitute for the real
+  // engine, only a stand-in that quietly drifted from what it should show.
+  const { data: recommendationsData } = useRecommendations()
 
   const events = useMemo(() => (data?.events ?? []).map(toAppEvent), [data])
   const recommended = useMemo(
-    () =>
-      [...events]
-        .sort((a, b) => b.registered / b.capacity - a.registered / a.capacity)
-        .slice(0, 3),
-    [events]
+    () => (recommendationsData?.recommendations ?? []).slice(0, 3).map((r) => toAppEvent(r.event)),
+    [recommendationsData]
   )
 
   return (

@@ -25,6 +25,7 @@ import {
   Users,
   Wallet,
   X,
+  XCircle,
 } from "lucide-react"
 import { Reveal } from "@/components/anim/reveal"
 import { QrCode } from "@/components/app/qr-code"

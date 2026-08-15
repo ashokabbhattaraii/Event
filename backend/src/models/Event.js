@@ -134,6 +134,13 @@ const eventSchema = new mongoose.Schema(
       // Hours after event end to send a feedback reminder nudge.
       feedbackDelayHours: { type: Number, default: 24 },
     },
+    // Co-host organizations — additional organizations that can manage this
+    // event. Members with roleInOrg 'owner' or 'admin' in these organizations
+    // gain organizer-level access (manage event, attendees, check-in, analytics).
+    coHostOrganizations: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Organization",
+    }],
     organizer: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

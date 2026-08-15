@@ -9,15 +9,15 @@
 //   2. Deterministic weighted heuristics over real DB facts as fallback
 //      (cold start / service down / no model). Never an LLM in the math.
 // The LLM is used only AFTER ranking to phrase a friendly one-line "why"
-// per pick, strictly grounded in the factor list computed here; if the LLM
-// is unavailable it falls back to a deterministic sentence from the same
-// factors.
+// per pick, strictly grounded in the factor list computed here — via
+// ai.generate() (ai-service's Groq/Gemini call, with a direct-from-Node
+// fallback if that service is down); if no LLM answer comes back at all it
+// falls back to a deterministic sentence from the same factors.
 
 const Event = require("../models/Event");
 const Ticket = require("../models/Ticket");
 const { haversineKm, hasValidCoords } = require("./geo");
 const predictAttendance = require("./predictAttendance");
-const { generateReply } = require("./aiProvider");
 const ai = require("./aiClient");
 
 const proximityScore = (distanceKm) => {
@@ -66,7 +66,7 @@ const addAiReasons = async (scored) => {
     "You are EventNexus AI. For each numbered event write EXACTLY ONE short, friendly sentence (max 15 words) " +
     "explaining why it's recommended, using ONLY the facts and factors listed. " +
     "Never invent data. Reply with one line per event, numbered like the input, nothing else.";
-  const reply = await generateReply(systemPrompt, promptLines.join("\n"));
+  const reply = await ai.generate(systemPrompt, promptLines.join("\n"));
 
   const parsed = {};
   if (reply) {
@@ -197,10 +197,13 @@ const buildFromCf = async ({ candidates, cf, location, limit }) => {
 const scoreEvents = async ({ attendee, organization, location, limit = 12, withReasons = false }) => {
   const [myTickets, candidates] = await Promise.all([
     Ticket.find({ attendee }).populate("event").sort({ createdAt: -1 }),
+    // Not scoped to `organization` — the public Discover page shows every
+    // non-draft event across every organization, and recommendations should
+    // draw from that same cross-org pool, not just events owned by whatever
+    // org (if any) the attendee happens to be attached to.
     // Live events are kept even when their stored date has passed midnight —
     // a `date >= now`-only filter would silently drop today's live events.
     Event.find({
-      organization,
       status: { $in: ["Upcoming", "Live"] },
       $or: [{ status: "Live" }, { date: { $gte: new Date() } }],
     }).populate("organizer", "name"),

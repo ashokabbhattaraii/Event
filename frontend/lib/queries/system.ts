@@ -39,3 +39,19 @@ export function useRejectOrganization() {
     },
   });
 }
+
+export function useUpdateOrganization() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      ...data
+    }: { id: string; name?: string; status?: "active" | "suspended" }) =>
+      systemAdminApi.updateOrganization(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["system", "orgs"] });
+    },
+  });
+}
+
+export type { PendingOrganization };

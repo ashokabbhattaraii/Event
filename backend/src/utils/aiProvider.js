@@ -1,10 +1,10 @@
-// Gemini is the primary provider, Groq the fallback. Gemini (gemini-2.0-flash)
+// Gemini is the primary provider, Groq the fallback. Gemini (gemini-2.5-flash)
 // gives better instruction-following for structured replies (markdown tables,
 // links); Groq covers it with low latency if Gemini is down or unset.
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.1-8b-instant";
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-flash-latest";
 
 const TIMEOUT_MS = 10000
 const MAX_RETRIES = 2

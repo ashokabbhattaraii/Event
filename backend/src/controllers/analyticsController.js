@@ -1,6 +1,27 @@
 const Event = require("../models/Event");
 const Ticket = require("../models/Ticket");
+const { canManageEvent } = require("./eventController");
 const predictAttendance = require("../utils/predictAttendance");
+
+// Build event filter for the current user: events they created + events
+// where their organization is a co-host.
+const buildUserEventFilter = async (user) => {
+  const baseFilter = user.role === "admin"
+    ? { organization: user.organization }
+    : { organizer: user._id };
+
+  // If user is an org admin, also include events where their org is a co-host.
+  if (user.role === "admin" && user.organization) {
+    const coHostedEvents = await Event.find({ coHostOrganizations: user.organization })
+      .select("_id")
+      .lean();
+    if (coHostedEvents.length > 0) {
+      const coHostedIds = coHostedEvents.map((e) => e._id);
+      return { $or: [baseFilter, { _id: { $in: coHostedIds } }] };
+    }
+  }
+  return baseFilter;
+};
 
 const registrationsPerDay = async (eventFilter, days = 14) => {
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
@@ -30,10 +51,10 @@ const categoryBreakdown = async (eventFilter) => {
   return rows.map((r) => ({ category: r._id, events: r.count, registered: r.registered }));
 };
 
-// Organizer: scoped to events they personally created.
+// Organizer: scoped to events they personally created + co-hosted.
 const getOrganizerAnalytics = async (req, res) => {
   try {
-    const filter = { organizer: req.user._id };
+    const filter = await buildUserEventFilter(req.user);
     const events = await Event.find(filter).sort({ date: 1 });
 
     const trend = await registrationsPerDay(filter);
@@ -57,10 +78,10 @@ const getOrganizerAnalytics = async (req, res) => {
   }
 };
 
-// Admin: scoped to the caller's own organization (never cross-tenant).
+// Admin: scoped to the caller's own organization + co-hosted events.
 const getAdminAnalytics = async (req, res) => {
   try {
-    const filter = { organization: req.user.organization };
+    const filter = await buildUserEventFilter(req.user);
     const events = await Event.find(filter);
     const eventIds = events.map((e) => e._id);
 
@@ -90,10 +111,7 @@ const getAdminAnalytics = async (req, res) => {
 // Event/Ticket data rather than a trained clustering model.
 const getAudienceSegments = async (req, res) => {
   try {
-    const filter =
-      req.user.role === "admin"
-        ? { organization: req.user.organization }
-        : { organizer: req.user._id };
+    const filter = await buildUserEventFilter(req.user);
 
     const events = await Event.find(filter).select("_id category");
     const eventIds = events.map((e) => e._id);
@@ -143,10 +161,7 @@ const getAudienceSegments = async (req, res) => {
 // best — feeds the organizer's notification/marketing workflow.
 const getMarketingInsight = async (req, res) => {
   try {
-    const filter =
-      req.user.role === "admin"
-        ? { organization: req.user.organization }
-        : { organizer: req.user._id };
+    const filter = await buildUserEventFilter(req.user);
 
     const events = await Event.find(filter).select("_id category registered capacity");
     const eventIds = events.map((e) => e._id);

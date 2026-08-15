@@ -117,4 +117,26 @@ export const authApi = {
     const res = await apiClient.post("/auth/reset-password", { token, password });
     return res.data;
   },
+
+  // --- GDPR ------------------------------------------------------------------
+  exportMyData: async (): Promise<void> => {
+    // Returns blob for download
+    const res = await apiClient.get("/auth/me/export", { responseType: "blob" });
+    const url = window.URL.createObjectURL(new Blob([res.data]));
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute(
+      "download",
+      `eventnexus-data-export-${Date.now()}.json`
+    );
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  },
+
+  deleteMyAccount: async (): Promise<{ message: string }> => {
+    const res = await apiClient.delete("/auth/me");
+    return res.data;
+  },
 };

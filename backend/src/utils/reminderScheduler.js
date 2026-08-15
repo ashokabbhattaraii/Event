@@ -42,8 +42,9 @@ async function ensureJobsForEvent(event) {
     const attendeeId = ticket.attendee;
     for (const offsetMin of offsets) {
       const fireAt = new Date(eventDate.getTime() - offsetMin * 60_000);
-      // Only create if the fire time is in the future and within our lookahead window.
-      if (fireAt > now && fireAt < new Date(now.getTime() + MAX_LOOKAHEAD_MIN * 60_000)) {
+      // Create if the fire time is now or in the future (allow tiny buffer for
+      // events that start within the offset window).
+      if (fireAt >= new Date(now.getTime() - 60_000)) {
         await ReminderJob.updateOne(
           { event: event._id, recipient: attendeeId, kind: "before_event", offsetMinutes: offsetMin },
           {
@@ -61,10 +62,9 @@ async function ensureJobsForEvent(event) {
       }
     }
 
-    // Upsert "feedback" job (only if event is in the past or will be soon).
+    // Upsert "feedback" job (always create if in the future, regardless of lookback).
     const feedbackAt = new Date(eventDate.getTime() + feedbackDelayHours * 3_600_000);
-    // Only create if within lookback window from now (i.e., event ended within last 7 days).
-    if (feedbackAt > now && eventDate < new Date(now.getTime() + FEEDBACK_LOOKBACK_DAYS * 86_400_000)) {
+    if (feedbackAt > now) {
       await ReminderJob.updateOne(
         { event: event._id, recipient: attendeeId, kind: "feedback", offsetMinutes: 0 },
         {

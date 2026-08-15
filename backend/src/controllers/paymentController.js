@@ -4,6 +4,8 @@ const Ticket = require("../models/Ticket");
 const User = require("../models/User");
 const { issueTicketOnce } = require("../utils/ticketing");
 const { createNotification } = require("./notificationController");
+const { sendMail } = require("../utils/email");
+const { generateQRCodeDataURI } = require("../utils/qrCode");
 const { nprToUsd, NPR_USD_RATE } = require("../utils/currency");
 const esewa = require("../utils/esewa");
 
@@ -180,7 +182,7 @@ const handleWebhook = async (req, res) => {
       if (eventDoc && attendee) {
         // Idempotent: a webhook retry for the same session finds the ticket
         // already issued and returns it instead of failing on the unique index.
-        await issueTicketOnce({
+        const ticket = await issueTicketOnce({
           event: eventDoc,
           attendeeId,
           attendeeName: attendee.name,
@@ -193,6 +195,32 @@ const handleWebhook = async (req, res) => {
             stripePaymentIntentId: session.payment_intent,
           },
         });
+
+        // Send confirmation email with QR code
+        try {
+          const qrCodeDataUri = await generateQRCodeDataURI(ticket.qrToken);
+          await sendMail({
+            to: attendee.email,
+            subject: `Registration confirmed: ${eventDoc.title}`,
+            template: "ticket-confirmation",
+            templateData: {
+              name: attendee.name,
+              eventTitle: eventDoc.title,
+              eventDate: new Date(eventDoc.date).toLocaleDateString("en-US", { dateStyle: "full" }),
+              eventTime: new Date(eventDoc.date).toLocaleTimeString("en-US", { timeStyle: "short" }),
+              venue: eventDoc.venue || "TBA",
+              eventType: eventDoc.type || "In-person",
+              ticketType: "Paid",
+              quantity: 1,
+              orderId: ticket._id.toString().slice(-8).toUpperCase(),
+              eventId: eventDoc._id,
+              qrCodeUrl: qrCodeDataUri,
+            },
+            metadata: { ticketId: ticket._id, eventId: eventDoc._id, stripeSessionId: session.id },
+          });
+        } catch (mailErr) {
+          console.error("[stripe webhook] Failed to send confirmation email:", mailErr.message);
+        }
       }
     } catch (error) {
       console.error("[stripe webhook] failed to issue ticket:", error.message);
@@ -365,6 +393,32 @@ const handleEsewaSuccess = async (req, res) => {
           esewaRefId: statusCheck.ref_id || decoded.transaction_code,
         },
       });
+    }
+
+    // Send confirmation email with QR code
+    try {
+      const qrCodeDataUri = await generateQRCodeDataURI(ticket.qrToken);
+      await sendMail({
+        to: attendee.email,
+        subject: `Registration confirmed: ${eventDoc.title}`,
+        template: "ticket-confirmation",
+        templateData: {
+          name: attendee.name,
+          eventTitle: eventDoc.title,
+          eventDate: new Date(eventDoc.date).toLocaleDateString("en-US", { dateStyle: "full" }),
+          eventTime: new Date(eventDoc.date).toLocaleTimeString("en-US", { timeStyle: "short" }),
+          venue: eventDoc.venue || "TBA",
+          eventType: eventDoc.type || "In-person",
+          ticketType: "Paid",
+          quantity: 1,
+          orderId: ticket._id.toString().slice(-8).toUpperCase(),
+          eventId: eventDoc._id,
+          qrCodeUrl: qrCodeDataUri,
+        },
+        metadata: { ticketId: ticket._id, eventId: eventDoc._id, provider: "esewa" },
+      });
+    } catch (mailErr) {
+      console.error("[esewa] Failed to send confirmation email:", mailErr.message);
     }
 
     res.redirect(`${FRONTEND_URL}/checkout/success?provider=esewa&ticketId=${ticket._id}`);

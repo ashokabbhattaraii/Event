@@ -2,7 +2,6 @@ const Event = require("../models/Event");
 const Ticket = require("../models/Ticket");
 const { haversineKm, hasValidCoords } = require("../utils/geo");
 const predictAttendance = require("../utils/predictAttendance");
-const { generateReply } = require("../utils/aiProvider");
 const { scoreEvents } = require("../utils/recommendationEngine");
 const ai = require("../utils/aiClient");
 
@@ -61,33 +60,33 @@ const matchIntent = (message) => {
   return "fallback";
 };
 
-// ML half of the hybrid chatbot (PDF §3.5: rule-based + ML-hybrid). The
-// Python service classifies from a TF-IDF + LinearSVC model trained on the
-// seed corpus plus every regex-confirmed query the app has seen; only if it
-// has no answer does the LLM get asked.
-const classifyIntentWithML = async (message) => {
-  const result = await ai.classifyIntent(message);
-  if (!result || !INTENTS.includes(result.intent)) return null;
-  return result.intent;
-};
-
-// Last-resort intent guess when neither the regex cascade nor the ML
-// classifier finds a match. The LLM only picks a label from the closed
-// INTENTS list — it never generates the answer itself — so
-// buildGroundedReply still produces the exact same deterministic,
-// DB-backed reply for whatever intent comes back. Recent conversation
-// history is included so follow-ups ("and its price?") resolve in context
-// instead of falling through to "fallback".
-const classifyIntentWithLLM = async (message, history) => {
-  const systemPrompt =
-    "You are an intent classifier for an event-management app's chatbot. " +
-    `Reply with EXACTLY ONE of these labels and nothing else: ${INTENTS.join(", ")}. ` +
-    "Pick 'greeting' for small talk or generic help requests, and 'fallback' only if truly nothing fits. " +
-    "Use the conversation history to disambiguate follow-up questions (e.g. 'what about its price?' refers to the event just discussed).";
-  const reply = await generateReply(systemPrompt, message, history);
-  if (!reply) return null;
-  const cleaned = reply.trim().toLowerCase().replace(/[^a-z_]/g, "");
-  return INTENTS.includes(cleaned) ? cleaned : null;
+// PRIMARY understanding step: one LLM call (ai-service's /understand, Gemini
+// primary/Groq fallback) reads the message + conversation history and
+// returns intent AND every slot (quantity/time-scope/price/count) together.
+// This replaced an earlier design that tried to catch each new phrasing
+// ("one event" vs "latest event" vs a bare follow-up like "just 1") with
+// more regex — a game that's never actually won, since there's always
+// another way to phrase a request. Real language understanding is what an
+// LLM is for; regex/ML (matchIntent + the local wants*/price* functions
+// below) are kept ONLY as the offline fallback for when the AI service
+// itself is unreachable, same "augments, never blocks" pattern as every
+// other AI integration in this app — never as the primary path anymore.
+const understandMessage = async (message, history) => {
+  const understood = await ai.understand(message, history);
+  if (understood?.intent && INTENTS.includes(understood.intent)) {
+    return { intent: understood.intent, slots: understood.slots, source: understood.source };
+  }
+  // AI service unreachable (or returned something unusable) — local rules.
+  return {
+    intent: matchIntent(message),
+    slots: {
+      quantity: wantsSingle(message) ? "one" : null,
+      time_scope: wantsPast(message) ? "past" : null,
+      price_pref: pricePreference(message),
+      count: extractCount(message),
+    },
+    source: "rules",
+  };
 };
 
 // Absolute last resort when neither the regex cascade nor LLM intent
@@ -95,7 +94,6 @@ const classifyIntentWithLLM = async (message, history) => {
 // limited to the real upcoming-event data injected below, so the model has
 // no room to invent event names, dates, or prices.
 const answerFreeform = async (req, message, history) => {
-  const orgFilter = { organization: req.user.organization };
   const events = await Event.find(activeFilter(orgFilter, new Date()))
     .sort({ date: 1 })
     .limit(10)
@@ -111,15 +109,22 @@ const answerFreeform = async (req, message, history) => {
     : "No upcoming events right now.";
 
   const systemPrompt =
-    "You are EventBot, a helpful assistant for an event-management app. " +
-    "Answer the user's question in 1-3 short, friendly sentences using ONLY the event data below — " +
-    "never invent event names, dates, prices, venues, or any fact not listed. " +
-    "When you mention an event, include its markdown link exactly as shown (e.g. [Title](/event/ID)). " +
-    "If the data doesn't contain the answer, say you're not sure and suggest what you can help with instead " +
-    "(finding events, tickets, pricing, capacity, venues, schedules).\n\nUpcoming events:\n" +
+    "You are EventBot, an AI assistant (a rule-based + machine-learning hybrid, using Groq/Gemini language " +
+    "models to understand tricky phrasing) built into EventNexus, an event-management app. " +
+    "Answer the user's question in 1-3 short, friendly sentences.\n\n" +
+    "If asked whether you're an AI, or what you are: yes, say so plainly — you're an AI-powered assistant.\n" +
+    "If asked to DO something you can't do yourself here (create, edit, cancel, or delete an event; change " +
+    "account settings; issue refunds): say so honestly, and point them to the right place — organizers create " +
+    "events from the Organizer dashboard's \"Create Event\" page; you can only look things up and answer " +
+    "questions, not perform actions.\n" +
+    "For factual questions about events, use ONLY the event data below — never invent event names, dates, " +
+    "prices, venues, or any fact not listed. When you mention an event, include its markdown link exactly as " +
+    "shown (e.g. [Title](/event/ID)).\n" +
+    "If neither of the above covers the question, say you're not sure and suggest what you can help with " +
+    "instead (finding events, tickets, pricing, capacity, venues, schedules).\n\nUpcoming events:\n" +
     context;
 
-  return generateReply(systemPrompt, message, history);
+  return ai.generate(systemPrompt, message, history);
 };
 
 // NPR is the app's default currency (see models/Event.js); mirrors
@@ -187,6 +192,17 @@ const activeFilter = (orgFilter, now) => ({
   $or: [{ status: "Live" }, { date: { $gte: now } }],
 });
 
+// --- Local slot-extraction fallbacks ---
+// These mirror ai-service/nlu.py's extract_price_preference /
+// extract_time_scope / extract_quantity exactly. The Python service is now
+// the canonical NLU layer for this (a single `/parse` call there returns
+// intent + all three slots together — see ai.parse() in utils/aiClient.js),
+// but the app must keep working with zero functionality loss when that
+// service is down/unreachable/untrained, matching every other AI
+// integration in this codebase (aiClient.js's own header comment: "the AI
+// service augments accuracy, it never blocks the app"). query() below only
+// calls these when ai.parse() returned null.
+
 // "free" / "paid" mention in the ask → filter the reply to that price
 // class ("anything free nearby?" must not list paid events).
 const pricePreference = (message) => {
@@ -196,8 +212,53 @@ const pricePreference = (message) => {
   return null;
 };
 
-const buildGroundedReply = async (req, intent, eventId, message) => {
-  const orgFilter = { organization: req.user.organization };
+// "past free events", "how many events have finished" — without this, any
+// question about history silently got answered against the Upcoming/Live
+// window instead (activeFilter), which reads as "none exist" even when
+// plenty of past events do.
+const wantsPast = (message) =>
+  /\b(past|done|finished|ended|previous|concluded|already happened|has happened|have happened)\b/i.test(message);
+
+// "tell me about one upcoming event" was landing in upcoming_events and
+// dumping the full 8-row table anyway — nothing distinguished "one" from
+// "all of them". A quantifier has to sit adjacent to "event" to count (so
+// "what events are coming up" doesn't trip it), but adjacency is loose —
+// "tell me about one 1 upcoming event" has a stray "1" between the
+// quantifier and "event" that a strict `quantifier + event` regex misses
+// entirely, so this checks for a singular quantifier ANYWHERE in the
+// message plus a genuinely singular "event" mention (never "events"),
+// rather than requiring the two to be next to each other.
+const SINGLE_QUANTIFIER_RE = /\b(one|1|a|an|single|only one|just one|latest|next|nearest|newest|soonest)\b/i;
+const wantsSingle = (message) => {
+  const hasSingularEvent = /\bevent\b(?!s)/i.test(message);
+  if (!hasSingularEvent) return false;
+  const hasPluralEvents = /\bevents\b/i.test(message);
+  if (hasPluralEvents && !SINGLE_QUANTIFIER_RE.test(message)) return false;
+  return SINGLE_QUANTIFIER_RE.test(message);
+};
+
+// Mirrors ai-service/nlu.py's extract_count exactly — an explicit number
+// ("10 events", "top 5") distinct from the binary quantity slot above.
+const COUNT_RE = /\b(\d{1,2})\b/;
+const extractCount = (message) => {
+  const m = COUNT_RE.exec(message);
+  if (!m) return null;
+  const n = parseInt(m[1], 10);
+  return n >= 1 && n <= 50 ? n : null;
+};
+
+// Deliberately NOT scoped to req.user.organization: the public Discover
+// page (eventController.getAllEvents) shows every non-draft event across
+// every organization — "attendees browse everything" per its own comment —
+// and this bot answers questions about that same browse universe. Scoping
+// to the caller's own organization here (a leftover from an earlier
+// single-tenant assumption) made the bot blind to almost every real event:
+// an attendee with no organization, or a different one than an event's
+// owner, got "no free events" even while looking straight at a Discover
+// grid full of them.
+const orgFilter = {};
+
+const buildGroundedReply = async (req, intent, eventId, message, slots) => {
   const now = new Date();
 
   if (intent === "greeting") {
@@ -255,7 +316,7 @@ const buildGroundedReply = async (req, intent, eventId, message) => {
     if (!hasValidCoords(req.user.location)) {
       return "I don't have your location yet 📍 — go to Settings to enable location sharing, then I can find events closest to you!";
     }
-    const pref = pricePreference(message);
+    const pref = slots.price_pref;
     const events = await Event.find(activeFilter(orgFilter, now)).populate("organizer", "name");
 
     const nearby = events
@@ -289,10 +350,17 @@ const buildGroundedReply = async (req, intent, eventId, message) => {
   }
 
   if (intent === "upcoming_events") {
-    const pref = pricePreference(message);
-    const events = await Event.find(activeFilter(orgFilter, now))
-      .sort({ date: 1 })
-      .limit(8)
+    const pref = slots.price_pref;
+    const single = slots.quantity === "one";
+    const past = slots.time_scope === "past";
+    // An explicit "10 events" overrides the default page size; single-event
+    // requests ignore it (asking for "one" already answered the question).
+    const limit = single ? 1 : Math.min(Math.max(slots.count || 8, 1), 20);
+    const scope = past ? { ...orgFilter, status: "Past" } : activeFilter(orgFilter, now);
+
+    const events = await Event.find(scope)
+      .sort({ date: past ? -1 : 1 })
+      .limit(limit)
       .populate("organizer", "name")
       .lean();
 
@@ -300,12 +368,25 @@ const buildGroundedReply = async (req, intent, eventId, message) => {
 
     if (!filtered.length) {
       const hint = pref === "free" ? "free " : pref === "paid" ? "paid " : "";
-      return `No ${hint}upcoming events found for your organization right now. Check back soon for new events!`;
+      return past
+        ? `No ${hint}past events found.`
+        : `No ${hint}upcoming events found for your organization right now. Check back soon for new events!`;
+    }
+
+    if (single) {
+      const e = filtered[0];
+      const pct = Math.round((e.registered / e.capacity) * 100);
+      const desc = e.description ? `${e.description.slice(0, 220)}${e.description.length > 220 ? "…" : ""}\n\n` : "";
+      return (
+        `📅 Here's one ${past ? "past" : "upcoming"} event:\n\n**${eventLink(e)}**\n${desc}` +
+        `🗓️ ${shortDate(e.date)} · 📍 ${e.venue} · 🏷️ ${e.category}\n` +
+        `💰 ${formatEventPrice(e.price)} · 👥 ${e.registered}/${e.capacity} registered (${pct}% full)`
+      );
     }
 
     const noun = pref === "free" ? "free event" : pref === "paid" ? "paid event" : "event";
     const plural = filtered.length === 1 ? "is 1 " + noun : `are ${filtered.length} ${noun}s`;
-    let reply = `📅 There ${plural} coming up:\n\n| Event | Date | Venue | Price | Fill |`;
+    let reply = `📅 There ${plural} ${past ? "in the past" : "coming up"}:\n\n| Event | Date | Venue | Price | Fill |`;
     reply += "\n|-------|------|-------|-------|------|";
     filtered.forEach((e) => {
       const pct = Math.round((e.registered / e.capacity) * 100);
@@ -363,41 +444,47 @@ const buildGroundedReply = async (req, intent, eventId, message) => {
         : `🎉 **${event.title}** is free — no payment needed, just register — [view event](/event/${event._id}).`;
     }
 
+    const past = slots.time_scope === "past";
+    const scope = past ? { ...orgFilter, status: "Past" } : activeFilter(orgFilter, now);
+    const freeHeading = past ? "Past free events" : "Free events";
+    const paidHeading = past ? "Past paid events" : "Paid events";
+    const noneMsg = (kind) => `No ${kind} events ${past ? "in the past" : "right now"}.`;
+
     const [free, paid] = await Promise.all([
-      Event.find({ ...activeFilter(orgFilter, now), "price.amount": 0 })
-        .sort({ date: 1 })
+      Event.find({ ...scope, "price.amount": 0 })
+        .sort({ date: past ? -1 : 1 })
         .limit(6),
-      Event.find({ ...activeFilter(orgFilter, now), "price.amount": { $gt: 0 } })
-        .sort({ date: 1 })
+      Event.find({ ...scope, "price.amount": { $gt: 0 } })
+        .sort({ date: past ? -1 : 1 })
         .limit(6),
     ]);
 
-    const pref = pricePreference(message);
+    const pref = slots.price_pref;
     // "any free events?" wants free ones; "what's paid?" wants paid ones. Only
     // a generic ask ("how much are tickets?") lists both sides.
     if (pref === "free") {
-      if (!free.length) return "No free events right now.";
-      return `🎉 **Free events:**\n\n${free.map((e) => `• ${eventLink(e)} — ${shortDate(e.date)}`).join("\n")}`;
+      if (!free.length) return noneMsg("free");
+      return `🎉 **${freeHeading}:**\n\n${free.map((e) => `• ${eventLink(e)} — ${shortDate(e.date)}`).join("\n")}`;
     }
     if (pref === "paid") {
-      if (!paid.length) return "No paid events right now — everything upcoming is free!";
-      return `💰 **Paid events:**\n\n| Event | Price | Date |\n|-------|-------|------|\n${paid
+      if (!paid.length) return past ? "No paid events in the past." : "No paid events right now — everything upcoming is free!";
+      return `💰 **${paidHeading}:**\n\n| Event | Price | Date |\n|-------|-------|------|\n${paid
         .map((e) => `| ${eventLink(e)} | ${formatEventPrice(e.price)} | ${shortDate(e.date)} |`)
         .join("\n")}`;
     }
 
     if (!free.length && !paid.length) {
-      return "There are no upcoming events to price right now. Check back soon!";
+      return past ? "No past events to price — none have concluded yet." : "There are no upcoming events to price right now. Check back soon!";
     }
 
     let reply = "";
     if (free.length) {
-      reply += `🎉 **Free events:**\n\n${free.map((e) => `• ${eventLink(e)} — ${shortDate(e.date)}`).join("\n")}`;
+      reply += `🎉 **${freeHeading}:**\n\n${free.map((e) => `• ${eventLink(e)} — ${shortDate(e.date)}`).join("\n")}`;
     } else {
-      reply += "No free events right now.";
+      reply += noneMsg("free");
     }
     if (paid.length) {
-      reply += `\n\n💰 **Paid events:**\n\n| Event | Price | Date |`;
+      reply += `\n\n💰 **${paidHeading}:**\n\n| Event | Price | Date |`;
       reply += "\n|-------|-------|------|";
       paid.forEach((e) => {
         reply += `\n| ${eventLink(e)} | ${formatEventPrice(e.price)} | ${shortDate(e.date)} |`;
@@ -483,22 +570,24 @@ const buildGroundedReply = async (req, intent, eventId, message) => {
   return "I'm not sure how to help with that yet 🤔 Here's what I can do:\n\n• 🎯 **Recommend events** for you\n• 📍 Find events **near you**\n• 🎫 Show your **tickets**\n• 📅 List **upcoming** events\n• 💰 Check **free vs. paid** pricing\n• 👥 Check event **capacity**\n• 🔥 Find **popular/trending** events\n• 🗺️ Tell you about **venue and schedule**\n• ✅ Check your **registration status**\n\nWhat would you like to know?";
 };
 
-// Once an intent is known (whether from the regex cascade or the LLM
-// classifier), the reply is always the grounded, DB-computed fact string
-// returned verbatim — no LLM rephrasing step. That used to run every
-// grounded reply through generateReply() (Groq/Gemini) to "sound more
-// natural," but a small instant-tier model paraphrasing a multi-fact
-// sentence (e.g. "these events are free, these are paid, these cost X")
-// would routinely drop or garble facts, or shuffle a price onto the wrong
-// event's name — same question, different (and sometimes wrong) answer on
-// repeat asks. Grounded replies are already written as complete, friendly
-// sentences with light emoji, so nothing is lost by returning them
-// directly; what's gained is that every answer is exactly reproducible
-// from the database. The LLM is only used (a) to classify genuinely
-// unmatched phrasing into one of the same closed intents, (b) to explain
-// each recommendation from the engine's own factors, and (c), as an
-// absolute last resort, to answer free-form strictly from injected event
-// data — never to rewrite an already-correct grounded fact.
+// Once an intent + slots are known (from understandMessage — the LLM in
+// the normal case), the reply is always the grounded, DB-computed fact
+// string returned verbatim — no LLM rephrasing step. An earlier version
+// ran every grounded reply through the LLM to "sound more natural," but a
+// small instant-tier model paraphrasing a multi-fact sentence (e.g. "these
+// events are free, these are paid, these cost X") would routinely drop or
+// garble facts, or shuffle a price onto the wrong event's name — same
+// question, different (and sometimes wrong) answer on repeat asks.
+// Grounded replies are already written as complete, friendly sentences
+// with light emoji, so nothing is lost by returning them directly; what's
+// gained is that every answer is exactly reproducible from the database.
+// The LLM's job is understanding the question (via /understand) and
+// explaining recommendations from the engine's own factors — never
+// rewriting an already-correct grounded fact. The one exception is
+// answerFreeform below: when intent is genuinely 'fallback' (nothing in
+// the closed intent set fits — including meta/capability questions), the
+// LLM DOES generate the final answer, strictly grounded in injected event
+// data with an explicit fact sheet about the bot's own identity/limits.
 const query = async (req, res) => {
   try {
     const { message, eventId, history } = req.body;
@@ -515,21 +604,17 @@ const query = async (req, res) => {
           .map((h) => ({ role: h.role === "assistant" ? "assistant" : "user", content: h.content }))
       : [];
 
-    let intent = matchIntent(message);
-    const regexMatched = intent !== "fallback";
-    if (intent === "fallback") {
-      intent = (await classifyIntentWithML(message)) || "fallback";
-    }
-    if (intent === "fallback") {
-      const llmIntent = await classifyIntentWithLLM(message, context);
-      if (llmIntent) intent = llmIntent;
+    const { intent, slots, source } = await understandMessage(message, context);
+
+    // Only rule-confirmed labels are ground truth for retraining — an LLM
+    // guess is a good enough answer to act on, but not something to teach
+    // the ML classifier to imitate (it might itself be wrong in a way the
+    // grounded reply below doesn't surface).
+    if (source === "rules" && matchIntent(message) === intent) {
+      ai.logIntent(message, intent);
     }
 
-    // Only regex-confirmed intents are ground-truth labels: feed them back to
-    // the Python service so the ML classifier improves on every /train.
-    if (regexMatched) ai.logIntent(message, intent);
-
-    let reply = await buildGroundedReply(req, intent, eventId, message);
+    let reply = await buildGroundedReply(req, intent, eventId, message, slots);
 
     if (intent === "fallback") {
       const freeform = await answerFreeform(req, message, context);
@@ -548,7 +633,6 @@ const query = async (req, res) => {
 // the panel never opens empty.
 const getSuggestions = async (req, res) => {
   try {
-    const orgFilter = { organization: req.user.organization };
     const now = new Date();
     const [ticketCount, upcoming, categories] = await Promise.all([
       Ticket.countDocuments({ attendee: req.user._id }),

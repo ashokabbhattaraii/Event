@@ -14,6 +14,8 @@ const {
   resendVerification,
   forgotPassword,
   resetPassword,
+  exportMyData,
+  deleteMyAccount,
 } = require("../controllers/authController");
 const { protect } = require("../middleware/auth");
 const validate = require("../middleware/validate");
@@ -118,5 +120,9 @@ router.post(
   validate,
   resetPassword
 );
+
+// --- GDPR: Data export & Account deletion ------------------------------------
+router.get("/me/export", protect, exportMyData);
+router.delete("/me", protect, deleteMyAccount);
 
 module.exports = router;

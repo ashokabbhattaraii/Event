@@ -1,25 +1,83 @@
 "use client"
 
+import { useState } from "react"
 import { AppShell } from "@/components/app/app-shell"
 import { Reveal } from "@/components/anim/reveal"
 import { useCurrentUser } from "@/lib/queries/auth"
 import { useOrganizations } from "@/lib/queries/organizations"
-import { Check, X, Network, UserPlus, Crown, Shield, Eye, Clock, Loader2 } from "lucide-react"
+import {
+  useCoHostOrganizations,
+  useAddCoHostOrganization,
+  useRemoveCoHostOrganization,
+} from "@/lib/queries/organizations"
+import {
+  Check,
+  X,
+  Network,
+  UserPlus,
+  Shield,
+  Loader2,
+  Search,
+  Plus,
+  Trash2,
+  AlertCircle,
+} from "lucide-react"
 
 const orgStatusStyle: Record<string, string> = {
   active: "bg-secondary/15 text-secondary",
   pending: "bg-flame/15 text-flame",
   suspended: "bg-destructive/10 text-destructive",
+  rejected: "bg-muted text-muted-foreground",
 }
 
-export default function CollaborationPage() {
+export default function CollaborationPage({
+  eventId,
+}: { eventId: string }) {
   const { data: userData } = useCurrentUser()
-  const { data: orgsData, isLoading } = useOrganizations()
+  const { data: orgsData, isLoading: orgsLoading } = useOrganizations()
+  const { data: coHostsData, isLoading: coHostsLoading, refetch: refetchCoHosts } = useCoHostOrganizations(eventId)
+  const addCoHost = useAddCoHostOrganization(eventId)
+  const removeCoHost = useRemoveCoHostOrganization(eventId)
   const user = userData?.user
   const organizations = orgsData?.organizations ?? []
+  const coHostOrgs = coHostsData?.coHostOrganizations ?? []
+  const coHostIds = new Set(coHostOrgs.map((o) => o._id))
+  const [search, setSearch] = useState("")
+  const [addingId, setAddingId] = useState<string | null>(null)
+  const [removingId, setRemovingId] = useState<string | null>(null)
+
+  // Exclude owning org and already added co-hosts from addable list
+  const addableOrgs = organizations.filter(
+    (o) => o._id !== user?.organization && !coHostIds.has(o._id)
+  )
+  const filteredOrgs = addableOrgs.filter((o) =>
+    o.name.toLowerCase().includes(search.toLowerCase())
+  )
+
+  const handleAdd = async (orgId: string) => {
+    setAddingId(orgId)
+    try {
+      await addCoHost.mutateAsync(orgId)
+    } catch (e) {
+      console.error("Failed to add co-host:", e)
+    } finally {
+      setAddingId(null)
+    }
+  }
+
+  const handleRemove = async (orgId: string) => {
+    setRemovingId(orgId)
+    try {
+      await removeCoHost.mutateAsync(orgId)
+    } catch (e) {
+      console.error("Failed to remove co-host:", e)
+    } finally {
+      setRemovingId(null)
+    }
+  }
 
   return (
-    <AppShell role="Organizer" userName={user?.name || "Organizer"} title="Collaboration Hub">
+    <AppShell role="Organizer" userName={user?.name || "Organizer"} title="Collaboration">
       <div className="space-y-8">
         <Reveal y={16}>
           <div className="bg-brand-gradient relative overflow-hidden rounded-2xl p-6 text-white">
@@ -30,59 +88,184 @@ export default function CollaborationPage() {
               </span>
               <div>
                 <h2 className="font-display text-xl font-bold">Multi-Organization Collaboration</h2>
-                <p className="text-sm text-white/80">Co-host events and work across tenants.</p>
+                <p className="text-sm text-white/80">
+                  Invite other organizations to co-host this event. Co-host admins can manage
+                  attendees, check-in, analytics, and event details.
+                </p>
               </div>
             </div>
           </div>
         </Reveal>
 
-        {isLoading ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" /> Loading organizations...
-          </div>
-        ) : (
-          <Reveal>
-            <div className="rounded-2xl border border-border bg-card p-6">
-              <div className="flex items-center justify-between">
-                <h3 className="font-display text-lg font-bold text-ink">Organization Directory</h3>
-                <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-ink">
-                  {organizations.length} total
-                </span>
-              </div>
-              <div className="mt-5 overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead>
-                    <tr className="border-b border-border text-xs uppercase tracking-wide text-muted-foreground">
-                      <th className="pb-3 font-medium">Organization</th>
-                      <th className="pb-3 font-medium">Status</th>
-                      <th className="pb-3 text-right font-medium">Created</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {organizations.map((o) => (
-                      <tr key={o._id} className="transition-colors hover:bg-muted/40">
-                        <td className="py-3.5 font-medium text-ink">{o.name}</td>
-                        <td className="py-3.5">
-                          <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${orgStatusStyle[o.status] || "bg-muted text-muted-foreground"}`}>
-                            {o.status}
-                          </span>
-                        </td>
-                        <td className="py-3.5 text-right text-xs text-muted-foreground">
-                          {new Date(o.createdAt).toLocaleDateString()}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {organizations.length === 0 && (
-                <p className="py-6 text-center text-sm text-muted-foreground">
-                  No organizations found.
-                </p>
-              )}
+        {/* Current Co-Hosts */}
+        <Reveal stagger={0.1} y={24}>
+          <div className="rounded-2xl border border-border bg-card p-6">
+            <div className="flex items-center justify-between">
+              <h3 className="font-display text-lg font-bold text-ink">Co-Host Organizations</h3>
+              <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
+                {coHostOrgs.length} co-host{coHostOrgs.length !== 1 ? "s" : ""}
+              </span>
             </div>
-          </Reveal>
-        )}
+
+            {(coHostsLoading || addCoHost.isPending || removeCoHost.isPending) && (
+              <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" /> Updating...
+              </div>
+            )}
+
+            {!coHostsLoading && coHostOrgs.length === 0 && (
+              <div className="mt-6 rounded-xl border border-dashed border-border p-8 text-center">
+                <Network className="mx-auto size-10 text-muted-foreground/50" />
+                <p className="mt-3 text-sm text-muted-foreground">
+                  No co-host organizations yet. Add one below to share event management.
+                </p>
+              </div>
+            )}
+
+            {!coHostsLoading && coHostOrgs.length > 0 && (
+              <div className="mt-5 space-y-3">
+                {coHostOrgs.map((org) => (
+                  <div
+                    key={org._id}
+                    className="flex items-center justify-between rounded-xl border border-border bg-background px-4 py-3 transition-colors hover:bg-muted/40"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="flex size-10 items-center justify-center rounded-xl bg-primary/10">
+                        <Shield className="size-5 text-primary" />
+                      </span>
+                      <div>
+                        <p className="font-medium text-ink">{org.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {org.email || org.phone || org.city ? " · " : ""}
+                          {[org.city, org.country].filter(Boolean).join(", ") || "—"}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${org.status ? orgStatusStyle[org.status] : "bg-muted text-muted-foreground"}`}>
+                        {org.status}
+                      </span>
+                      {removingId === org._id ? (
+                        <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                      ) : (
+                        <button
+                          onClick={() => handleRemove(org._id)}
+                          className="flex items-center gap-1.5 rounded-lg border border-destructive/30 px-3 py-1.5 text-xs font-medium text-destructive/80 transition-colors hover:bg-destructive/10 hover:text-destructive"
+                          disabled={removeCoHost.isPending}
+                        >
+                          <Trash2 className="size-3.5" /> Remove
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </Reveal>
+
+        {/* Add Co-Host */}
+        <Reveal stagger={0.1} y={24}>
+          <div className="rounded-2xl border border-border bg-card p-6">
+            <h3 className="font-display text-lg font-bold text-ink">Invite Co-Host Organization</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Search for an approved organization to add as a co-host. They will receive
+              organizer-level access to this event (manage attendees, check-in, analytics).
+            </p>
+
+            <div className="mt-4 flex gap-2">
+              <label htmlFor="search-cohost" className="sr-only">
+                Search organizations
+              </label>
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                <input
+                  type="search"
+                  id="search-cohost"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search organizations by name..."
+                  className="w-full rounded-xl border border-border bg-background pl-10 pr-4 py-2.5 text-sm text-ink outline-none focus:border-primary focus:ring-4 focus:ring-primary/10"
+                />
+              </div>
+            </div>
+
+            {(orgsLoading || coHostsLoading) && (
+              <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" /> Loading organizations...
+              </div>
+            )}
+
+            {!orgsLoading && !coHostsLoading && filteredOrgs.length === 0 && addableOrgs.length > 0 && (
+              <div className="mt-4 rounded-xl border border-dashed border-amber-300 bg-amber-50/50 px-4 py-3 text-center">
+                <p className="text-sm text-amber-700">No organizations match "{search}".</p>
+              </div>
+            )}
+
+            {!orgsLoading && !coHostsLoading && addableOrgs.length === 0 && (
+              <div className="mt-4 rounded-xl border border-dashed border-border bg-muted/40 p-4 text-center">
+                <AlertCircle className="mx-auto size-6 text-muted-foreground/50" />
+                <p className="mt-2 text-sm text-muted-foreground">
+                  All available organizations are already co-hosts or belong to you.
+                </p>
+              </div>
+            )}
+
+            {!orgsLoading && !coHostsLoading && filteredOrgs.length > 0 && (
+              <div className="mt-4 max-h-64 overflow-y-auto space-y-2">
+                {filteredOrgs.map((org) => (
+                  <button
+                    key={org._id}
+                    onClick={() => handleAdd(org._id)}
+                    disabled={addingId === org._id || addCoHost.isPending}
+                    className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-background px-4 py-2.5 text-left transition-colors hover:bg-muted/40 disabled:opacity-60"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-secondary/10">
+                        <Network className="size-5 text-secondary" />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-ink">{org.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {org.status === "active" ? "Active" : `Status: ${org.status}`}
+                          {org.city && ` · ${org.city}`}
+                        </p>
+                      </div>
+                    </div>
+                    {addingId === org._id ? (
+                      <Loader2 className="size-4 animate-spin text-primary" />
+                    ) : (
+                      <Plus className="size-5 text-primary" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </Reveal>
+
+        {/* Info */}
+        <Reveal stagger={0.1} y={24}>
+          <div className="rounded-2xl border border-border bg-primary/5 p-6">
+            <div className="flex items-start gap-3">
+              <Shield className="mt-0.5 size-5 text-primary shrink-0" />
+              <div className="space-y-2 text-sm">
+                <h4 className="font-bold text-ink">What co-host admins can do</h4>
+                <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                  <li>View and manage event details (except ownership)</li>
+                  <li>Access full attendee roster and check-in dashboard</li>
+                  <li>View event analytics and audience segments</li>
+                  <li>Manage feedback and networking features</li>
+                  <li>Configure reminders and event settings</li>
+                </ul>
+                <p className="text-xs text-primary/80">
+                  <strong>Note:</strong> Only organization admins/owners in the co-host organization
+                  receive these permissions. Regular members are not affected.
+                </p>
+              </div>
+            </div>
+          </div>
+        </Reveal>
       </div>
     </AppShell>
   )

@@ -1,6 +1,7 @@
 "use client"
 
 import { use } from "react"
+import { notFound } from "next/navigation"
 import { RoleEventDetail } from "@/components/app/role-event-detail"
 import { useCurrentUser } from "@/lib/queries/auth"
 
@@ -10,11 +11,14 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
   const user = userData?.user
   const displayName = user?.name || "Attendee"
 
+  // Use actual user role from server, not hardcoded
+  const role = user?.role === "admin" ? "Administrator" : user?.role === "organizer" ? "Organizer" : "Attendee"
+
   return (
     <RoleEventDetail
       eventId={id}
-      role="Attendee"
-      userName={displayName}
+      role={role}
+      userName={user?.name || "Attendee"}
       title="Event Details"
       backHref="/dashboard"
       backLabel="Back to discover"

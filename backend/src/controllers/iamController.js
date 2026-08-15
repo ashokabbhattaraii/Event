@@ -48,8 +48,16 @@ const updateRolePermissions = async (req, res) => {
     if (!role) {
       return res.status(404).json({ message: "Role not found" });
     }
-    if (role.scope === "system" && !["admin", "organizer"].includes(req.user.role)) {
-      return res.status(403).json({ message: "Only admins may edit system roles" });
+    // Only the system admin (admin role WITHOUT an organization) may edit
+    // system-scope roles. A tenant admin (admin WITH an org) must not be able
+    // to widen the platform-wide capabilities of any role — that's the
+    // privilege-escalation surface the previous `!["admin","organizer"]`
+    // check accidentally opened to tenant admins.
+    if (role.scope === "system" && req.user.organization) {
+      return res.status(403).json({ message: "Only the system admin can edit system roles" });
+    }
+    if (role.scope === "organization" && req.user.role !== "admin") {
+      return res.status(403).json({ message: "Only admins may edit organization roles" });
     }
 
     role.permissions = [...new Set(permissions)];

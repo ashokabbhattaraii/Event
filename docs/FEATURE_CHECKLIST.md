@@ -73,3 +73,44 @@ detail page.
 - [x] User listing/stats: system admin sees all tenants, org admin only their own
 - [x] Frontend: `/org-register` form, `/admin/approvals` console (approve/reject with reason), nav item, register/login page links
 - [x] Seed: system admin `admin@eventnexus.dev` (no org) + org admin `orgadmin@eventnexus.dev` (tenant-scoped), roles seeded with `org:approve` permission
+
+## Round 5 — Automated reminders & notifications engine
+- [x] `User.reminderEmail` boolean (default true) — attendee preference for email reminders
+- [x] `Event.reminderSettings` (enabled, offsets[], feedbackDelayHours) — per-event reminder config
+- [x] `ReminderJob` model — tracks scheduled/sent reminders per attendee per event (idempotent upserts)
+- [x] In-process scheduler (`setInterval` tick, no external cron) — ensures jobs for registered attendees, dispatches due jobs
+- [x] Hook into `claimAndIssueTicket` → auto-create reminder jobs on registration
+- [x] `PUT /api/users/me/reminders` — attendee toggles email reminders (Settings → Notifications card)
+- [x] `PUT /api/events/:id` includes `reminderSettings` — organizer configures offsets/feedback delay in event workspace
+- [x] Frontend: Settings Notifications card with toggle; Organizer event workspace "Reminders" panel with preset offsets + feedback delay dropdown
+- [x] Dispatch creates in-app Notification (type "reminder") + dev-mode email (Mail collection) when user has reminderEmail=true
+- [x] Verified: near-future event (2-min offset) → registration → tick → in-app + email reminder dispatched, job marked sent
+
+## Round 6 — Multi-Org Co-Host Collaboration
+- [x] `Event.coHostOrganizations` array — additional organizations that can manage an event
+- [x] `canManageEvent` extended: co-host org admins/owners gain organizer-level access
+- [x] Authorization updated across controllers: events, tickets/attendees/check-in, feedback, analytics (organizer + admin)
+- [x] API: `GET/POST/DELETE /api/events/:id/co-hosts` — list/add/remove co-host orgs (event organizer or owning org admin)
+- [x] Frontend: `/organizer/collaboration` page — search orgs, add/remove co-hosts, status badges, permissions summary
+- [x] Frontend queries: `useCoHostOrganizations`, `useAddCoHostOrganization`, `useRemoveCoHostOrganization`
+- [x] Organization type updated with full details (email, phone, city, country, status) for co-host directory
+- [x] Verified: owning org cannot be added as co-host; co-host org admins can access attendees, analytics, feedback
+
+## Round 7 — GDPR & Account Lifecycle
+- [x] `GET /api/auth/me/export` — downloads JSON with profile, tickets, organized events, feedback, notifications, sessions
+- [x] `DELETE /api/auth/me` — permanently deletes account, anonymizes user-owned content (tickets, feedback, notifications), revokes all sessions, removes OrganizationMember
+- [x] User model: deleted accounts get dummy password + googleId, name="Deleted User", email=deleted-{id}@eventnexus.local, organization=null, role=attendee, tokenVersion bumped
+- [x] Frontend: Settings page "Privacy & Data" card with "Download JSON" button and "Delete Account" confirmation flow (email match required)
+- [x] Frontend hooks: `useExportMyData`, `useDeleteMyAccount`
+- [x] Verified: export returns full JSON; delete anonymizes user + tickets + feedback + notifications; user can no longer log in
+
+## Round 8 — Admin control plane, IAM matrix & tenant lifecycle
+- [x] `/admin/security` page — role⇄permission matrix (rows = permissions, columns = roles) with per-column grant/revoke-all toggle; writes `PUT /api/iam/roles/:id/permissions` (admin-only, cache invalidation on save); tenant admins get a view-only matrix, system admin gets write access
+- [x] `/admin/organizations` page — system-admin tenant directory (status filter: all/active/pending/suspended/rejected; suspend/activate toggle; double-click-to-rename inline) backed by `GET /api/system/orgs` + `PATCH /api/system/orgs/:id`; tenant admin sees a single-org profile view (rename org form)
+- [x] `PATCH /api/system/orgs/:id` — admin can rename a provisioned tenant or flip `active`↔`suspended`; suspending revokes every active refresh-token session for that tenant's members (session-revocation + audit: `organization_updated`)
+- [x] IAM seed matrix realigned with `ROLE_PERMISSIONS` in `middleware/auth.js` — the DB role/permission table is now the authoritative source of truth and mirrors the static fallback, so `requirePermission` gates resolve consistently whether served from the DB cache or the boot-time fallback
+- [x] Bug fix: `feedback:submit` is now granted to the `attendee` role in the seed — previously the seeded attendee lacked it, so `POST /api/events/:id/feedback` (enforced via `requirePermission`) returned `403 Not authorized for this action` for every attendee
+- [x] Bug fix: `Session` model collision resolved — restored `models/Session.js` as the refresh-token session store (`user, refreshTokenHash, previousTokenHash, ip, userAgent, expiresAt, lastUsedAt, revokedAt`) and extracted the event-schedule session into `models/EventSession.js` (`event, organization, title, startTime, endTime, track, ...`); `sessionController.js` and `/api/events/:id/sessions` repointed to `EventSession`. Login / refresh / sessions-list / logout / org-suspend session revocation all hit the correct model again
+- [x] Verified: admin login `200` (token + refreshToken); refresh rotation `200`; `GET /api/auth/sessions` lists active sessions; attendee posts feedback `201` with sentiment classification; suspend/rename org PATCH `200`
+- [ ] Pending cleanup: prune phantom permission codes not enforced by any `requirePermission` gate or surfaced in the UI (`ai:use`, `report:view`, `role:manage`) and reconcile the `report:view` vs `analytics:view` naming drift so the matrix UI and the runtime matrix stay in lockstep
+- [ ] `role-event-detail.tsx` rebuild: the event schedule-sessions panel (`SessionsPanel`) was scaffolded but its component body was removed mid-refactor; finish the panel (create/edit/delete schedule sessions) and restore a compiling event detail page

@@ -2,6 +2,10 @@ const mongoose = require("mongoose");
 const { OAuth2Client } = require("google-auth-library");
 const User = require("../models/User");
 const Session = require("../models/Session");
+const Ticket = require("../models/Ticket");
+const Event = require("../models/Event");
+const Feedback = require("../models/Feedback");
+const Notification = require("../models/Notification");
 const Organization = require("../models/Organization");
 const OrganizationMember = require("../models/OrganizationMember");
 const generateToken = require("../utils/generateToken");
@@ -91,7 +95,10 @@ const sendVerificationEmail = async (user) => {
     to: user.email,
     subject: "Verify your EventNexus email",
     template: "verify-email",
-    text: `Hi ${user.name},\n\nVerify your email to finish setting up your account:\n${link}\n\nThis link expires in 24 hours.`,
+    templateData: {
+      name: user.name,
+      link,
+    },
     metadata: { link, token },
   });
 };
@@ -429,6 +436,13 @@ const googleLogin = async (req, res) => {
         user.googleId = googleId;
         changed = true;
       }
+      // Google already verified this address (checked above) — a local
+      // account that later signs in with the same, Google-confirmed email
+      // shouldn't still be stuck behind the "verify your email" gate.
+      if (!user.emailVerifiedAt) {
+        user.emailVerifiedAt = new Date();
+        changed = true;
+      }
       // Promote allowlisted emails to admin — but only ONCE (adminGrantedAt).
       // A deliberate demotion by another admin sticks; without this guard,
       // every Google sign-in would silently re-promote the demoted user.
@@ -450,6 +464,9 @@ const googleLogin = async (req, res) => {
         googleId,
         role: admin ? "admin" : "attendee",
         adminGrantedAt: admin ? new Date() : undefined,
+        // Google verified this email before issuing the ID token (checked
+        // above) — brand-new Google sign-ups are verified on creation.
+        emailVerifiedAt: new Date(),
       });
       if (admin) await assignDefaultOrg(user);
       await user.save();
@@ -686,7 +703,10 @@ const forgotPassword = async (req, res) => {
       to: user.email,
       subject: "Reset your EventNexus password",
       template: "password-reset",
-      text: `Hi ${user.name},\n\nA password reset was requested for your account. If that was you:\n${link}\n\nThis link expires in 24 hours. If you didn't request this, ignore this email — your password is unchanged.`,
+      templateData: {
+        name: user.name,
+        link,
+      },
       metadata: { link, token },
     });
 
@@ -745,6 +765,141 @@ const resetPassword = async (req, res) => {
   }
 };
 
+// GDPR: Export all personal data associated with the current user.
+const exportMyData = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).lean();
+
+    const [tickets, events, feedback, notifications, sessions] = await Promise.all([
+      Ticket.find({ attendee: user._id })
+        .populate("event", "title date venue")
+        .lean(),
+      Event.find({ organizer: user._id }).select("title date venue status").lean(),
+      Feedback.find({ attendee: user._id }).lean(),
+      Notification.find({ recipient: user._id }).lean(),
+      Session.find({ user: user._id }).lean(),
+    ]);
+
+    const exportData = {
+      profile: {
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        organization: user.organization,
+        location: user.location,
+        emailVerifiedAt: user.emailVerifiedAt,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+      },
+      tickets: tickets.map((t) => ({
+        event: t.event,
+        status: t.status,
+        checkedInAt: t.checkedInAt,
+        createdAt: t.createdAt,
+      })),
+      organizedEvents: events.map((e) => ({
+        title: e.title,
+        date: e.date,
+        venue: e.venue,
+        status: e.status,
+      })),
+      feedback: feedback.map((f) => ({
+        event: f.event,
+        rating: f.rating,
+        comment: f.comment,
+        sentiment: f.sentiment,
+        createdAt: f.createdAt,
+      })),
+      notifications: notifications.map((n) => ({
+        type: n.type,
+        title: n.title,
+        message: n.message,
+        read: n.read,
+        createdAt: n.createdAt,
+      })),
+      sessions: sessions.map((s) => ({
+        ip: s.ip,
+        userAgent: s.userAgent,
+        createdAt: s.createdAt,
+        lastUsedAt: s.lastUsedAt,
+        revokedAt: s.revokedAt,
+        expiresAt: s.expiresAt,
+      })),
+    };
+
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="eventnexus-data-export-${user._id}-${Date.now()}.json"`
+    );
+    res.send(JSON.stringify(exportData, null, 2));
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// GDPR: Delete the current user's account (right to erasure).
+// Anonymizes user-owned content instead of hard-deleting to preserve
+// event integrity (tickets, feedback, analytics). The user can no longer log in.
+const deleteMyAccount = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Revoke all sessions immediately.
+    await Session.updateMany({ user: user._id, revokedAt: null }, { revokedAt: new Date() });
+
+    // Anonymize the user record (preserve _id for FK integrity).
+    user.name = "Deleted User";
+    user.email = `deleted-${user._id}@eventnexus.local`;
+    // Set a dummy password + googleId so the model doesn't require a password
+    // and the pre-save hook doesn't try to hash undefined.
+    user.password = "deleted-account-" + user._id;
+    user.googleId = `deleted-${user._id}`;
+    user.role = "attendee";
+    user.tokenVersion = (user.tokenVersion ?? 0) + 1;
+    user.emailVerifiedAt = null;
+    user.emailVerificationToken = undefined;
+    user.emailVerificationExpiresAt = undefined;
+    user.passwordResetToken = undefined;
+    user.passwordResetExpiresAt = undefined;
+    user.location = undefined;
+    user.reminderEmail = false;
+    user.organization = null;
+    await user.save();
+
+    // Anonymize tickets: remove attendee reference but keep event/qr for check-in integrity.
+    await Ticket.updateMany(
+      { attendee: user._id },
+      { $set: { attendee: null } }
+    );
+
+    // Anonymize feedback: remove attendee reference, keep rating/comment for analytics.
+    await Feedback.updateMany({ attendee: user._id }, { $set: { attendee: null } });
+
+    // Anonymize notifications: remove recipient reference.
+    await Notification.updateMany({ recipient: user._id }, { $set: { recipient: null } });
+
+    // Remove OrganizationMember records.
+    await OrganizationMember.deleteMany({ user: user._id });
+
+    audit({
+      req,
+      user: { _id: user._id }, // minimal user object for audit
+      organization: user.organization ? { _id: user.organization } : undefined,
+      action: "account_deleted",
+      resourceType: "User",
+      resourceId: user._id,
+    });
+
+    res.json({ message: "Your account has been permanently deleted. You will be logged out." });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   register,
   orgRegister,
@@ -759,4 +914,6 @@ module.exports = {
   resendVerification,
   forgotPassword,
   resetPassword,
+  exportMyData,
+  deleteMyAccount,
 };

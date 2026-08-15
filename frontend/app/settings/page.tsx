@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { AppShell } from "@/components/app/app-shell"
 import { Reveal } from "@/components/anim/reveal"
-import { useCurrentUser, useLogout, useSessions, useRevokeSession } from "@/lib/queries/auth"
+import { useCurrentUser, useLogout, useSessions, useRevokeSession, useExportMyData, useDeleteMyAccount } from "@/lib/queries/auth"
 import { useSaveLocationCoords } from "@/lib/queries/location"
 import { useUpdateMyPassword, useUpdateMyProfile, useUpdateReminderPreference } from "@/lib/queries/users"
 import { captureAndSaveLocation, getBrowserLocation } from "@/lib/api/location"
@@ -26,6 +26,7 @@ import {
   Smartphone,
   Bell,
   BellOff,
+  Download,
 } from "lucide-react"
 
 const roleToShell = (role?: string) =>
@@ -38,6 +39,8 @@ export default function AttendeeSettingsPage() {
   const updatePassword = useUpdateMyPassword()
   const updateReminderPref = useUpdateReminderPreference()
   const logout = useLogout()
+  const exportData = useExportMyData()
+  const deleteAccount = useDeleteMyAccount()
   const user = userData?.user
 
   const [manualLat, setManualLat] = useState(user?.location?.lat?.toString() || "")
@@ -60,6 +63,8 @@ export default function AttendeeSettingsPage() {
 
   const [reminderEmail, setReminderEmail] = useState(user?.reminderEmail ?? true)
   const [reminderStatus, setReminderStatus] = useState<"idle" | "saving" | "saved" | "error">("idle")
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleteEmail, setDeleteEmail] = useState("")
 
   const hasLocation = user?.location?.lat != null
 
@@ -573,6 +578,102 @@ export default function AttendeeSettingsPage() {
               {sessions.isError && (
                 <p className="text-xs text-amber-600">Could not load sessions.</p>
               )}
+            </div>
+          </div>
+        </Reveal>
+
+        {/* GDPR: Data Export & Account Deletion */}
+        <Reveal stagger={0.1} y={24}>
+          <div className="rounded-2xl border border-border bg-card p-6">
+            <div className="flex items-center gap-3">
+              <span className="flex size-10 items-center justify-center rounded-xl bg-destructive/10">
+                <Trash2 className="size-5 text-destructive" />
+              </span>
+              <div>
+                <h2 className="font-display text-base font-bold text-ink">Privacy & Data</h2>
+                <p className="text-xs text-muted-foreground">
+                  Manage your personal data (GDPR rights): export everything or permanently delete
+                  your account.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 space-y-6">
+              {/* Export Data */}
+              <div className="flex items-center justify-between rounded-xl border border-border bg-background p-4">
+                <div className="flex items-center gap-3">
+                  <span className="flex size-10 items-center justify-center rounded-xl bg-emerald/10">
+                    <Download className="size-5 text-emerald-600" />
+                  </span>
+                  <div>
+                    <h3 className="font-display text-sm font-bold text-ink">Export my data</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Download a JSON file with your profile, tickets, organized events, feedback,
+                      notifications, and sessions.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => exportData.mutate()}
+                  disabled={exportData.isPending}
+                  className="flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                >
+                  {exportData.isPending && <Loader2 className="size-4 animate-spin" />}
+                  <Download className="size-4" /> Download JSON
+                </button>
+              </div>
+
+              {/* Delete Account */}
+              <div className="flex items-center justify-between rounded-xl border border-destructive/30 bg-destructive/5 p-4">
+                <div className="flex items-center gap-3">
+                  <span className="flex size-10 items-center justify-center rounded-xl bg-destructive/10">
+                    <Trash2 className="size-5 text-destructive" />
+                  </span>
+                  <div>
+                    <h3 className="font-display text-sm font-bold text-ink">Delete my account</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Permanently delete your account and anonymize all personal data. This cannot
+                      be undone.
+                    </p>
+                  </div>
+                </div>
+                {showDeleteConfirm ? (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="email"
+                      value={deleteEmail}
+                      onChange={(e) => setDeleteEmail(e.target.value)}
+                      placeholder="Type your email to confirm"
+                      className="flex-1 max-w-xs rounded-xl border border-destructive bg-background px-3 py-2 text-sm text-ink outline-none focus:border-destructive focus:ring-4 focus:ring-destructive/20"
+                    />
+                    <button
+                      onClick={() => {
+                        if (deleteEmail === user?.email) {
+                          deleteAccount.mutate()
+                        }
+                      }}
+                      disabled={deleteAccount.isPending || deleteEmail !== user?.email}
+                      className="flex items-center gap-1.5 rounded-lg bg-destructive px-3 py-2 text-xs font-semibold text-destructive-foreground disabled:opacity-50"
+                    >
+                      {deleteAccount.isPending && <Loader2 className="size-3.5 animate-spin" />}
+                      Delete Permanently
+                    </button>
+                    <button
+                      onClick={() => setShowDeleteConfirm(false)}
+                      className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setShowDeleteConfirm(true)}
+                    className="flex items-center gap-1.5 rounded-lg border border-destructive/30 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10"
+                  >
+                    <Trash2 className="size-3.5" /> Delete Account
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </Reveal>

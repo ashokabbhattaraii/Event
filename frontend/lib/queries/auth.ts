@@ -10,12 +10,13 @@ import {
 import { clearSession } from "../api/client";
 import { captureAndSaveLocation } from "../api/location";
 import { useHasToken } from "../hooks/use-has-token";
+import { resetChatbotForUserChange } from "../stores/chatbot-store";
 
 export const authKeys = {
   me: ["auth", "me"] as const,
 };
 
-const roleRoutes: Record<string, string> = {
+export const roleRoutes: Record<string, string> = {
   admin: "/admin",
   organizer: "/organizer",
   attendee: "/dashboard",
@@ -39,6 +40,10 @@ function useAuthSuccess() {
     storeSession(data);
     localStorage.setItem("user", JSON.stringify(data.user));
     queryClient.setQueryData(authKeys.me, { user: data.user });
+    // The chatbot store is a singleton created once at app load — it won't
+    // notice a different account just logged in without this, so it'd keep
+    // showing whichever user's chat history loaded first (see chatbot-store.ts).
+    resetChatbotForUserChange();
 
     // Capture location (with permission) in the background — the token is now
     // stored, so the authenticated PATCH will carry it. Never blocks redirect.
@@ -89,6 +94,7 @@ export function useLogout() {
       .catch(() => {})
       .finally(() => {
         clearSession();
+        resetChatbotForUserChange();
         queryClient.clear();
         router.push("/login");
       });
@@ -97,8 +103,16 @@ export function useLogout() {
 
 // --- Email verification + password reset (report §7) ------------------------
 export function useVerifyEmail() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (token: string) => authApi.verifyEmail(token),
+    onSuccess: () => {
+      // So AppShell's verification guard (which reads useCurrentUser())
+      // sees the account as verified immediately, without needing a fresh
+      // login — e.g. the verification link was opened in a new tab while
+      // the app is still open, unverified, in another one.
+      queryClient.invalidateQueries({ queryKey: authKeys.me });
+    },
   });
 }
 
@@ -137,6 +151,27 @@ export function useRevokeSession() {
     mutationFn: (id: string) => authApi.revokeSession(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["auth", "sessions"] });
+    },
+  });
+}
+
+// --- GDPR: Data export & Account deletion ------------------------------------
+export function useExportMyData() {
+  return useMutation({
+    mutationFn: () => authApi.exportMyData(),
+  });
+}
+
+export function useDeleteMyAccount() {
+  const queryClient = useQueryClient();
+  const router = useRouter();
+  return useMutation({
+    mutationFn: () => authApi.deleteMyAccount(),
+    onSuccess: () => {
+      clearSession();
+      resetChatbotForUserChange();
+      queryClient.clear();
+      router.push("/login");
     },
   });
 }

@@ -11,12 +11,20 @@ GET  /health                model availability + service status
 POST /predict-attendance    batch attendance forecast for events
 POST /recommendations       collaborative-filtering ranking for a user
 POST /classify-intent       ML intent classification (hybrid chatbot)
+POST /parse                 intent (ML) + slots (rules) in one call — fast,
+                             non-LLM; used internally as /understand's
+                             fallback and directly for automated relabeling
+POST /understand            LLM-first: intent + every slot in one call,
+                             reading the actual conversation — the
+                             backend's PRIMARY NLU entry point
+POST /generate              generic Groq/Gemini call (prompt in, reply out)
 POST /log-intent            label (message, intent) pairs for retraining
 POST /train                 retrain all models from MongoDB
 """
 
 import os
 import json
+import re
 
 import joblib
 import numpy as np
@@ -27,6 +35,8 @@ from pydantic import BaseModel
 
 import db as data
 from features import build_rows
+from llm import generate_reply
+from nlu import extract_slots
 import train as training
 
 load_dotenv()
@@ -53,11 +63,26 @@ class AttendanceRequest(BaseModel):
 
 class RecommendationsRequest(BaseModel):
     user_id: str
-    organization_id: str
+    organization_id: str | None = None
 
 
 class ClassifyRequest(BaseModel):
     message: str
+
+
+class ParseRequest(BaseModel):
+    message: str
+
+
+class UnderstandRequest(BaseModel):
+    message: str
+    history: list[dict] | None = None
+
+
+class GenerateRequest(BaseModel):
+    system_prompt: str
+    user_prompt: str
+    history: list[dict] | None = None
 
 
 class LogIntentRequest(BaseModel):
@@ -271,6 +296,113 @@ def classify_intent(req: ClassifyRequest):
     scores = pipe.decision_function([text])[0]
     idx = int(np.argmax(scores))
     return {"intent": pipe.classes_[idx], "score": float(scores[idx])}
+
+
+@app.post("/parse")
+def parse(req: ParseRequest):
+    """Unified NLU call: ML intent classification plus rule-based slot
+    extraction (quantity/time-scope/price preference — see nlu.py for why
+    those are rules, not a second model) in a single round trip, so the
+    backend has one place to ask "what does this message mean" instead of
+    juggling separate classify + regex logic across two languages."""
+    text = (req.message or "").strip()
+    classification = classify_intent(ClassifyRequest(message=text))
+    return {
+        "intent": classification["intent"],
+        "score": classification["score"],
+        "slots": extract_slots(text),
+    }
+
+
+def _extract_json(text: str) -> dict | None:
+    """LLMs routinely wrap JSON in ```json fences or add a stray sentence
+    before/after it — grab the first {...} block rather than requiring an
+    exact match."""
+    if not text:
+        return None
+    match = re.search(r"\{.*\}", text, re.S)
+    if not match:
+        return None
+    try:
+        return json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return None
+
+
+def _normalize_slots(parsed: dict) -> dict:
+    """Never trust LLM output verbatim into the response — clamp every
+    field to its actual valid range so a hallucinated value (a made-up
+    string, an out-of-range number) can't reach the backend as if it were
+    a confidently-detected slot."""
+    quantity = parsed.get("quantity")
+    time_scope = parsed.get("time_scope")
+    price_pref = parsed.get("price_pref")
+    count = parsed.get("count")
+    return {
+        "quantity": quantity if quantity in ("one", "many") else None,
+        "time_scope": time_scope if time_scope in ("past", "upcoming") else None,
+        "price_pref": price_pref if price_pref in ("free", "paid") else None,
+        "count": count if isinstance(count, int) and 1 <= count <= 50 else None,
+    }
+
+
+@app.post("/understand")
+def understand(req: UnderstandRequest):
+    """LLM-first understanding: ONE call reads the message plus conversation
+    history and returns intent + every slot together, instead of trying to
+    anticipate every possible phrasing with more regex (a losing game — the
+    English language has more phrasings than anyone can enumerate). This is
+    the backend's primary NLU entry point; /parse's rule-based logic is used
+    here only as the fallback when the LLM itself returns nothing usable
+    (no API keys configured, both providers down, or a malformed response),
+    so understanding still degrades gracefully rather than failing outright.
+    """
+    text = (req.message or "").strip()
+    if not text:
+        return {"intent": None, "slots": _normalize_slots({}), "source": None}
+
+    system_prompt = (
+        "You are the natural-language understanding layer for an event-management chatbot. "
+        "Read the user's LATEST message together with the conversation history and reply with ONLY a single-line "
+        "JSON object — no markdown fences, no explanation — with exactly these keys:\n"
+        f'"intent": one of {sorted(KNOWN_INTENTS)},\n'
+        '"quantity": "one" if they want ONE specific event, "many" if they want a list, else null,\n'
+        '"time_scope": "past" if asking about past/concluded/finished events, "upcoming" if asking about '
+        "upcoming/future events, else null,\n"
+        '"price_pref": "free", "paid", or null,\n'
+        '"count": an integer if they asked for a specific number of results (e.g. "10 events"), else null\n\n'
+        "Resolve short follow-ups using the history — e.g. after the bot lists upcoming events, a reply of "
+        '"just 1" means quantity="one"; "how about paid ones" means price_pref="paid" for the same time_scope '
+        "as before. Use intent 'greeting' ONLY for an actual greeting or small talk with recognizable words "
+        "('hi', 'hello', 'thanks', 'how are you', 'what can you do'). Use intent 'fallback' for EVERYTHING else "
+        "that isn't genuinely one of the other labels — meta questions about the bot itself ('are you an AI?'), "
+        "requests to DO something the bot can't do here (create/edit/delete an event, change account settings), "
+        "AND unclear/nonsensical/unparseable text (random characters, gibberish, a message with no discernible "
+        "words or intent). Never default confusing input to 'greeting' just because nothing else fits — 'fallback' "
+        "triggers a real, tailored LLM answer downstream, while 'greeting' always returns the exact same canned "
+        "reply, so misclassifying unclear messages as 'greeting' makes every unclear message look identical."
+    )
+    reply = generate_reply(system_prompt, text, req.history)
+    parsed = _extract_json(reply)
+    if parsed and parsed.get("intent") in KNOWN_INTENTS:
+        return {"intent": parsed["intent"], "slots": _normalize_slots(parsed), "source": "llm"}
+
+    # LLM unavailable or returned something unusable — deterministic fallback.
+    classification = classify_intent(ClassifyRequest(message=text))
+    return {"intent": classification["intent"], "slots": extract_slots(text), "source": "rules"}
+
+
+@app.post("/generate")
+def generate(req: GenerateRequest):
+    """Generic Groq/Gemini call — this service's one LLM entry point (see
+    llm.py). The backend builds the system/user prompt (it owns the
+    grounded-data formatting that must never be paraphrased away — see the
+    long comment in chatbotController.js about why grounded facts are
+    returned verbatim, never LLM-rewritten); this just executes the call so
+    the actual API keys and HTTP/retry logic for Groq and Gemini live in
+    exactly one place instead of being duplicated in Node."""
+    reply = generate_reply(req.system_prompt, req.user_prompt, req.history)
+    return {"reply": reply}
 
 
 @app.post("/log-intent")

@@ -4,6 +4,7 @@ const {
   listPendingOrgs,
   approveOrg,
   rejectOrg,
+  updateOrganization,
 } = require("../controllers/systemAdminController");
 const { protect, requireSystemAdmin } = require("../middleware/auth");
 const validate = require("../middleware/validate");
@@ -30,6 +31,14 @@ router.post(
   ],
   validate,
   rejectOrg
+);
+
+// Rename / suspend / reactivate a provisioned tenant (system admin only).
+router.patch(
+  "/orgs/:id",
+  [param("id").isMongoId().withMessage("Invalid organization id")],
+  validate,
+  updateOrganization
 );
 
 module.exports = router;

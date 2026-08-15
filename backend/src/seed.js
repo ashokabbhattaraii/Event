@@ -148,54 +148,70 @@ async function seed() {
   console.log("✓ Created organization");
 
   // --- Roles & permissions --------------------------------------------------
-  // Mirrors the RBAC matrix in middleware/auth.js (ROLE_PERMISSIONS). The
-  // DB copy is authoritative when present; the static fallback keeps the
-  // system working on a fresh database before seeding.
+  // THIS IS THE SINGLE SOURCE OF TRUTH that mirrors the RBAC matrix in
+  // middleware/auth.js (ROLE_PERMISSIONS). The DB copy is authoritative at
+  // runtime (loaded into roleCache by loadRoleCache); the static matrix in
+  // auth.js is only a boot-time fallback before the DB cache is hydrated, so
+  // the two must agree — otherwise a freshly seeded DB silently breaks the
+  // requirePermission gates (e.g. feedback:submit on events.js was not in the
+  // seeded attendee role, blocking all attendees from submitting feedback).
+  //
+  // Every code enforced by requirePermission across the routes is present here
+  // and granted to the role that should hold it.
   const PERMISSIONS = [
-    { code: "event:view", name: "View events", scope: "system" },
-    { code: "event:create", name: "Create events", scope: "system" },
-    { code: "event:update", name: "Update events", scope: "system" },
-    { code: "event:delete", name: "Delete events", scope: "system" },
-    { code: "event:publish", name: "Publish events", scope: "system" },
-    { code: "ticket:view", name: "View tickets", scope: "system" },
-    { code: "ticket:checkin", name: "Check in attendees", scope: "system" },
-    { code: "user:view", name: "View users", scope: "system" },
-    { code: "user:manage", name: "Manage users", scope: "system" },
-    { code: "report:view", name: "View reports", scope: "system" },
-    { code: "audit:view", name: "View audit logs", scope: "system" },
-    { code: "role:manage", name: "Manage roles", scope: "system" },
-    { code: "ai:use", name: "Use AI features", scope: "system" },
-    { code: "org:approve", name: "Approve organization registrations", scope: "system" },
+    { code: "audit:view", name: "View audit logs", description: "Browse platform audit trail", scope: "system" },
+    { code: "collaboration:invite", name: "Invite collaborators", description: "Add co-organizers and team members to an event", scope: "system" },
+    { code: "event:manage", name: "Manage events", description: "Create, update, publish and delete events", scope: "system" },
+    { code: "event:register", name: "Register for events", description: "Book a ticket to an event", scope: "system" },
+    { code: "feedback:submit", name: "Submit event feedback", description: "Leave a rating and comment after an event", scope: "system" },
+    { code: "iam:manage", name: "Manage roles & permissions", description: "Edit role permission sets (IAM matrix)", scope: "system" },
+    { code: "org:approve", name: "Approve organization registrations", description: "Accept or reject new tenant signups (system admin)", scope: "system" },
+    { code: "org:manage", name: "Manage organization", description: "Edit organization profile and settings", scope: "system" },
+    { code: "security:view", name: "View security settings", description: "Access the admin security / IAM console", scope: "system" },
+    { code: "session:manage", name: "Manage user sessions", description: "Revoke sessions, reset token versions", scope: "system" },
+    { code: "ticket:verify", name: "Check in attendees", description: "Scan tickets at the door", scope: "system" },
+    { code: "ticket:view", name: "View tickets", description: "See own and team ticket registrations", scope: "system" },
+    { code: "user:manage", name: "Manage users", description: "Invite, edit and deactivate organization members", scope: "system" },
+    { code: "analytics:view", name: "View reports & analytics", description: "Access event and org analytics dashboards", scope: "system" },
   ];
 
+  // Permission sets mirror ROLE_PERMISSIONS in middleware/auth.js line-for-line.
   const ROLES = [
     {
       name: "admin",
-      description: "Overall system administrator — controls all tenant companies (PDF §2.4)",
+      description: "Overall system administrator — controls all tenant companies (PDF \u00a72.4)",
       scope: "system",
-      permissions: PERMISSIONS.map((p) => p.code),
+      permissions: [
+        "org:approve",
+        "org:manage",
+        "user:manage",
+        "security:view",
+        "event:manage",
+        "analytics:view",
+        "ticket:verify",
+        "audit:view",
+        "iam:manage",
+        "collaboration:invite",
+        "session:manage",
+      ],
     },
     {
       name: "organizer",
       description: "Creates and manages events, checks in attendees",
       scope: "system",
       permissions: [
-        "event:view",
-        "event:create",
-        "event:update",
-        "event:delete",
-        "event:publish",
-        "ticket:view",
-        "ticket:checkin",
-        "user:view",
-        "report:view",
+        "event:manage",
+        "analytics:view",
+        "ticket:verify",
+        "collaboration:invite",
+        "session:manage",
       ],
     },
     {
       name: "attendee",
       description: "Registers for events and manages their tickets",
       scope: "system",
-      permissions: ["event:view", "ticket:view", "ai:use"],
+      permissions: ["event:register", "ticket:view", "feedback:submit"],
     },
   ];
 
@@ -218,6 +234,88 @@ async function seed() {
   // --- Events --------------------------------------------------------------
   const day = 24 * 60 * 60 * 1000;
   const now = Date.now();
+
+  // --- Bulk event generator (extends the dataset to 100+ events) ---------------
+  // The recommendation engine, analytics and search all need realistic volume
+  // to behave. The nine hand-authored events below (indices 0-8) are preserved
+  // verbatim — they're referenced by the fixture tickets, feedback and
+  // notifications — so this only APPENDS generated events. Dates span ~2 years
+  // around now, weighted toward "Past" (the attendance-predictor model needs
+  // plenty of concluded samples with registration counts).
+  const GEN_CATEGORIES = [
+    "Technology", "Business", "Music", "Design", "Health", "Food",
+    "Sports", "Education", "Community", "Art",
+  ];
+  const GEN_TYPES = ["In-person", "Virtual", "Hybrid"];
+  const GEN_STATUSES = ["Upcoming", "Live", "Past", "Draft"];
+  const GEN_VENUES = [
+    { venue: "Grand Hall, Kathmandu", lat: 27.7125, lng: 85.32, city: "Kathmandu" },
+    { venue: "Rooftop Lounge, Lalitpur", lat: 27.6667, lng: 85.3167, city: "Lalitpur" },
+    { venue: "Open Air Amphitheatre, Bhaktapur", lat: 27.671, lng: 85.4298, city: "Bhaktapur" },
+    { venue: "Innovation Lab", lat: 27.7172, lng: 85.324, city: "Kathmandu" },
+    { venue: "Yala House", lat: 27.709, lng: 85.323, city: "Kathmandu" },
+    { venue: "City Center Mall", lat: 27.705, lng: 85.321, city: "Kathmandu" },
+    { venue: "Green Park Pavilion", lat: 27.71, lng: 85.33, city: "Lalitpur" },
+    { venue: "Virtual", lat: 27.7172, lng: 85.324, city: "Online" },
+  ];
+  const GEN_TITLES = [
+    "Deep Dive: React Server Components", "Startup Funding 101", "Indie Music Night",
+    "UX Metrics That Matter", "Morning Yoga Flow", "Food Truck Festival",
+    "Local Football Cup", "AI Ethics Workshop", "Women in Tech", "Community Cleanup",
+    "Photography Walk", "Data Viz with D3", "Live Jazz Quartet", "DevOps Days",
+    "Plant-Based Cooking", "Chess Tournament", "Cloud Native Summit",
+    "Open Source Sprint", "Design Systems Meetup", "Meditation Retreat",
+    "Tech Book Club", "Angel Investing Panel", "Acoustic Sessions", "Accessibility Week",
+    "Hackathon Kickoff", "Wellness Fair", "Code Review Workshop", "Film Screening",
+    "Blockchain Basics", "Volunteer Fair", "Sustainable Living", "Startup Demo Day",
+    "Mobile Dev Night", "Marathon Training", "Product Design Crit", "Pottery Class",
+  ];
+  const rand = (arr) => arr[Math.floor(Math.random() * arr.length)];
+  const randCoord = (base) => base + (Math.random() - 0.5) * 0.018;
+
+  const generateEvents = ({ organizer, org, count }) => {
+    const out = [];
+    for (let i = 0; i < count; i++) {
+      const v = rand(GEN_VENUES);
+      const category = rand(GEN_CATEGORIES);
+      // ~60% past, 30% upcoming, 7% live, 3% draft. Past events get real
+      // registration counts so the attendance model has signal to learn from.
+      const roll = Math.random();
+      let status;
+      if (roll < 0.6) status = "Past";
+      else if (roll < 0.9) status = "Upcoming";
+      else if (roll < 0.97) status = "Live";
+      else status = "Draft";
+      const offsetDays = Math.floor((Math.random() - 0.6) * 730); // ~ -440d .. +292d
+      const price =
+        Math.random() < 0.5
+          ? { amount: 0, currency: "NPR" }
+          : { amount: Math.floor(Math.random() * 2000) + 100, currency: "NPR" };
+      out.push({
+        title: `${rand(GEN_TITLES)} #${i + 1}`,
+        description: `A ${category.toLowerCase()} event generated for the ${org.name} tenant seed dataset.`,
+        date: new Date(now + offsetDays * day),
+        venue: v.venue,
+        coordinates: { lat: randCoord(v.lat), lng: randCoord(v.lng) },
+        type: rand(GEN_TYPES),
+        category,
+        capacity: [50, 80, 120, 200, 300, 500][Math.floor(Math.random() * 6)],
+        price,
+        status,
+        organizer: organizer._id,
+        organization: org._id,
+        registered:
+          status === "Past"
+            ? Math.floor(Math.random() * 180)
+            : status === "Upcoming"
+            ? Math.floor(Math.random() * 60)
+            : 0,
+      });
+    }
+    return out;
+  };
+
+  const additionalEvents = generateEvents({ organizer, org, count: 100 });
 
   const events = await Event.insertMany([
     {
@@ -353,6 +451,7 @@ async function seed() {
       organization: org._id,
       registered: 6,
     },
+    ...additionalEvents,
   ]);
   console.log(`✓ Created ${events.length} events`);
 

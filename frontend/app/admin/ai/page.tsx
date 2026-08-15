@@ -63,7 +63,7 @@ function ModelCard({
 }) {
   const label = MODEL_LABELS[keyName]
   const trained = !!meta?.trained
-  const reached = health && trained
+  const reached = !!(health && trained)
   return (
     <div className="rounded-2xl border border-border bg-card p-6">
       <div className="flex items-start justify-between gap-3">

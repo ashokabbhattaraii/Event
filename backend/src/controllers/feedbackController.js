@@ -2,6 +2,7 @@ const Event = require("../models/Event");
 const Ticket = require("../models/Ticket");
 const Feedback = require("../models/Feedback");
 const { classifySentiment } = require("../utils/sentiment");
+const { canManageEvent } = require("./eventController");
 
 // Attendees can only leave feedback for an event they actually held a
 // (non-cancelled) ticket for, and only once the event has happened.
@@ -67,10 +68,7 @@ const getEventFeedback = async (req, res) => {
     if (!event) {
       return res.status(404).json({ message: "Event not found" });
     }
-    if (
-      req.user.role !== "admin" &&
-      event.organizer.toString() !== req.user._id.toString()
-    ) {
+    if (!canManageEvent(event, req.user)) {
       return res.status(403).json({ message: "Not authorized" });
     }
 

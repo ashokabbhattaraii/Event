@@ -1,7 +1,8 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   systemAdminApi,
   type OrgRegisterPayload,
+  type OrganizationListParams,
   type PendingOrganization,
 } from "../api/system";
 
@@ -11,11 +12,12 @@ export function useOrgRegister() {
   });
 }
 
-export function usePendingOrganizations(status: string = "pending") {
+export function usePendingOrganizations(params: OrganizationListParams = {}) {
   return useQuery({
-    queryKey: ["system", "orgs", status],
-    queryFn: () => systemAdminApi.listOrganizations(status),
+    queryKey: ["system", "orgs", params],
+    queryFn: () => systemAdminApi.listOrganizations(params),
     retry: false,
+    placeholderData: keepPreviousData,
   });
 }
 

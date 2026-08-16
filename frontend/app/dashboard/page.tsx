@@ -9,21 +9,35 @@ import { useRecommendations } from "@/lib/queries/recommendations"
 import { useCurrentUser } from "@/lib/queries/auth"
 import { toAppEvent } from "@/lib/adapters/event"
 import { useDebounce } from "@/lib/hooks/use-debounce"
+import { Pagination } from "@/components/app/pagination"
+import { EVENT_CATEGORIES } from "@/lib/constants/event-options"
 import { Loader2, Search, Sparkles, SlidersHorizontal } from "lucide-react"
 
-const categories = ["All", "Technology", "Business", "Music", "Education", "Design"]
+const categories = ["All", ...EVENT_CATEGORIES]
+
+const sortOptions = [
+  { label: "Soonest date", value: "date" },
+  { label: "Latest date", value: "-date" },
+  { label: "Newest first", value: "-createdAt" },
+  { label: "Title A–Z", value: "title" },
+  { label: "Most registered", value: "-registered" },
+]
 
 export default function AttendeeDiscoverPage() {
   const { data: userData } = useCurrentUser()
   const [active, setActive] = useState("All")
   const [query, setQuery] = useState("")
+  const [sort, setSort] = useState("date")
+  const [page, setPage] = useState(1)
   const debouncedQuery = useDebounce(query, 400)
   const user = userData?.user
 
   const { data, isLoading, isError } = useAllEvents({
     search: debouncedQuery,
     category: active === "All" ? undefined : active,
-    limit: 50,
+    sort,
+    page,
+    limit: 12,
   })
   // The real recommendation engine (backend/src/utils/recommendationEngine.js
   // — CF via the AI service, or a deterministic fallback) already filters to
@@ -53,11 +67,13 @@ export default function AttendeeDiscoverPage() {
                 <Search className="ml-2 size-5 text-muted-foreground" />
                 <input
                   value={query}
-                  onChange={(e) => setQuery(e.target.value)}
+                  onChange={(e) => {
+                    setQuery(e.target.value)
+                    setPage(1)
+                  }}
                   placeholder="Search events, organizers, topics..."
                   className="flex-1 bg-transparent px-1 py-2 text-sm text-ink outline-none"
                 />
-                <button className="rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-white">Search</button>
               </div>
             </div>
           </div>
@@ -85,7 +101,10 @@ export default function AttendeeDiscoverPage() {
             {categories.map((c) => (
               <button
                 key={c}
-                onClick={() => setActive(c)}
+                onClick={() => {
+                  setActive(c)
+                  setPage(1)
+                }}
                 className={`rounded-full px-4 py-2 text-sm font-medium transition-all ${
                   active === c
                     ? "bg-ink text-white"
@@ -95,9 +114,23 @@ export default function AttendeeDiscoverPage() {
                 {c}
               </button>
             ))}
-            <button className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-4 py-2 text-sm font-medium text-ink">
-              <SlidersHorizontal className="size-4" /> Filters
-            </button>
+            <div className="ml-auto flex items-center gap-2">
+              <SlidersHorizontal className="size-4 text-muted-foreground" />
+              <select
+                value={sort}
+                onChange={(e) => {
+                  setSort(e.target.value)
+                  setPage(1)
+                }}
+                className="rounded-xl border border-border bg-card px-3 py-2 text-sm font-medium text-ink outline-none transition-colors focus:border-primary"
+              >
+                {sortOptions.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </div>
           </Reveal>
 
           {isLoading ? (
@@ -118,6 +151,11 @@ export default function AttendeeDiscoverPage() {
                 <EventCard key={e.id} event={e} />
               ))}
             </Reveal>
+          )}
+          {data?.pagination && data.pagination.totalPages > 1 && (
+            <div className="mt-6">
+              <Pagination pagination={data.pagination} onPageChange={setPage} />
+            </div>
           )}
         </div>
       </div>

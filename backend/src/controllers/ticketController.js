@@ -1,5 +1,6 @@
 const Event = require("../models/Event");
 const Ticket = require("../models/Ticket");
+const User = require("../models/User");
 const { verifyTicketToken } = require("../utils/qrToken");
 const { createNotification } = require("./notificationController");
 const { claimAndIssueTicket } = require("../utils/ticketing");
@@ -8,6 +9,7 @@ const { sendMail } = require("../utils/email");
 const { generateQRCodeDataURI } = require("../utils/qrCode");
 const {
   parsePagination,
+  buildSearch,
   buildFilters,
   parseSort,
   paginate,
@@ -90,6 +92,17 @@ const getMyTickets = async (req, res) => {
       attendee: req.user._id,
       ...buildFilters(req.query, ["status"]),
     };
+
+    // Search by event title — resolve matching event ids first, then scope
+    // the ticket query to them (the event is a populated ref, not inline).
+    const searchTerm = String(req.query.search || "").trim();
+    if (searchTerm) {
+      const safe = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const rx = new RegExp(safe, "i");
+      const events = await Event.find({ title: rx }).select("_id").lean();
+      filter.event = { $in: events.map((e) => e._id) };
+    }
+
     const sort = parseSort(req.query.sort, ["createdAt"], { createdAt: -1 });
 
     const { data, pagination } = await paginate(Ticket, {
@@ -222,9 +235,36 @@ const getEventAttendees = async (req, res) => {
       return res.status(403).json({ message: "Not authorized" });
     }
 
-    const tickets = await Ticket.find({ event: event._id })
-      .populate("attendee", "name email")
-      .sort({ createdAt: 1 });
+    const { page, limit, skip } = parsePagination(req.query, {
+      defaultLimit: 50,
+      maxLimit: 200,
+    });
+
+    const filter = {
+      event: event._id,
+      ...buildFilters(req.query, ["status"]),
+    };
+
+    // Search by attendee name/email — resolve matching user ids first, then
+    // scope the ticket query to them (attendee is a populated ref).
+    const searchTerm = String(req.query.search || "").trim();
+    if (searchTerm) {
+      const safe = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const rx = new RegExp(safe, "i");
+      const users = await User.find({ $or: [{ name: rx }, { email: rx }] })
+        .select("_id")
+        .lean();
+      filter.attendee = { $in: users.map((u) => u._id) };
+    }
+
+    const { data: tickets, pagination } = await paginate(Ticket, {
+      filter,
+      page,
+      limit,
+      skip,
+      sort: { createdAt: 1 },
+      populate: { path: "attendee", select: "name email" },
+    });
 
     const attendees = tickets.map((t) => ({
       ticketId: t._id,
@@ -241,11 +281,18 @@ const getEventAttendees = async (req, res) => {
       attendee: t.attendee,
     }));
 
+    // Event-level counts (unaffected by page/search so the header stats stay
+    // stable while the roster below filters).
+    const [total, checkedIn, cancelled] = await Promise.all([
+      Ticket.countDocuments({ event: event._id }),
+      Ticket.countDocuments({ event: event._id, status: "checked-in" }),
+      Ticket.countDocuments({ event: event._id, status: "cancelled" }),
+    ]);
     const counts = {
-      total: tickets.length,
-      checkedIn: tickets.filter((t) => t.status === "checked-in").length,
-      valid: tickets.filter((t) => t.status === "valid").length,
-      cancelled: tickets.filter((t) => t.status === "cancelled").length,
+      total,
+      checkedIn,
+      valid: total - checkedIn - cancelled,
+      cancelled,
     };
 
     res.json({
@@ -258,6 +305,7 @@ const getEventAttendees = async (req, res) => {
       },
       attendees,
       counts,
+      pagination,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

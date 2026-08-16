@@ -14,6 +14,9 @@ import {
 } from "lucide-react"
 import { AppShell } from "@/components/app/app-shell"
 import { Reveal } from "@/components/anim/reveal"
+import { SearchInput } from "@/components/app/search-input"
+import { Pagination } from "@/components/app/pagination"
+import { useDebounce } from "@/lib/hooks/use-debounce"
 import { useCurrentUser } from "@/lib/queries/auth"
 import {
   useApproveOrganization,
@@ -24,9 +27,17 @@ import {
 export default function OrgApprovalsPage() {
   const { data: userData } = useCurrentUser()
   const [status, setStatus] = useState("pending")
+  const [search, setSearch] = useState("")
+  const [page, setPage] = useState(1)
   const [rejecting, setRejecting] = useState<string | null>(null)
   const [rejectReason, setRejectReason] = useState("")
-  const { data, isLoading } = usePendingOrganizations(status)
+  const debouncedSearch = useDebounce(search, 400)
+  const { data, isLoading } = usePendingOrganizations({
+    status,
+    search: debouncedSearch,
+    page,
+    limit: 10,
+  })
   const approve = useApproveOrganization()
   const reject = useRejectOrganization()
 
@@ -67,7 +78,10 @@ export default function OrgApprovalsPage() {
                 {["pending", "active", "rejected"].map((s) => (
                   <button
                     key={s}
-                    onClick={() => setStatus(s)}
+                    onClick={() => {
+                      setStatus(s)
+                      setPage(1)
+                    }}
                     className={`rounded-xl px-4 py-2 text-sm font-medium capitalize transition-colors ${
                       status === s
                         ? "bg-primary text-primary-foreground"
@@ -79,6 +93,18 @@ export default function OrgApprovalsPage() {
                 ))}
               </div>
 
+              <div className="mt-4">
+                <SearchInput
+                  value={search}
+                  onChange={(v) => {
+                    setSearch(v)
+                    setPage(1)
+                  }}
+                  placeholder="Search by organization, email, city..."
+                  className="w-full sm:w-80"
+                />
+              </div>
+
               <div className="mt-6 space-y-4">
                 {isLoading && (
                   <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
@@ -87,7 +113,9 @@ export default function OrgApprovalsPage() {
                 )}
                 {!isLoading && data?.organizations.length === 0 && (
                   <div className="rounded-2xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
-                    No {status} organizations.
+                    {debouncedSearch
+                      ? "No organizations match your search."
+                      : `No ${status} organizations.`}
                   </div>
                 )}
                 {data?.organizations.map((org) => (
@@ -209,6 +237,9 @@ export default function OrgApprovalsPage() {
                     )}
                   </div>
                 ))}
+                {data?.pagination && data.pagination.totalPages > 1 && (
+                  <Pagination pagination={data.pagination} onPageChange={setPage} />
+                )}
               </div>
             </Reveal>
           </>

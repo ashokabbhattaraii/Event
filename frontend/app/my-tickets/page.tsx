@@ -7,16 +7,36 @@ import { QrCode } from "@/components/app/qr-code"
 import { useMyTickets } from "@/lib/queries/tickets"
 import { useCurrentUser } from "@/lib/queries/auth"
 import type { EventData } from "@/lib/api/events"
+import { SearchInput, FilterSelect } from "@/components/app/search-input"
+import { Pagination } from "@/components/app/pagination"
+import { useDebounce } from "@/lib/hooks/use-debounce"
 import { Calendar, MapPin, CheckCircle2, Loader2, XCircle } from "lucide-react"
 
 const tabs = ["Upcoming", "Past"] as const
 
+const statusFilterOptions = [
+  { label: "All statuses", value: "all" },
+  { label: "Valid", value: "valid" },
+  { label: "Checked in", value: "checked-in" },
+  { label: "Cancelled", value: "cancelled" },
+]
+
 export default function MyTicketsPage() {
   const { data: userData } = useCurrentUser()
   const [tab, setTab] = useState<(typeof tabs)[number]>("Upcoming")
-  const { data, isLoading } = useMyTickets()
+  const [search, setSearch] = useState("")
+  const [status, setStatus] = useState("all")
+  const [page, setPage] = useState(1)
+  const debouncedSearch = useDebounce(search, 400)
+  const { data, isLoading } = useMyTickets({
+    search: debouncedSearch,
+    status,
+    page,
+    limit: 12,
+  })
   const user = userData?.user
   const tickets = data?.tickets ?? []
+  const pagination = data?.pagination
 
   // Bucketed by the event's actual date, not its (manually-maintained)
   // status — an event can be past-dated while its status still says
@@ -42,6 +62,27 @@ export default function MyTicketsPage() {
               {t}
             </button>
           ))}
+        </Reveal>
+
+        <Reveal className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <SearchInput
+            value={search}
+            onChange={(v) => {
+              setSearch(v)
+              setPage(1)
+            }}
+            placeholder="Search by event title..."
+            className="flex-1"
+          />
+          <FilterSelect
+            value={status}
+            onChange={(v) => {
+              setStatus(v)
+              setPage(1)
+            }}
+            options={statusFilterOptions}
+            className="w-full sm:w-48"
+          />
         </Reveal>
 
         {isLoading ? (
@@ -124,8 +165,16 @@ export default function MyTicketsPage() {
 
         {!isLoading && list.length === 0 && (
           <div className="rounded-2xl border border-dashed border-border bg-card py-16 text-center">
-            <p className="text-sm text-muted-foreground">No {tab.toLowerCase()} tickets.</p>
+            <p className="text-sm text-muted-foreground">
+              {debouncedSearch || status !== "all"
+                ? "No tickets match your search or filters."
+                : `No ${tab.toLowerCase()} tickets.`}
+            </p>
           </div>
+        )}
+
+        {pagination && pagination.totalPages > 1 && (
+          <Pagination pagination={pagination} onPageChange={setPage} />
         )}
       </div>
     </AppShell>

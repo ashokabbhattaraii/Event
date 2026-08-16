@@ -1,16 +1,21 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { notificationsApi } from "../api/notifications";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  notificationsApi,
+  type NotificationListParams,
+} from "../api/notifications";
 import { useHasToken } from "../hooks/use-has-token";
 
 export const notificationKeys = {
   list: ["notifications", "list"] as const,
+  listParams: (params: NotificationListParams) => ["notifications", "list", params] as const,
 };
 
-export function useNotifications() {
+export function useNotifications(params: NotificationListParams = {}) {
   return useQuery({
-    queryKey: notificationKeys.list,
-    queryFn: notificationsApi.list,
+    queryKey: notificationKeys.listParams(params),
+    queryFn: () => notificationsApi.list(params),
     enabled: useHasToken(),
+    placeholderData: keepPreviousData,
   });
 }
 

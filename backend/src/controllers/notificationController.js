@@ -1,4 +1,11 @@
 const Notification = require("../models/Notification");
+const {
+  parsePagination,
+  buildSearch,
+  buildFilters,
+  parseSort,
+  paginate,
+} = require("../utils/query");
 
 const createNotification = async ({
   recipient,
@@ -13,11 +20,27 @@ const createNotification = async ({
 
 const getMyNotifications = async (req, res) => {
   try {
-    const notifications = await Notification.find({ recipient: req.user._id })
-      .populate("event", "title date")
-      .sort({ createdAt: -1 })
-      .limit(50);
-    res.json({ notifications });
+    const { page, limit, skip } = parsePagination(req.query, { defaultLimit: 20 });
+    const filter = {
+      recipient: req.user._id,
+      ...buildSearch(req.query.search, ["title", "message"]),
+      ...buildFilters(req.query, ["type"]),
+    };
+    // read is a boolean field — buildFilters would pass "true"/"false" strings.
+    if (req.query.read === "true") filter.read = true;
+    else if (req.query.read === "false") filter.read = false;
+
+    const sort = parseSort(req.query.sort, ["createdAt", "read"], { createdAt: -1 });
+
+    const { data, pagination } = await paginate(Notification, {
+      filter,
+      page,
+      limit,
+      skip,
+      sort,
+      populate: { path: "event", select: "title date" },
+    });
+    res.json({ notifications: data, pagination });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

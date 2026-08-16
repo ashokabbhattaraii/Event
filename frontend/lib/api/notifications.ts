@@ -1,4 +1,5 @@
 import apiClient from "./client";
+import { toQueryString, type ListParams, type Pagination } from "./list";
 
 export interface Notification {
   _id: string;
@@ -10,9 +11,16 @@ export interface Notification {
   createdAt: string;
 }
 
+export interface NotificationListParams extends ListParams {
+  type?: string;
+  read?: string;
+}
+
 export const notificationsApi = {
-  list: async (): Promise<{ notifications: Notification[] }> => {
-    const res = await apiClient.get("/notifications");
+  list: async (
+    params: NotificationListParams = {}
+  ): Promise<{ notifications: Notification[]; pagination: Pagination }> => {
+    const res = await apiClient.get(`/notifications${toQueryString(params)}`);
     return res.data;
   },
 

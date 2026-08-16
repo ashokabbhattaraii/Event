@@ -18,6 +18,7 @@ const {
   hashToken,
   parseDuration,
 } = require("../utils/tokens");
+const { parsePagination, parseSort, paginate } = require("../utils/query");
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -600,11 +601,25 @@ const logout = async (req, res) => {
 // and revoke unrecognized logins.
 const listSessions = async (req, res) => {
   try {
-    const sessions = await Session.find({ user: req.user._id, revokedAt: null })
-      .sort({ lastUsedAt: -1 })
-      .lean();
+    const { page, limit, skip } = parsePagination(req.query, {
+      defaultLimit: 10,
+      maxLimit: 50,
+    });
+    const filter = { user: req.user._id, revokedAt: null };
+    const sort = parseSort(req.query.sort, ["createdAt", "lastUsedAt"], {
+      lastUsedAt: -1,
+    });
+
+    const { data, pagination } = await paginate(Session, {
+      filter,
+      page,
+      limit,
+      skip,
+      sort,
+    });
+
     res.json({
-      sessions: sessions.map((s) => ({
+      sessions: data.map((s) => ({
         _id: s._id,
         ip: s.ip,
         userAgent: s.userAgent,
@@ -612,6 +627,7 @@ const listSessions = async (req, res) => {
         lastUsedAt: s.lastUsedAt,
         expiresAt: s.expiresAt,
       })),
+      pagination,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

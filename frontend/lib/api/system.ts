@@ -1,4 +1,5 @@
 import apiClient from "./client";
+import { toQueryString, type ListParams, type Pagination } from "./list";
 
 export interface OrgRegisterPayload {
   orgName: string;
@@ -33,14 +34,25 @@ export interface PendingOrganization {
   admin?: { _id: string; name: string; email: string } | null;
 }
 
+export interface OrganizationListParams extends ListParams {
+  status?: string;
+}
+
+export interface OrganizationsResponse {
+  organizations: PendingOrganization[];
+  pagination: Pagination;
+}
+
 export const systemAdminApi = {
   orgRegister: async (data: OrgRegisterPayload): Promise<{ message: string }> => {
     const res = await apiClient.post("/auth/org-register", data);
     return res.data;
   },
 
-  listOrganizations: async (status = "pending"): Promise<{ organizations: PendingOrganization[] }> => {
-    const res = await apiClient.get("/system/orgs", { params: { status } });
+  listOrganizations: async (
+    params: OrganizationListParams = {}
+  ): Promise<OrganizationsResponse> => {
+    const res = await apiClient.get(`/system/orgs${toQueryString(params)}`);
     return res.data;
   },
 

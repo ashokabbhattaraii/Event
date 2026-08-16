@@ -1,9 +1,13 @@
 "use client"
 
+import { useState } from "react"
 import { Bell, CalendarCheck2, Info, Loader2, MapPin, Sparkles } from "lucide-react"
 import { Reveal } from "@/components/anim/reveal"
 import { useMarkAllNotificationsRead, useMarkNotificationRead, useNotifications } from "@/lib/queries/notifications"
 import type { Notification } from "@/lib/api/notifications"
+import { SearchInput, FilterSelect } from "@/components/app/search-input"
+import { Pagination } from "@/components/app/pagination"
+import { useDebounce } from "@/lib/hooks/use-debounce"
 
 const iconForType: Record<Notification["type"], typeof Bell> = {
   registration: CalendarCheck2,
@@ -21,15 +25,73 @@ const toneForType: Record<Notification["type"], string> = {
   "nearby-event": "text-flame bg-flame/12",
 }
 
+const typeFilterOptions = [
+  { label: "All types", value: "all" },
+  { label: "Registrations", value: "registration" },
+  { label: "Reminders", value: "reminder" },
+  { label: "Event updates", value: "event-update" },
+  { label: "System", value: "system" },
+  { label: "Nearby events", value: "nearby-event" },
+]
+
+const readFilterOptions = [
+  { label: "All", value: "all" },
+  { label: "Unread", value: "false" },
+  { label: "Read", value: "true" },
+]
+
 export function NotificationList() {
-  const { data, isLoading } = useNotifications()
+  const [search, setSearch] = useState("")
+  const [type, setType] = useState("all")
+  const [read, setRead] = useState("all")
+  const [page, setPage] = useState(1)
+  const debouncedSearch = useDebounce(search, 400)
+
+  const { data, isLoading } = useNotifications({
+    search: debouncedSearch,
+    type,
+    read,
+    page,
+    limit: 12,
+  })
   const markRead = useMarkNotificationRead()
   const markAllRead = useMarkAllNotificationsRead()
   const notifications = data?.notifications ?? []
+  const pagination = data?.pagination
   const unreadCount = notifications.filter((n) => !n.read).length
 
   return (
     <div className="space-y-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <SearchInput
+          value={search}
+          onChange={(v) => {
+            setSearch(v)
+            setPage(1)
+          }}
+          placeholder="Search notifications..."
+          className="flex-1"
+        />
+        <div className="flex flex-wrap gap-3">
+          <FilterSelect
+            value={type}
+            onChange={(v) => {
+              setType(v)
+              setPage(1)
+            }}
+            options={typeFilterOptions}
+          />
+          <FilterSelect
+            value={read}
+            onChange={(v) => {
+              setRead(v)
+              setPage(1)
+            }}
+            options={readFilterOptions}
+          />
+        </div>
+      </div>
+
       {unreadCount > 0 && (
         <div className="flex justify-end">
           <button
@@ -73,8 +135,16 @@ export function NotificationList() {
 
       {!isLoading && notifications.length === 0 && (
         <div className="rounded-2xl border border-dashed border-border bg-card py-16 text-center">
-          <p className="text-sm text-muted-foreground">No notifications yet.</p>
+          <p className="text-sm text-muted-foreground">
+            {debouncedSearch || type !== "all" || read !== "all"
+              ? "No notifications match your search or filters."
+              : "No notifications yet."}
+          </p>
         </div>
+      )}
+
+      {pagination && pagination.totalPages > 1 && (
+        <Pagination pagination={pagination} onPageChange={setPage} />
       )}
     </div>
   )

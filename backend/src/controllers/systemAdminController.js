@@ -4,6 +4,12 @@ const User = require("../models/User");
 const OrganizationMember = require("../models/OrganizationMember");
 const { audit } = require("../utils/audit");
 const { sendMail } = require("../utils/email");
+const {
+  parsePagination,
+  buildSearch,
+  parseSort,
+  paginate,
+} = require("../utils/query");
 
 // --- System-admin org approval console ---------------------------------------
 // Organizations self-register with full details (orgRegister) and land in
@@ -14,12 +20,19 @@ const listPendingOrgs = async (req, res) => {
   try {
     const { status = "pending" } = req.query;
     const valid = ["pending", "active", "rejected", "suspended"];
-    const filter = valid.includes(status) ? { status } : { status: "pending" };
+    const filter = {
+      ...(valid.includes(status) ? { status } : { status: "pending" }),
+      ...buildSearch(req.query.search, ["name", "slug", "email", "city", "country", "type"]),
+    };
+    const { page, limit, skip } = parsePagination(req.query, { defaultLimit: 20 });
 
-    const orgs = await Organization.find(filter)
-      .sort({ createdAt: -1 })
-      .limit(100)
-      .lean();
+    const { data: orgs, pagination } = await paginate(Organization, {
+      filter,
+      page,
+      limit,
+      skip,
+      sort: parseSort(req.query.sort, ["name", "createdAt"], { createdAt: -1 }),
+    });
 
     // Attach the org admin (the user who registered the org) for each.
     const orgIds = orgs.map((o) => o._id);
@@ -40,6 +53,7 @@ const listPendingOrgs = async (req, res) => {
         ...o,
         admin: adminByOrg[o._id.toString()] || null,
       })),
+      pagination,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

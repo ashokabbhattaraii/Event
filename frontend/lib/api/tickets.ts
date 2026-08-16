@@ -1,4 +1,5 @@
 import apiClient from "./client";
+import { toQueryString, type ListParams, type Pagination } from "./list";
 import type { EventData } from "./events";
 
 export interface TicketPayment {
@@ -54,6 +55,11 @@ export interface EventAttendeesResponse {
     valid: number;
     cancelled: number;
   };
+  pagination?: Pagination;
+}
+
+export interface AttendeeListParams extends ListParams {
+  status?: string;
 }
 
 export const ticketsApi = {
@@ -62,8 +68,8 @@ export const ticketsApi = {
     return res.data;
   },
 
-  getMy: async (): Promise<{ tickets: Ticket[] }> => {
-    const res = await apiClient.get("/tickets/my");
+  getMy: async (params: ListParams = {}): Promise<{ tickets: Ticket[]; pagination: Pagination }> => {
+    const res = await apiClient.get(`/tickets/my${toQueryString(params)}`);
     return res.data;
   },
 
@@ -77,8 +83,11 @@ export const ticketsApi = {
     return res.data;
   },
 
-  getEventAttendees: async (eventId: string): Promise<EventAttendeesResponse> => {
-    const res = await apiClient.get(`/events/${eventId}/attendees`);
+  getEventAttendees: async (
+    eventId: string,
+    params: AttendeeListParams = {}
+  ): Promise<EventAttendeesResponse> => {
+    const res = await apiClient.get(`/events/${eventId}/attendees${toQueryString(params)}`);
     return res.data;
   },
 };

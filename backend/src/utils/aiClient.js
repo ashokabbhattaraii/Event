@@ -155,9 +155,10 @@ const retrain = async (timeoutMs = 120000) => {
 };
 
 // Labeled (message -> intent) training samples, newest first.
-const listChatlog = async ({ limit = 50, offset = 0, intent } = {}, timeoutMs = 3000) => {
+const listChatlog = async ({ limit = 50, offset = 0, intent, search } = {}, timeoutMs = 3000) => {
   const qs = new URLSearchParams({ limit: String(limit), offset: String(offset) });
   if (intent) qs.set("intent", intent);
+  if (search) qs.set("search", search);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {

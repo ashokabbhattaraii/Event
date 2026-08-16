@@ -19,10 +19,20 @@ import { AppShell } from "@/components/app/app-shell"
 import { StatCard } from "@/components/app/stat-card"
 import { Reveal } from "@/components/anim/reveal"
 import { QrScanner } from "@/components/app/qr-scanner"
+import { SearchInput, FilterSelect } from "@/components/app/search-input"
+import { Pagination } from "@/components/app/pagination"
 import { useEventAttendees, useVerifyTicket } from "@/lib/queries/tickets"
 import { useMyEvents } from "@/lib/queries/events"
 import { useCurrentUser } from "@/lib/queries/auth"
+import { useDebounce } from "@/lib/hooks/use-debounce"
 import type { EventAttendee } from "@/lib/api/tickets"
+
+const attendeeStatusFilterOptions = [
+  { label: "All statuses", value: "all" },
+  { label: "Registered", value: "valid" },
+  { label: "Checked in", value: "checked-in" },
+  { label: "Cancelled", value: "cancelled" },
+]
 
 const statusPill: Record<EventAttendee["status"], { label: string; className: string }> = {
   "checked-in": { label: "Checked in", className: "bg-secondary/15 text-secondary" },
@@ -71,7 +81,14 @@ function AttendeeRow({ attendee }: { attendee: EventAttendee }) {
 }
 
 function AttendeeRoster({ eventId, isOpen }: { eventId: string; isOpen: boolean }) {
-  const { data, isLoading, isError } = useEventAttendees(isOpen ? eventId : undefined)
+  const [search, setSearch] = useState("")
+  const [status, setStatus] = useState("all")
+  const [page, setPage] = useState(1)
+  const debouncedSearch = useDebounce(search, 400)
+  const { data, isLoading, isError } = useEventAttendees(
+    isOpen ? eventId : undefined,
+    { search: debouncedSearch, status, page, limit: 20 }
+  )
 
   if (!isOpen) return null
   if (isLoading) {
@@ -90,7 +107,7 @@ function AttendeeRoster({ eventId, isOpen }: { eventId: string; isOpen: boolean 
     )
   }
 
-  const { attendees, counts } = data!
+  const { attendees, counts, pagination } = data!
   return (
     <div className="mt-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -112,15 +129,44 @@ function AttendeeRoster({ eventId, isOpen }: { eventId: string; isOpen: boolean 
         </div>
       </div>
 
+      <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
+        <SearchInput
+          value={search}
+          onChange={(v) => {
+            setSearch(v)
+            setPage(1)
+          }}
+          placeholder="Search by attendee name or email..."
+          className="flex-1"
+        />
+        <FilterSelect
+          value={status}
+          onChange={(v) => {
+            setStatus(v)
+            setPage(1)
+          }}
+          options={attendeeStatusFilterOptions}
+          className="w-full sm:w-44"
+        />
+      </div>
+
       <div className="mt-3 space-y-2">
         {attendees.length === 0 ? (
           <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
-            No registrations yet. Tickets appear here as attendees register.
+            {debouncedSearch || status !== "all"
+              ? "No attendees match your search or filters."
+              : "No registrations yet. Tickets appear here as attendees register."}
           </p>
         ) : (
           attendees.map((a) => <AttendeeRow key={a.ticketId} attendee={a} />)
         )}
       </div>
+
+      {pagination && pagination.totalPages > 1 && (
+        <div className="mt-3">
+          <Pagination pagination={pagination} onPageChange={setPage} />
+        </div>
+      )}
     </div>
   )
 }

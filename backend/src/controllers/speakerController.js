@@ -1,6 +1,12 @@
 const Speaker = require("../models/Speaker");
 const { canManageEvent } = require("./eventController");
 const Event = require("../models/Event");
+const {
+  parsePagination,
+  buildSearch,
+  parseSort,
+  paginate,
+} = require("../utils/query");
 
 const createSpeaker = async (req, res) => {
   try {
@@ -43,10 +49,26 @@ const getOrganizationSpeakers = async (req, res) => {
     if (!organization) {
       return res.status(400).json({ message: "No organization context" });
     }
-    const speakers = await Speaker.find({ organization })
-      .sort({ name: 1 })
-      .lean();
-    res.json({ speakers });
+    const { page, limit, skip } = parsePagination(req.query, { defaultLimit: 20 });
+
+    const filter = {
+      organization,
+      ...buildSearch(req.query.search, ["name", "title", "company", "email"]),
+    };
+    // isExternal is a boolean field — convert the query string explicitly.
+    if (req.query.isExternal === "true") filter.isExternal = true;
+    else if (req.query.isExternal === "false") filter.isExternal = false;
+
+    const sort = parseSort(req.query.sort, ["name", "createdAt"], { name: 1 });
+
+    const { data, pagination } = await paginate(Speaker, {
+      filter,
+      page,
+      limit,
+      skip,
+      sort,
+    });
+    res.json({ speakers: data, pagination });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

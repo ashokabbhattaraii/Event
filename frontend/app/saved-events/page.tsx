@@ -5,15 +5,22 @@ import { Bookmark, Heart, Loader2, Sparkles, Users, Trash2 } from "lucide-react"
 import { AppShell } from "@/components/app/app-shell"
 import { StatCard } from "@/components/app/stat-card"
 import { Reveal } from "@/components/anim/reveal"
+import { SearchInput } from "@/components/app/search-input"
+import { Pagination } from "@/components/app/pagination"
 import { useAllEvents } from "@/lib/queries/events"
 import { toAppEvent } from "@/lib/adapters/event"
 import { useCurrentUser } from "@/lib/queries/auth"
 import { getSavedIds, saveIds } from "@/lib/saved-events"
+import type { AppEvent } from "@/lib/adapters/event"
+
+const PAGE_SIZE = 9
 
 export default function SavedEventsPage() {
   const { data: userData } = useCurrentUser()
   const { data: eventsData, isLoading } = useAllEvents({ limit: 100 })
   const [savedIds, setSavedIds] = useState<string[]>([])
+  const [search, setSearch] = useState("")
+  const [page, setPage] = useState(1)
 
   const user = userData?.user
   const displayName = user?.name || "Attendee"
@@ -27,6 +34,22 @@ export default function SavedEventsPage() {
     () => allEvents.filter((e) => savedIds.includes(e.id)),
     [allEvents, savedIds]
   )
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return savedEvents
+    return savedEvents.filter(
+      (e) =>
+        e.title.toLowerCase().includes(q) ||
+        e.category.toLowerCase().includes(q) ||
+        e.org.toLowerCase().includes(q) ||
+        e.venue.toLowerCase().includes(q)
+    )
+  }, [savedEvents, search])
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const safePage = Math.min(page, pageCount)
+  const visible = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
 
   const handleRemove = (id: string) => {
     const next = savedIds.filter((sid) => sid !== id)
@@ -65,7 +88,16 @@ export default function SavedEventsPage() {
         </Reveal>
 
         {savedIds.length > 0 && (
-          <div className="flex justify-end">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <SearchInput
+              value={search}
+              onChange={(v) => {
+                setSearch(v)
+                setPage(1)
+              }}
+              placeholder="Search saved events..."
+              className="sm:max-w-sm"
+            />
             <button
               onClick={handleClearAll}
               className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-ink"
@@ -87,8 +119,14 @@ export default function SavedEventsPage() {
             </p>
           </div>
         ) : (
-          <Reveal stagger={0.08} y={24} className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
-            {savedEvents.map((event) => (
+          <>
+            {visible.length === 0 && (
+              <div className="rounded-2xl border border-dashed border-border bg-card py-16 text-center">
+                <p className="text-sm text-muted-foreground">No saved events match your search.</p>
+              </div>
+            )}
+            <Reveal stagger={0.08} y={24} className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
+              {visible.map((event) => (
               <div
                 key={event.id}
                 className="group relative flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-[0_2px_24px_rgba(0,0,0,0.04)] transition-all hover:-translate-y-1.5"
@@ -132,7 +170,16 @@ export default function SavedEventsPage() {
                 </button>
               </div>
             ))}
-          </Reveal>
+            </Reveal>
+            {pageCount > 1 && (
+              <div className="mt-6">
+                <Pagination
+                  pagination={{ page: safePage, limit: PAGE_SIZE, total: filtered.length, totalPages: pageCount, hasMore: safePage < pageCount }}
+                  onPageChange={setPage}
+                />
+              </div>
+            )}
+          </>
         )}
       </div>
     </AppShell>

@@ -28,11 +28,12 @@ router.post("/train", async (req, res) => {
 
 // Labeled training samples (message -> intent), newest first.
 router.get("/chatlog", async (req, res) => {
-  const { limit, offset, intent } = req.query;
+  const { limit, offset, intent, search } = req.query;
   const data = await ai.listChatlog({
     limit: parseInt(limit, 10) || 50,
     offset: parseInt(offset, 10) || 0,
     intent,
+    search,
   });
   if (!data) return res.status(502).json({ message: "AI service unreachable" });
   res.json(data);

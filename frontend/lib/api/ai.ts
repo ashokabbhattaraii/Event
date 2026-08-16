@@ -59,6 +59,7 @@ export const aiApi = {
     limit?: number;
     offset?: number;
     intent?: string;
+    search?: string;
   } = {}): Promise<AiChatlogResponse> => {
     const res = await apiClient.get("/ai/chatlog", { params });
     return res.data;

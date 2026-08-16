@@ -2,6 +2,7 @@ const EventSession = require("../models/EventSession");
 const Speaker = require("../models/Speaker");
 const Event = require("../models/Event");
 const { canManageEvent } = require("./eventController");
+const { buildSearch, buildFilters } = require("../utils/query");
 
 // Validate time slot doesn't conflict with existing sessions in same track
 const checkTimeConflict = async (eventId, track, startTime, endTime, excludeId = null) => {
@@ -90,6 +91,14 @@ const getEventSessions = async (req, res) => {
     const isManager = canManageEvent(event, req.user);
     const filter = { event: event._id };
     if (!isManager) filter.isPublic = true;
+
+    // Advanced search + filters: ?search (title/description/location),
+    // ?track, ?status (scheduled/cancelled/…).
+    Object.assign(
+      filter,
+      buildSearch(req.query.search, ["title", "description", "location"]),
+      buildFilters(req.query, ["track", "status"])
+    );
 
     const sessions = await EventSession.find(filter)
       .populate("speakers", "name title company photoUrl")

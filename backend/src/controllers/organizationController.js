@@ -2,6 +2,13 @@ const Organization = require("../models/Organization");
 const OrganizationMember = require("../models/OrganizationMember");
 const User = require("../models/User");
 const { audit } = require("../utils/audit");
+const {
+  parsePagination,
+  buildSearch,
+  buildFilters,
+  parseSort,
+  paginate,
+} = require("../utils/query");
 
 const slugify = (name) =>
   name
@@ -14,10 +21,23 @@ const slugify = (name) =>
 // exposing anything beyond name/id for orgs that aren't the caller's own.
 const listOrganizations = async (req, res) => {
   try {
-    const organizations = await Organization.find({ status: "active" })
-      .select("name _id")
-      .sort({ name: 1 });
-    res.json({ organizations });
+    const { page, limit, skip } = parsePagination(req.query, { defaultLimit: 50 });
+
+    const filter = {
+      status: "active",
+      ...buildSearch(req.query.search, ["name", "slug", "city", "country"]),
+    };
+    const sort = parseSort(req.query.sort, ["name", "createdAt"], { name: 1 });
+
+    const { data, pagination } = await paginate(Organization, {
+      filter,
+      page,
+      limit,
+      skip,
+      sort,
+      select: "name _id slug city country",
+    });
+    res.json({ organizations: data, pagination });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -72,15 +92,42 @@ const updateMyOrganization = async (req, res) => {
 const listMembers = async (req, res) => {
   try {
     const orgId = req.user.organization;
-    const members = await OrganizationMember.find({
+    const { page, limit, skip } = parsePagination(req.query, { defaultLimit: 20 });
+
+    const filter = {
       organization: orgId,
       status: { $ne: "removed" },
-    })
-      .populate("user", "name email role")
-      .sort({ roleInOrg: 1, joinedAt: 1 });
+      ...buildFilters(req.query, ["roleInOrg", "status"]),
+    };
+
+    // Search across the member's user record (name/email) — resolve matching
+    // user ids first, then scope the membership query to them.
+    const search = String(req.query.search || "").trim();
+    if (search) {
+      const safe = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const rx = new RegExp(safe, "i");
+      const users = await User.find({ $or: [{ name: rx }, { email: rx }] })
+        .select("_id")
+        .lean();
+      filter.user = { $in: users.map((u) => u._id) };
+    }
+
+    const sort = parseSort(req.query.sort, ["roleInOrg", "joinedAt"], {
+      roleInOrg: 1,
+      joinedAt: 1,
+    });
+
+    const { data, pagination } = await paginate(OrganizationMember, {
+      filter,
+      page,
+      limit,
+      skip,
+      sort,
+      populate: { path: "user", select: "name email role" },
+    });
 
     res.json({
-      members: members.map((m) => ({
+      members: data.map((m) => ({
         _id: m._id,
         userId: m.user?._id,
         name: m.user?.name,
@@ -90,6 +137,7 @@ const listMembers = async (req, res) => {
         status: m.status,
         joinedAt: m.joinedAt,
       })),
+      pagination,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

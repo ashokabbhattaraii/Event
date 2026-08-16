@@ -173,9 +173,13 @@ def stats():
 
 
 @app.get("/chatlog")
-def list_chatlog(limit: int = 50, offset: int = 0, intent: str | None = None):
+def list_chatlog(limit: int = 50, offset: int = 0, intent: str | None = None, search: str | None = None):
     """Labeled (message -> intent) training samples, newest first."""
-    query = {"intent": intent} if intent else {}
+    query = {}
+    if intent:
+        query["intent"] = intent
+    if search:
+        query["message"] = {"$regex": re.escape(search), "$options": "i"}
     cursor = (
         data.get_db().chatlog.find(query)
         .sort("_id", -1)

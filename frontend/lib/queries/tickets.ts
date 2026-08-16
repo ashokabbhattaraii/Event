@@ -1,15 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ticketsApi } from "../api/tickets";
+import { ticketsApi, type AttendeeListParams } from "../api/tickets";
+import type { ListParams } from "../api/list";
 import { useHasToken } from "../hooks/use-has-token";
 
 export const ticketKeys = {
   mine: ["tickets", "mine"] as const,
+  mineParams: (params: ListParams) => ["tickets", "mine", params] as const,
 };
 
-export function useMyTickets() {
+export function useMyTickets(params: ListParams = {}) {
   return useQuery({
-    queryKey: ticketKeys.mine,
-    queryFn: ticketsApi.getMy,
+    queryKey: ticketKeys.mineParams(params),
+    queryFn: () => ticketsApi.getMy(params),
     enabled: useHasToken(),
   });
 }
@@ -44,11 +46,11 @@ export function useCancelTicket() {
 
 // Organizer/admin: attendee roster for one managed event. Refetches after
 // a check-in so the roster counts stay in sync with the Verify panel.
-export function useEventAttendees(eventId?: string) {
+export function useEventAttendees(eventId?: string, params: AttendeeListParams = {}) {
   const queryClient = useQueryClient();
   const query = useQuery({
-    queryKey: ["events", eventId, "attendees"] as const,
-    queryFn: () => ticketsApi.getEventAttendees(eventId!),
+    queryKey: ["events", eventId, "attendees", params] as const,
+    queryFn: () => ticketsApi.getEventAttendees(eventId!, params),
     enabled: Boolean(eventId) && useHasToken(),
   });
   const refetch = () =>

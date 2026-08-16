@@ -22,7 +22,9 @@ import {
   usePendingOrganizations,
   useUpdateOrganization,
 } from "@/lib/queries/system"
-import { FilterSelect } from "@/components/app/search-input"
+import { FilterSelect, SearchInput } from "@/components/app/search-input"
+import { Pagination } from "@/components/app/pagination"
+import { useDebounce } from "@/lib/hooks/use-debounce"
 import type { PendingOrganization } from "@/lib/queries/system"
 
 const statusFilterOptions = [
@@ -35,12 +37,16 @@ const statusFilterOptions = [
 
 function OrgDirectory() {
   const [status, setStatus] = useState("active")
+  const [search, setSearch] = useState("")
+  const [page, setPage] = useState(1)
   const [renameId, setRenameId] = useState<string | null>(null)
   const [rename, setRename] = useState("")
-  const { data, isLoading } = usePendingOrganizations(status)
+  const debouncedSearch = useDebounce(search, 400)
+  const { data, isLoading } = usePendingOrganizations({ status, search: debouncedSearch, page, limit: 15 })
   const updateOrg = useUpdateOrganization()
   const { data: stats, isLoading: statsLoading } = useOrgStats()
   const organizations: PendingOrganization[] = data?.organizations ?? []
+  const pagination = data?.pagination
 
   const handleStatusToggle = (org: PendingOrganization) => {
     const next = org.status === "suspended" ? "active" : "suspended"
@@ -71,15 +77,27 @@ function OrgDirectory() {
           </div>
           <FilterSelect
             value={status}
-            onChange={setStatus}
+            onChange={(v) => {
+              setStatus(v)
+              setPage(1)
+            }}
             options={statusFilterOptions}
             className="w-full sm:w-52"
+          />
+          <SearchInput
+            value={search}
+            onChange={(v) => {
+              setSearch(v)
+              setPage(1)
+            }}
+            placeholder="Search orgs by name, city, country..."
+            className="w-full sm:w-72"
           />
         </div>
       </Reveal>
 
       <Reveal stagger={0.08} y={24} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Total Tenants" value={organizations.length} icon={Building2} accent="primary" />
+        <StatCard label="Total Tenants" value={pagination?.total ?? organizations.length} icon={Building2} accent="primary" />
         <StatCard
           label="Team Members"
           value={stats?.userCount ?? 0}
@@ -212,9 +230,16 @@ function OrgDirectory() {
             </table>
             {organizations.length === 0 && (
               <p className="py-6 text-center text-sm text-muted-foreground">
-                No tenants match the selected status.
+                {debouncedSearch
+                  ? "No tenants match your search."
+                  : "No tenants match the selected status."}
               </p>
             )}
+          </div>
+        )}
+        {pagination && pagination.totalPages > 1 && (
+          <div className="mt-5">
+            <Pagination pagination={pagination} onPageChange={setPage} />
           </div>
         )}
       </Reveal>

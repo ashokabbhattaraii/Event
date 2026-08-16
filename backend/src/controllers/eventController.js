@@ -46,6 +46,10 @@ const normalizePrice = (price) => {
 };
 
 const EVENT_STATUSES = ["Draft", "Upcoming", "Live", "Past"];
+// Scheduling horizon: events further out than this are rejected up front —
+// a 400 beats letting wildly-future dates create rem-inder jobs and
+// bookings that lose meaning over time.
+const MAX_FUTURE_EVENT_MS = 2 * 365 * 24 * 60 * 60 * 1000; // ~2 years
 
 const createEvent = async (req, res) => {
   try {
@@ -85,6 +89,9 @@ const createEvent = async (req, res) => {
     }
     if (eventDate <= new Date()) {
       return res.status(400).json({ message: "Event date must be in the future" });
+    }
+    if (eventDate.getTime() - Date.now() > MAX_FUTURE_EVENT_MS) {
+      return res.status(400).json({ message: "Event date can't be more than 2 years in the future" });
     }
     const cap = Number(capacity);
     if (!Number.isInteger(cap) || cap < 1) {
@@ -262,6 +269,9 @@ const updateEvent = async (req, res) => {
       const d = new Date(updates.date);
       if (isNaN(d.getTime())) {
         return res.status(400).json({ message: "Invalid event date" });
+      }
+      if (d.getTime() - Date.now() > MAX_FUTURE_EVENT_MS) {
+        return res.status(400).json({ message: "Event date can't be more than 2 years in the future" });
       }
       updates.date = d;
     }
@@ -478,6 +488,76 @@ const removeCoHostOrganization = async (req, res) => {
   }
 };
 
+// Real AI-powered insight for the organizer's event workspace. Asks the LLM
+// provider (Gemini → Groq, see utils/aiProvider) for a concise demand
+// analysis of the event, with a deterministic fallback whenever the provider
+// is unreachable or unset, and attaches the attendance forecast (AI
+// regressor with a velocity heuristic fallback — utils/predictAttendance).
+const getEventAiInsight = async (req, res) => {
+  try {
+    const event = await Event.findById(req.params.id);
+    if (!event) {
+      return res.status(404).json({ message: "Event not found" });
+    }
+    if (!canManageEvent(event, req.user)) {
+      return res.status(403).json({ message: "Not authorized" });
+    }
+
+    const { generateEventInsight } = require("../utils/aiProvider");
+    const predictAttendance = require("../utils/predictAttendance");
+
+    const daysUntil = Math.max(0, Math.ceil((new Date(event.date) - Date.now()) / (1000 * 60 * 60 * 24)));
+    const fillRate = event.capacity > 0 ? Math.round((event.registered / event.capacity) * 100) : 0;
+
+    const insightEvent = {
+      title: event.title,
+      category: event.category,
+      type: event.type,
+      capacity: event.capacity,
+      registered: event.registered,
+      status: event.status,
+      daysUntil,
+    };
+
+    // Cap the LLM round-trip so a slow provider never hangs the workspace
+    // — past 8s we take the heuristic instead.
+    let insight = await Promise.race([
+      generateEventInsight(insightEvent),
+      new Promise((resolve) => setTimeout(() => resolve(null), 8000)),
+    ]);
+    let source = "ai";
+    if (!insight) {
+      source = "heuristic";
+      if (event.registered === 0) {
+        insight = `"${event.title}" has no registrations yet. Early promotion builds the momentum that drives visibility and demand.`;
+      } else if (daysUntil === 0) {
+        insight = `"${event.title}" is happening today with ${event.registered}/${event.capacity} registered (${fillRate}% of capacity). Focus on last-minute check-in reminders and a smooth entry flow.`;
+      } else if (fillRate >= 80) {
+        insight = `"${event.title}" is nearly full at ${fillRate}% capacity. Consider expanding capacity or closing registrations soon to preserve scarcity.`;
+      } else if (fillRate >= 40) {
+        insight = `"${event.title}" is filling steadily at ${fillRate}% with ${daysUntil} day${daysUntil === 1 ? "" : "s"} to go. A targeted reminder campaign could convert more of the remaining ${event.capacity - event.registered} spots.`;
+      } else {
+        insight = `"${event.title}" has ${event.capacity - event.registered} spots remaining (${fillRate}% full) with ${daysUntil} day${daysUntil === 1 ? "" : "s"} to go — a wide-open funnel, so promotion should be the priority.`;
+      }
+    }
+
+    const forecast = await predictAttendance(event);
+
+    res.json({
+      eventId: event._id,
+      insight,
+      source,
+      forecast: {
+        predicted: forecast,
+        registered: event.registered,
+        capacity: event.capacity,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   createEvent,
   getMyEvents,
@@ -486,6 +566,7 @@ module.exports = {
   deleteEvent,
   getAllEvents,
   getOrgEvents,
+  getEventAiInsight,
   addCoHostOrganization,
   removeCoHostOrganization,
   listCoHostOrganizations,

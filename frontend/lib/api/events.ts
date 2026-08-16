@@ -108,6 +108,20 @@ export const eventsApi = {
     return res.data;
   },
 
+  // Real AI insight (LLM with deterministic fallback) + attendance forecast
+  // for a managed event. Organizer/admin only.
+  getAiInsight: async (
+    id: string
+  ): Promise<{
+    eventId: string;
+    insight: string;
+    source: "ai" | "heuristic";
+    forecast: { predicted: number; registered: number; capacity: number };
+  }> => {
+    const res = await apiClient.get(`/events/${id}/ai-insight`);
+    return res.data;
+  },
+
   create: async (data: CreateEventPayload): Promise<{ event: EventData }> => {
     const res = await apiClient.post("/events", data);
     return res.data;

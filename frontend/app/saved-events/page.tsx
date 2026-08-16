@@ -8,6 +8,7 @@ import { Reveal } from "@/components/anim/reveal"
 import { SearchInput } from "@/components/app/search-input"
 import { Pagination } from "@/components/app/pagination"
 import { useAllEvents } from "@/lib/queries/events"
+import { useSavedEvents, useRemoveSavedEvent } from "@/lib/queries/saved"
 import { toAppEvent } from "@/lib/adapters/event"
 import { useCurrentUser } from "@/lib/queries/auth"
 import { getSavedIds, saveIds } from "@/lib/saved-events"
@@ -18,11 +19,16 @@ const PAGE_SIZE = 9
 export default function SavedEventsPage() {
   const { data: userData } = useCurrentUser()
   const { data: eventsData, isLoading } = useAllEvents({ limit: 100 })
+  // Signed-in users read/write the server-side saved list; guests use the
+  // localStorage fallback so the page works without an account.
+  const user = userData?.user
+  const isAuthed = !!user
+  const { data: savedData, isLoading: isSavedLoading } = useSavedEvents()
+  const removeSaved = useRemoveSavedEvent()
   const [savedIds, setSavedIds] = useState<string[]>([])
   const [search, setSearch] = useState("")
   const [page, setPage] = useState(1)
 
-  const user = userData?.user
   const displayName = user?.name || "Attendee"
 
   useEffect(() => {
@@ -30,10 +36,15 @@ export default function SavedEventsPage() {
   }, [])
 
   const allEvents = useMemo(() => (eventsData?.events ?? []).map(toAppEvent), [eventsData])
-  const savedEvents = useMemo(
+  const serverSaved = useMemo(
+    () => (savedData?.savedEvents ?? []).map(toAppEvent),
+    [savedData]
+  )
+  const localSaved = useMemo(
     () => allEvents.filter((e) => savedIds.includes(e.id)),
     [allEvents, savedIds]
   )
+  const savedEvents = isAuthed ? serverSaved : localSaved
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -52,12 +63,20 @@ export default function SavedEventsPage() {
   const visible = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
 
   const handleRemove = (id: string) => {
+    if (isAuthed) {
+      removeSaved.mutate(id)
+      return
+    }
     const next = savedIds.filter((sid) => sid !== id)
     setSavedIds(next)
     saveIds(next)
   }
 
   const handleClearAll = () => {
+    if (isAuthed) {
+      savedEvents.forEach((e) => removeSaved.mutate(e.id))
+      return
+    }
     setSavedIds([])
     saveIds([])
   }
@@ -107,7 +126,7 @@ export default function SavedEventsPage() {
           </div>
         )}
 
-        {isLoading ? (
+        {(isLoading || (isAuthed && isSavedLoading)) ? (
           <div className="flex items-center justify-center py-16">
             <Loader2 className="size-6 animate-spin text-primary" />
           </div>

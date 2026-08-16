@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { CalendarDays, Loader2, Radio, Ticket, TrendingUp } from "lucide-react"
 import { AppShell } from "@/components/app/app-shell"
 import { EventCard } from "@/components/app/event-card"
@@ -50,6 +50,13 @@ export default function AdminEventsPage() {
   const [sort, setSort] = useState("-createdAt")
   const [page, setPage] = useState(1)
   const debouncedSearch = useDebounce(search, 400)
+
+  // Seed search from the topbar's URL (?q=...) — done in an effect, not a
+  // state initializer, so it stays hydration-safe on the server render.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("q")
+    if (q) setSearch(q)
+  }, [])
 
   const { data, isLoading, isError, isFetching } = useOrgEvents({
     search: debouncedSearch,

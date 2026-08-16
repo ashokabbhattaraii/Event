@@ -8,6 +8,9 @@ const {
   updateMyProfile,
   updateMyPassword,
   updateReminderPreference,
+  getMySavedEvents,
+  addSavedEvent,
+  removeSavedEvent,
   getOrgStats,
 } = require("../controllers/userController");
 const { protect, requireRole } = require("../middleware/auth");
@@ -61,6 +64,11 @@ router.patch(
 
 router.get("/", protect, requireRole("admin"), listOrgUsers);
 router.get("/stats", protect, requireRole("admin"), getOrgStats);
+
+// Server-side saved events — available to every authenticated role.
+router.get("/me/saved-events", protect, getMySavedEvents);
+router.post("/me/saved-events/:eventId", protect, addSavedEvent);
+router.delete("/me/saved-events/:eventId", protect, removeSavedEvent);
 router.post(
   "/",
   protect,

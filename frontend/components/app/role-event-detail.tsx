@@ -1,10 +1,13 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { notFound, useRouter } from "next/navigation"
 import Link from "next/link"
 import {
   ArrowLeft,
+  ArrowUpRight,
+  Bell,
+  Brain,
   Calendar,
   Check,
   Clock,
@@ -37,11 +40,14 @@ import { VenueMap } from "@/components/app/venue-map"
 import { EventQrPoster } from "@/components/app/event-qr-poster"
 import { SessionsPanel } from "@/components/app/sessions-panel"
 import { RemindersPanel } from "@/components/app/reminders-panel"
+import { AttendeeRoster } from "@/components/app/attendee-roster"
+import { EventAiInsights } from "@/components/app/event-ai-insights"
 import { useEvent, useUpdateEvent } from "@/lib/queries/events"
 import { useMyTickets, useRegisterForEvent, useCancelTicket } from "@/lib/queries/tickets"
 import { useCurrentUser } from "@/lib/queries/auth"
 import { useUpdateLocation } from "@/lib/queries/location"
 import { usePaymentConfig, useCreateCheckoutSession, useInitiateEsewaPayment } from "@/lib/queries/payments"
+import { useSavedEvents, useAddSavedEvent, useRemoveSavedEvent } from "@/lib/queries/saved"
 import { submitEsewaForm } from "@/lib/esewa"
 import { formatPrice, isFreeEvent } from "@/lib/price"
 import { isSaved, toggleSaved } from "@/lib/saved-events"
@@ -84,9 +90,14 @@ export function RoleEventDetail({
 }: RoleEventDetailProps) {
   const router = useRouter()
   const isAttendee = role === "Attendee"
+  const isAdmin = role === "Administrator"
 
   const { data: eventData, isLoading, isError } = useEvent(eventId)
-  const { data: ticketData } = useMyTickets()
+  // Fetch the full ticket list, not the default page — registration state
+  // must be computed from every ticket the user owns, otherwise an attendee
+  // with more tickets than the default page size sees "Register" on an
+  // event they've already joined (and the server correctly 400s).
+  const { data: ticketData } = useMyTickets({ limit: 100 })
   const { data: userData } = useCurrentUser()
   const { data: paymentConfig } = usePaymentConfig()
   const registerMutation = useRegisterForEvent()
@@ -100,12 +111,39 @@ export function RoleEventDetail({
   const updateSession = useUpdateSession(eventId)
   const deleteSession = useDeleteSession(eventId)
   const { data: orgSpeakers } = useOrganizationSpeakers()
-  // Persisted in localStorage (same key as /saved-events) so the heart
-  // state survives reloads and stays in sync with the saved page — the old
-  // code kept it in component state only, so nothing was ever saved.
-  const [saved, setSaved] = useState(() => isSaved(eventId))
+  // Save/bookmark. Signed-in users get the server-side saved list (follows
+  // the account across devices); guests fall back to localStorage via the
+  // same helper the /saved-events page uses.
+  const [localSaved, setLocalSaved] = useState(() => isSaved(eventId))
+  const { data: savedData } = useSavedEvents()
+  const addSaved = useAddSavedEvent()
+  const removeSaved = useRemoveSavedEvent()
+  const saved = savedData
+    ? savedData.savedEvents.some((e) => e._id === eventId)
+    : localSaved
+  const toggleSave = () => {
+    if (!currentUser) {
+      setLocalSaved(toggleSaved(eventId))
+      return
+    }
+    if (saved) removeSaved.mutate(eventId)
+    else addSaved.mutate(eventId)
+  }
+
   const [showShareFeedback, setShowShareFeedback] = useState(false)
   const [confirmingCancel, setConfirmingCancel] = useState(false)
+
+  // Organizer/admin workspace tabs — the workspace concept, proper: one hub
+  // with clear sections instead of one long scrolling page of panels.
+  const workspaceTabs = [
+    { id: "Overview", icon: Sparkles },
+    { id: "Schedule", icon: Calendar },
+    { id: "Attendees & Payments", icon: Users },
+    { id: "Reminders", icon: Bell },
+    { id: "AI Insights", icon: Brain },
+  ] as const
+  const [wsTab, setWsTab] = useState<(typeof workspaceTabs)[number]["id"]>("Overview")
+  const rosterSectionRef = useRef<HTMLDivElement>(null)
 
   const event = eventData?.event
   const tickets = ticketData?.tickets ?? []
@@ -142,7 +180,13 @@ export function RoleEventDetail({
 
   const handlePrimaryAction = async () => {
     if (!isAttendee) {
-      router.push(ticketHref)
+      // The workspace primary action opens the operational tab in place —
+      // jumping to the roster + check-in shortcut rather than leaving the
+      // event hub. The QR-scan hub stays reachable from the roster card.
+      setWsTab("Attendees & Payments")
+      requestAnimationFrame(() =>
+        rosterSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+      )
       return
     }
     if (isRegistered) {
@@ -229,19 +273,20 @@ export function RoleEventDetail({
   const primaryLabel = (() => {
     if (!isAttendee) return registerLabel
     if (isRegistered) return "View my ticket"
+    if (isPast) return "Event concluded"
     if (isFull) return "Event full"
     if (!free) return `Buy ticket — ${formatPrice(event.price)}`
     return registerLabel
   })()
 
   const primaryPending = isAttendee && (registerMutation.isPending || checkoutMutation.isPending)
-  const primaryDisabled = isAttendee ? primaryPending || (isFull && !isRegistered) : false
+  const primaryDisabled = isAttendee ? primaryPending || isPast || (isFull && !isRegistered) : false
 
   // Paid events offer a choice of rail instead of a single generic "Buy
   // ticket" button: eSewa settles natively in NPR (works out of the box —
   // see utils/esewa.js's sandbox defaults), Stripe can't settle in NPR so
   // it charges a converted USD amount instead (see utils/currency.js).
-  const showPaymentChoice = isAttendee && !isRegistered && !isFull && !free
+  const showPaymentChoice = isAttendee && !isRegistered && !isFull && !isPast && !free
   const isNprEvent = (event.price.currency || "NPR").toUpperCase() === "NPR"
   const usdEstimate =
     isNprEvent && paymentConfig?.nprUsdRate
@@ -298,8 +343,30 @@ export function RoleEventDetail({
           </div>
         </Reveal>
 
+        {!isAttendee && (
+          <Reveal y={12} className="flex gap-1 overflow-x-auto rounded-xl border border-border bg-card p-1">
+            {workspaceTabs.map((t) => {
+              const active = wsTab === t.id
+              const Icon = t.icon
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => setWsTab(t.id)}
+                  className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-semibold transition-all ${
+                    active ? "bg-ink text-white" : "text-muted-foreground hover:bg-muted hover:text-ink"
+                  }`}
+                >
+                  <Icon className="size-4" /> {t.id}
+                </button>
+              )
+            })}
+          </Reveal>
+        )}
+
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="space-y-6 lg:col-span-2">
+            {isAttendee || wsTab === "Overview" ? (
+              <>
             <Reveal>
               <div className="rounded-2xl border border-border bg-card p-6">
                 <h2 className="font-display text-lg font-bold text-ink">About this event</h2>
@@ -436,11 +503,51 @@ export function RoleEventDetail({
               <EventQrPoster eventId={eventId} eventTitle={event.title} />
             </Reveal>
 
-            {!isAttendee && <SessionsPanel event={event} sessions={sessionsData} createSession={createSession} updateSession={updateSession} deleteSession={deleteSession} orgSpeakers={orgSpeakers?.speakers ?? []} />}
+            {isAttendee && (
+              <Reveal>
+                <SessionsPanel event={event} sessions={sessionsData} createSession={createSession} updateSession={updateSession} deleteSession={deleteSession} orgSpeakers={orgSpeakers?.speakers ?? []} />
+              </Reveal>
+            )}
+              </>
+            ) : null}
 
-            {!isAttendee && <RemindersPanel event={event} onUpdate={updateEvent.mutate} />}
+            {!isAttendee && wsTab === "Schedule" && (
+              <SessionsPanel event={event} sessions={sessionsData} createSession={createSession} updateSession={updateSession} deleteSession={deleteSession} orgSpeakers={orgSpeakers?.speakers ?? []} />
+            )}
 
-            {!isAttendee && <FeedbackSummaryPanel eventId={eventId} />}
+            {!isAttendee && wsTab === "Reminders" && (
+              <RemindersPanel event={event} onUpdate={updateEvent.mutate} />
+            )}
+
+            {!isAttendee && wsTab === "Attendees & Payments" && (
+              <div ref={rosterSectionRef} className="scroll-mt-24 rounded-2xl border border-border bg-card p-6">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Users className="size-5 text-primary" />
+                    <h2 className="font-display text-lg font-bold text-ink">Attendance & Payments</h2>
+                  </div>
+                  {!isAdmin && (
+                    <Link
+                      href={ticketHref}
+                      className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+                    >
+                      Full check-in workspace <ArrowUpRight className="size-3.5" />
+                    </Link>
+                  )}
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Every registration for this event with its ticket status, payment rail, and
+                  ledger amount — searchable and filterable.
+                </p>
+                <AttendeeRoster eventId={eventId} isOpen />
+              </div>
+            )}
+
+            {!isAttendee && wsTab === "AI Insights" && (
+              <EventAiInsights eventId={eventId} />
+            )}
+
+            {!isAttendee && wsTab === "Overview" && <FeedbackSummaryPanel eventId={eventId} />}
 
             {isAttendee && canLeaveFeedback && (
               <Reveal>
@@ -523,7 +630,7 @@ export function RoleEventDetail({
                     className={`mt-5 flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition-all ${
                       isAttendee && isRegistered
                         ? "bg-secondary text-secondary-foreground"
-                        : isAttendee && isFull
+                        : isAttendee && (isFull || isPast)
                           ? "bg-muted text-muted-foreground cursor-not-allowed"
                           : "bg-primary text-primary-foreground hover:-translate-y-0.5 shadow-[0_8px_20px_-10px_rgba(91,76,245,0.8)]"
                     }`}
@@ -590,16 +697,30 @@ export function RoleEventDetail({
                 )}
 
                 <Link
-                  href={ticketHref}
+                  href={isAttendee ? ticketHref : "#"}
+                  onClick={(e) => {
+                    if (!isAttendee) {
+                      e.preventDefault()
+                      setWsTab("Attendees & Payments")
+                      requestAnimationFrame(() =>
+                        rosterSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+                      )
+                    }
+                  }}
                   className="mt-2 block rounded-xl border border-border py-2.5 text-center text-sm font-medium text-ink transition-colors hover:bg-muted"
                 >
-                  {isAttendee && isRegistered ? "View my ticket" : isAttendee ? "View related workspace" : registerLabel}
+                  {isAttendee && isRegistered
+                    ? "View my ticket"
+                    : isAttendee
+                      ? "View related workspace"
+                      : "Open workspace"}
                 </Link>
 
                 <div className="mt-3 flex gap-2">
                   <button
-                    onClick={() => setSaved(toggleSaved(eventId))}
-                    className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg border py-2 text-sm font-medium transition-colors ${
+                    onClick={toggleSave}
+                    disabled={addSaved.isPending || removeSaved.isPending}
+                    className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg border py-2 text-sm font-medium transition-colors disabled:opacity-60 ${
                       saved ? "border-flame bg-flame/10 text-flame" : "border-border text-ink hover:bg-muted"
                     }`}
                   >

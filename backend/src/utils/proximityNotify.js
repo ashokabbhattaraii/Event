@@ -1,5 +1,6 @@
 const User = require("../models/User");
 const Notification = require("../models/Notification");
+const { emitToUsers } = require("./socket");
 
 // How far "near you" reaches, in km. Configurable per deployment since it's
 // as much a product decision (dense city vs. rural region) as a technical one.
@@ -44,9 +45,35 @@ const notifyNearbyUsers = async (event) => {
     title: "New event near you",
     message: `"${event.title}" was just published at ${event.venue}, within ${RADIUS_KM} km of you.`,
     event: event._id,
+    link: `/event/${event._id}`,
   }));
 
   await Notification.insertMany(docs, { ordered: false });
+
+  // Fan out to everyone near the venue whose socket is live — the real-time
+  // "notification:created" push mirrors the same shape REST returns. The
+  // `unread` badge is advisory: the client refetches the true count itself.
+  for (const doc of docs) {
+    emitToUsers(
+      [doc.recipient],
+      "notification:created",
+      {
+        notification: {
+          _id: doc._id,
+          type: doc.type,
+          title: doc.title,
+          message: doc.message,
+          event: doc.event,
+          link: doc.link,
+          organization: doc.organization,
+          read: false,
+          createdAt: new Date(),
+        },
+        unread: 1,
+      }
+    );
+  }
+
   return { notified: docs.length };
 };
 

@@ -16,7 +16,7 @@ export default function AttendeeNotificationsPage() {
           <h1 className="font-display text-2xl font-bold tracking-tight text-ink">Notifications</h1>
           <p className="text-sm text-muted-foreground">Stay updated on event changes, reminders, and registrations.</p>
         </Reveal>
-        <NotificationList />
+        <NotificationList basePath="/notifications" />
       </div>
     </AppShell>
   )

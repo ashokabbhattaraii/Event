@@ -3,11 +3,53 @@
 import { Suspense } from "react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { CheckCircle2, Loader2, Ticket, XCircle } from "lucide-react"
+import { CheckCircle2, CreditCard, Loader2, Ticket, XCircle } from "lucide-react"
 import { AppShell } from "@/components/app/app-shell"
 import { Reveal } from "@/components/anim/reveal"
-import { useCheckoutStatus } from "@/lib/queries/payments"
+import { useCheckoutStatus, useCreateCheckoutSession, usePaymentConfig } from "@/lib/queries/payments"
 import { useCurrentUser } from "@/lib/queries/auth"
+
+// Offered after any eSewa failure/cancel (never after a confirmed success) —
+// lets the attendee retry the same event with a card instead of bouncing
+// back to find the event page again. Hidden when Stripe itself isn't
+// configured on this server, matching the disabled state on the event page.
+function RetryWithStripe({ eventId }: { eventId: string }) {
+  const { data: paymentConfig } = usePaymentConfig()
+  const checkoutMutation = useCreateCheckoutSession()
+
+  if (paymentConfig?.enabled === false) return null
+
+  const handleRetry = () => {
+    checkoutMutation.mutate(eventId, {
+      onSuccess: (res) => {
+        window.location.href = res.url
+      },
+    })
+  }
+
+  return (
+    <div className="mt-6 border-t border-border pt-6">
+      <p className="text-sm text-muted-foreground">eSewa not working? Pay with a card instead.</p>
+      <button
+        onClick={handleRetry}
+        disabled={checkoutMutation.isPending}
+        className="mt-3 inline-flex items-center gap-2 rounded-xl border border-border px-5 py-3 text-sm font-medium text-ink hover:bg-muted disabled:opacity-60"
+      >
+        {checkoutMutation.isPending ? (
+          <Loader2 className="size-4 animate-spin" />
+        ) : (
+          <CreditCard className="size-4" />
+        )}
+        Pay with card
+      </button>
+      {checkoutMutation.isError && (
+        <p className="mt-2 text-xs text-destructive">
+          {(checkoutMutation.error as any)?.response?.data?.message || "Couldn't start card checkout."}
+        </p>
+      )}
+    </div>
+  )
+}
 
 // eSewa's redirect already carries a confirmed outcome — by the time the
 // browser lands here the backend has verified the payment signature *and*
@@ -15,7 +57,15 @@ import { useCurrentUser } from "@/lib/queries/auth"
 // ticket actually exists (see paymentController.handleEsewaSuccess). So
 // there's nothing to poll for eSewa, unlike Stripe where the webhook can
 // lag a beat behind the redirect.
-function EsewaResult({ ticketId, error }: { ticketId: string | null; error: string | null }) {
+function EsewaResult({
+  ticketId,
+  error,
+  eventId,
+}: {
+  ticketId: string | null
+  error: string | null
+  eventId: string | null
+}) {
   if (ticketId) {
     return (
       <>
@@ -54,6 +104,7 @@ function EsewaResult({ ticketId, error }: { ticketId: string | null; error: stri
       >
         Go to My Tickets
       </Link>
+      {eventId && <RetryWithStripe eventId={eventId} />}
     </>
   )
 }
@@ -130,13 +181,14 @@ function CheckoutSuccessContent() {
   const sessionId = params.get("session_id")
   const ticketId = params.get("ticketId")
   const error = params.get("error")
+  const eventId = params.get("eventId")
 
   return (
     <AppShell role="Attendee" userName={user?.name || "Attendee"} title="Payment">
       <div className="mx-auto max-w-md py-12">
         <Reveal className="rounded-2xl border border-border bg-card p-8 text-center">
           {provider === "esewa" ? (
-            <EsewaResult ticketId={ticketId} error={error} />
+            <EsewaResult ticketId={ticketId} error={error} eventId={eventId} />
           ) : (
             <StripeResult sessionId={sessionId} />
           )}

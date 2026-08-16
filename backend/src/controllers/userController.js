@@ -339,6 +339,50 @@ const updateReminderPreference = async (req, res) => {
   }
 };
 
+// Server-side saved events (the heart bookmark) — follows the account
+// across devices; the frontend keeps the localStorage list only as a guest
+// fallback until sign-in.
+const getMySavedEvents = async (req, res) => {
+  try {
+    await req.user.populate({
+      path: "savedEvents",
+      select: "title date venue category type status price capacity registered imageUrl organizer",
+    });
+    res.json({ savedEvents: req.user.savedEvents });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+const addSavedEvent = async (req, res) => {
+  try {
+    const event = await Event.findById(req.params.eventId).select("_id");
+    if (!event) {
+      return res.status(404).json({ message: "Event not found" });
+    }
+    const alreadySaved = req.user.savedEvents.some((id) => String(id) === req.params.eventId);
+    if (!alreadySaved) {
+      req.user.savedEvents.push(event._id);
+      await req.user.save();
+    }
+    res.json({ saved: true, savedCount: req.user.savedEvents.length });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+const removeSavedEvent = async (req, res) => {
+  try {
+    req.user.savedEvents = req.user.savedEvents.filter(
+      (id) => String(id) !== req.params.eventId
+    );
+    await req.user.save();
+    res.json({ saved: false, savedCount: req.user.savedEvents.length });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   listOrgUsers,
   createUser,
@@ -347,5 +391,8 @@ module.exports = {
   updateMyProfile,
   updateMyPassword,
   updateReminderPreference,
+  getMySavedEvents,
+  addSavedEvent,
+  removeSavedEvent,
   getOrgStats,
 };

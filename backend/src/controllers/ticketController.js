@@ -45,12 +45,24 @@ const registerForEvent = async (req, res) => {
       return res.status(400).json({ message: "Already registered for this event" });
     }
 
-    const ticket = await claimAndIssueTicket({
-      event,
-      attendeeId: req.user._id,
-      attendeeName: req.user.name,
-      payment: { status: "none", amount: 0, currency: event.price?.currency || "NPR" },
-    });
+    let ticket;
+    try {
+      ticket = await claimAndIssueTicket({
+        event,
+        attendeeId: req.user._id,
+        attendeeName: req.user.name,
+        payment: { status: "none", amount: 0, currency: event.price?.currency || "NPR" },
+      });
+    } catch (error) {
+      // The (event, attendee) partial unique index is the final backstop for
+      // double-submits — two rapid clicks can both pass the existence check
+      // above before either ticket lands. A duplicate-key race is surfaced
+      // as the same clean 400 as the pre-check, never a 500.
+      if (error?.code === 11000) {
+        return res.status(400).json({ message: "Already registered for this event" });
+      }
+      throw error;
+    }
 
     // Send confirmation email with QR code
     try {
@@ -163,6 +175,7 @@ const cancelTicket = async (req, res) => {
         title: "Registration cancelled",
         message: `${req.user.name} cancelled their registration for ${ticket.event.title}.`,
         event: ticket.event._id,
+        link: "/organizer/tickets",
       });
     }
 
@@ -215,6 +228,21 @@ const verifyTicket = async (req, res) => {
     ticket.checkedInBy = req.user._id;
     await ticket.save();
 
+    // Real-time heads-up to the attendee the moment the door scanner pings
+    // their QR — the in-app toast arrives while they're still in the queue.
+    if (ticket.event) {
+      await createNotification({
+        recipient: ticket.attendee,
+        organization: ticket.organization,
+        type: "check-in",
+        title: "You're checked in",
+        message: `You've been checked in for ${ticket.event.title}. Enjoy the event!`,
+        event: ticket.event._id,
+        link: "/my-tickets",
+        data: { ticketId: ticket._id },
+      });
+    }
+
     res.json({ ticket });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -244,6 +272,13 @@ const getEventAttendees = async (req, res) => {
       event: event._id,
       ...buildFilters(req.query, ["status"]),
     };
+
+    // Payment-status filter ("paid" / "pending" / "refunded" / "none") —
+    // buildFilters is column-agnostic so it would treat "payment.status" as
+    // an unknown equality field; wire it explicitly.
+    if (req.query.paymentStatus && req.query.paymentStatus !== "all") {
+      filter["payment.status"] = req.query.paymentStatus;
+    }
 
     // Search by attendee name/email — resolve matching user ids first, then
     // scope the ticket query to them (attendee is a populated ref).
@@ -277,22 +312,53 @@ const getEventAttendees = async (req, res) => {
         provider: t.payment?.provider ?? "none",
         amount: t.payment?.amount ?? 0,
         currency: t.payment?.currency ?? "NPR",
+        amountRefunded: t.payment?.amountRefunded ?? 0,
+        // Masked provider reference so ledger entries stay traceable without
+        // leaking the full Stripe/eSewa transaction id in list views.
+        ref: t.payment?.stripePaymentIntentId || t.payment?.esewaRefId || t.payment?.stripeSessionId || null,
       },
       attendee: t.attendee,
     }));
 
     // Event-level counts (unaffected by page/search so the header stats stay
     // stable while the roster below filters).
-    const [total, checkedIn, cancelled] = await Promise.all([
-      Ticket.countDocuments({ event: event._id }),
-      Ticket.countDocuments({ event: event._id, status: "checked-in" }),
-      Ticket.countDocuments({ event: event._id, status: "cancelled" }),
-    ]);
+    const [total, checkedIn, cancelled, paidAgg, pendingAgg, refundedAgg, noneCount] =
+      await Promise.all([
+        Ticket.countDocuments({ event: event._id }),
+        Ticket.countDocuments({ event: event._id, status: "checked-in" }),
+        Ticket.countDocuments({ event: event._id, status: "cancelled" }),
+        Ticket.aggregate([
+          { $match: { event: event._id, status: { $ne: "cancelled" }, "payment.status": "paid" } },
+          { $group: { _id: null, count: { $sum: 1 }, amount: { $sum: "$payment.amount" } } },
+        ]),
+        Ticket.aggregate([
+          { $match: { event: event._id, status: { $ne: "cancelled" }, "payment.status": "pending" } },
+          { $group: { _id: null, count: { $sum: 1 }, amount: { $sum: "$payment.amount" } } },
+        ]),
+        Ticket.aggregate([
+          { $match: { event: event._id, "payment.status": "refunded" } },
+          { $group: { _id: null, count: { $sum: 1 }, amount: { $sum: { $ifNull: ["$payment.amountRefunded", 0] } } } },
+        ]),
+        Ticket.countDocuments({ event: event._id, status: { $ne: "cancelled" }, "payment.status": "none" }),
+      ]);
+    const paid = paidAgg[0] ?? { count: 0, amount: 0 };
+    const pending = pendingAgg[0] ?? { count: 0, amount: 0 };
+    const refunded = refundedAgg[0] ?? { count: 0, amount: 0 };
     const counts = {
       total,
       checkedIn,
       valid: total - checkedIn - cancelled,
       cancelled,
+      // Payment ledger summary for the header strip (free tickets = "none").
+      revenue: {
+        paid: paid.count,
+        paidAmount: paid.amount,
+        pending: pending.count,
+        pendingAmount: pending.amount,
+        refunded: refunded.count,
+        refundedAmount: refunded.amount,
+        free: noneCount,
+      },
     };
 
     res.json({

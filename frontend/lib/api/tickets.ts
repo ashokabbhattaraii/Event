@@ -36,6 +36,8 @@ export interface EventAttendee {
     provider: string;
     amount: number;
     currency: string;
+    amountRefunded?: number;
+    ref?: string | null;
   };
   attendee: { _id: string; name: string; email: string };
 }
@@ -54,12 +56,22 @@ export interface EventAttendeesResponse {
     checkedIn: number;
     valid: number;
     cancelled: number;
+    revenue: {
+      paid: number;
+      paidAmount: number;
+      pending: number;
+      pendingAmount: number;
+      refunded: number;
+      refundedAmount: number;
+      free: number;
+    };
   };
   pagination?: Pagination;
 }
 
 export interface AttendeeListParams extends ListParams {
   status?: string;
+  paymentStatus?: string;
 }
 
 export const ticketsApi = {

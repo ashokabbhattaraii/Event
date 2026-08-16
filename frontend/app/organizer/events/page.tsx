@@ -1,8 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
-import { CalendarDays, DollarSign, Ticket, Users, Plus, Loader2 } from "lucide-react"
+import { ArrowUpRight, CalendarDays, DollarSign, Loader2, Plus, Ticket, Users } from "lucide-react"
 import { AppShell } from "@/components/app/app-shell"
 import { StatCard } from "@/components/app/stat-card"
 import { Reveal } from "@/components/anim/reveal"
@@ -28,6 +28,13 @@ export default function OrganizerEventsPage() {
   const [page, setPage] = useState(1)
   const debouncedSearch = useDebounce(search, 400)
   const user = userData?.user
+
+  // Seed search from the topbar's URL (?q=...) — done in an effect, not a
+  // state initializer, so it stays hydration-safe on the server render.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("q")
+    if (q) setSearch(q)
+  }, [])
 
   const { data, isLoading, isError, isFetching } = useMyEvents({
     search: debouncedSearch,
@@ -120,9 +127,10 @@ export default function OrganizerEventsPage() {
         {events.length > 0 && (
           <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
             {events.map((event) => (
-              <div
+              <Link
                 key={event._id}
-                className="group relative overflow-hidden rounded-2xl border border-border bg-card p-5 transition-all hover:shadow-lg"
+                href={`/organizer/events/${event._id}`}
+                className="group relative overflow-hidden rounded-2xl border border-border bg-card p-5 transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-lg"
               >
                 <div className="mb-3 flex items-center justify-between">
                   <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
@@ -135,7 +143,9 @@ export default function OrganizerEventsPage() {
                   </span>
                   <span className="text-xs text-muted-foreground">{event.type}</span>
                 </div>
-                <h3 className="font-display text-lg font-bold text-ink">{event.title}</h3>
+                <h3 className="font-display text-lg font-bold text-ink group-hover:text-primary">
+                  {event.title}
+                </h3>
                 <p className="mt-1 text-xs text-muted-foreground">{event.venue}</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   {new Date(event.date).toLocaleDateString("en-US", { dateStyle: "medium" })}
@@ -144,7 +154,11 @@ export default function OrganizerEventsPage() {
                   <span className="text-muted-foreground">{event.registered}/{event.capacity} registered</span>
                   <span className="font-semibold text-ink">{formatPrice(event.price)}</span>
                 </div>
-              </div>
+                <div className="mt-4 flex items-center justify-between border-t border-border pt-3 text-xs font-semibold text-primary">
+                  View workspace
+                  <ArrowUpRight className="size-3.5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                </div>
+              </Link>
             ))}
           </div>
         )}

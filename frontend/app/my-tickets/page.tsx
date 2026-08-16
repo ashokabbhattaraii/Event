@@ -1,16 +1,27 @@
 "use client"
 
 import { useState } from "react"
+import Link from "next/link"
 import { AppShell } from "@/components/app/app-shell"
 import { Reveal } from "@/components/anim/reveal"
 import { QrCode } from "@/components/app/qr-code"
 import { useMyTickets } from "@/lib/queries/tickets"
 import { useCurrentUser } from "@/lib/queries/auth"
+import { formatPrice, isFreeEvent } from "@/lib/price"
 import type { EventData } from "@/lib/api/events"
 import { SearchInput, FilterSelect } from "@/components/app/search-input"
 import { Pagination } from "@/components/app/pagination"
 import { useDebounce } from "@/lib/hooks/use-debounce"
-import { Calendar, MapPin, CheckCircle2, Loader2, XCircle } from "lucide-react"
+import {
+  ArrowRight,
+  Calendar,
+  CheckCircle2,
+  Compass,
+  Loader2,
+  MapPin,
+  Ticket as TicketIcon,
+  XCircle,
+} from "lucide-react"
 
 const tabs = ["Upcoming", "Past"] as const
 
@@ -47,6 +58,13 @@ export default function MyTicketsPage() {
     return tab === "Upcoming" ? !isPast : isPast
   })
 
+  const allUpcoming = tickets.filter((t) => {
+    const event = typeof t.event === "object" ? (t.event as EventData) : null
+    return event ? new Date(event.date).getTime() > Date.now() && t.status !== "cancelled" : false
+  }).length
+  const attended = tickets.filter((t) => t.status === "checked-in").length
+  const cancelled = tickets.filter((t) => t.status === "cancelled").length
+
   return (
     <AppShell role="Attendee" userName={user?.name || "Attendee"} title="My Tickets">
       <div className="space-y-6">
@@ -63,6 +81,23 @@ export default function MyTicketsPage() {
             </button>
           ))}
         </Reveal>
+
+        {!isLoading && tickets.length > 0 && (
+          <Reveal className="grid grid-cols-3 gap-3">
+            <div className="rounded-xl border border-border bg-card p-3 text-center">
+              <p className="font-display text-xl font-bold text-primary">{allUpcoming}</p>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Upcoming</p>
+            </div>
+            <div className="rounded-xl border border-border bg-card p-3 text-center">
+              <p className="font-display text-xl font-bold text-secondary">{attended}</p>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Attended</p>
+            </div>
+            <div className="rounded-xl border border-border bg-card p-3 text-center">
+              <p className="font-display text-xl font-bold text-destructive/80">{cancelled}</p>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Cancelled</p>
+            </div>
+          </Reveal>
+        )}
 
         <Reveal className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <SearchInput
@@ -93,9 +128,22 @@ export default function MyTicketsPage() {
           <Reveal stagger={0.1} y={24} className="grid gap-5 lg:grid-cols-2">
             {list.map((ticket) => {
               const event = typeof ticket.event === "object" ? (ticket.event as EventData) : null
+              const cancelledTicket = ticket.status === "cancelled"
               return (
-                <div key={ticket._id} className="relative flex overflow-hidden rounded-2xl border border-border bg-card">
+                <Link
+                  key={ticket._id}
+                  href={event ? `/event/${event._id}` : "/dashboard"}
+                  className="group relative flex overflow-hidden rounded-2xl border border-border bg-card transition-colors hover:border-primary/40"
+                >
                   <div className="w-2 shrink-0 bg-brand-gradient" />
+                  {event?.imageUrl && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={event.imageUrl}
+                      alt=""
+                      className="hidden w-28 shrink-0 self-stretch object-cover sm:block"
+                    />
+                  )}
                   <div className="flex flex-1 flex-col gap-4 p-5 sm:flex-row sm:items-center">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
@@ -103,19 +151,22 @@ export default function MyTicketsPage() {
                           className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
                             ticket.status === "checked-in"
                               ? "bg-secondary/15 text-secondary"
-                              : ticket.status === "cancelled"
+                              : cancelledTicket
                                 ? "bg-destructive/10 text-destructive"
                                 : "bg-primary/10 text-primary"
                           }`}
                         >
                           {ticket.status === "checked-in"
                             ? "Checked In"
-                            : ticket.status === "cancelled"
+                            : cancelledTicket
                               ? "Cancelled"
                               : "Valid"}
                         </span>
+                        <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                          {event && isFreeEvent(event.price) ? "Free" : event ? formatPrice(event.price) : "—"}
+                        </span>
                       </div>
-                      <h3 className="font-display mt-2 text-lg font-bold text-ink">
+                      <h3 className="font-display mt-2 truncate text-lg font-bold text-ink group-hover:text-primary">
                         {event?.title ?? "Event"}
                       </h3>
                       <div className="mt-3 space-y-1.5 text-xs text-muted-foreground">
@@ -125,13 +176,18 @@ export default function MyTicketsPage() {
                               <Calendar className="size-3.5" /> {new Date(event.date).toLocaleString()}
                             </span>
                             <span className="flex items-center gap-1.5">
-                              <MapPin className="size-3.5" /> {event.venue}
+                              <MapPin className="size-3.5" /> {event.venue || "Venue TBA"}
                             </span>
                           </>
                         )}
                       </div>
-                      <div className="mt-4">
-                        <span className="font-mono text-[10px] text-ink">ID: {ticket._id.slice(-8).toUpperCase()}</span>
+                      <div className="mt-4 flex items-center justify-between gap-2">
+                        <span className="font-mono text-[10px] text-muted-foreground">
+                          Ticket #{ticket._id.slice(-8).toUpperCase()}
+                        </span>
+                        <span className="inline-flex items-center gap-1 text-xs font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100">
+                          View event <ArrowRight className="size-3.5" />
+                        </span>
                       </div>
                     </div>
                     <div className="flex shrink-0 flex-col items-center gap-2 border-t border-dashed border-border pt-4 sm:border-l sm:border-t-0 sm:pl-5 sm:pt-0">
@@ -157,20 +213,40 @@ export default function MyTicketsPage() {
                   </div>
                   <span className="absolute -left-2 top-1/2 size-4 -translate-y-1/2 rounded-full bg-background" />
                   <span className="absolute -right-2 top-1/2 size-4 -translate-y-1/2 rounded-full bg-background" />
-                </div>
+                </Link>
               )
             })}
           </Reveal>
         )}
 
         {!isLoading && list.length === 0 && (
-          <div className="rounded-2xl border border-dashed border-border bg-card py-16 text-center">
-            <p className="text-sm text-muted-foreground">
-              {debouncedSearch || status !== "all"
-                ? "No tickets match your search or filters."
-                : `No ${tab.toLowerCase()} tickets.`}
-            </p>
-          </div>
+          <Reveal className="flex flex-col items-center gap-4 rounded-2xl border border-dashed border-border bg-card py-16 text-center">
+            {debouncedSearch || status !== "all" ? (
+              <p className="text-sm text-muted-foreground">No tickets match your search or filters.</p>
+            ) : (
+              <>
+                <span className="flex size-14 items-center justify-center rounded-2xl bg-primary/10">
+                  <TicketIcon className="size-7 text-primary" />
+                </span>
+                <div>
+                  <p className="font-display text-lg font-bold text-ink">No {tab.toLowerCase()} tickets yet</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {tab === "Upcoming"
+                      ? "Join an event and your ticket will live here, scannable at check-in."
+                      : "Events you've attended will show up here."}
+                  </p>
+                </div>
+                {tab === "Upcoming" && (
+                  <Link
+                    href="/dashboard"
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-[0_8px_20px_-10px_rgba(91,76,245,0.8)] transition-transform hover:-translate-y-0.5"
+                  >
+                    <Compass className="size-4" /> Discover events
+                  </Link>
+                )}
+              </>
+            )}
+          </Reveal>
         )}
 
         {pagination && pagination.totalPages > 1 && (

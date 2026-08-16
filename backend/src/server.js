@@ -1,8 +1,10 @@
 require("dotenv").config();
+const http = require("http");
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const connectDB = require("./config/db");
+const { initSocket } = require("./utils/socket");
 const authRoutes = require("./routes/auth");
 const eventRoutes = require("./routes/events");
 const organizationRoutes = require("./routes/organizations");
@@ -102,6 +104,12 @@ app.use(notFound);
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+
+// Express and Socket.IO share one HTTP server — real-time pushes ride the
+// same origin/port as the REST API, so the frontend only needs its API base.
+const server = http.createServer(app);
+initSocket(server);
+
+server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });

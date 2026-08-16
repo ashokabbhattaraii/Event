@@ -1,4 +1,5 @@
 const Notification = require("../models/Notification");
+const { emitToUser } = require("../utils/socket");
 const {
   parsePagination,
   buildSearch,
@@ -7,6 +8,20 @@ const {
   paginate,
 } = require("../utils/query");
 
+// Push the current unread count to the recipient's live sockets so the
+// badge updates instantly, without the client having to refetch.
+const emitUnreadCount = async (recipient) => {
+  const count = await Notification.countDocuments({
+    recipient,
+    read: false,
+  });
+  emitToUser(recipient, "unread:count", { count });
+  return count;
+};
+
+// The single chokepoint every notification in the app flows through —
+// creating a notification also pushes it over the Socket.IO channel, so
+// whatever activity created it is seen by the recipient in real time.
 const createNotification = async ({
   recipient,
   organization,
@@ -14,8 +29,27 @@ const createNotification = async ({
   title,
   message,
   event,
+  link,
+  data,
 }) => {
-  return Notification.create({ recipient, organization, type, title, message, event });
+  const notification = await Notification.create({
+    recipient,
+    organization,
+    type,
+    title,
+    message,
+    event,
+    link,
+    data,
+  });
+
+  const unread = await emitUnreadCount(recipient);
+  emitToUser(recipient, "notification:created", {
+    notification,
+    unread,
+  });
+
+  return notification;
 };
 
 const getMyNotifications = async (req, res) => {
@@ -46,6 +80,33 @@ const getMyNotifications = async (req, res) => {
   }
 };
 
+const getNotification = async (req, res) => {
+  try {
+    const notification = await Notification.findOne({
+      _id: req.params.id,
+      recipient: req.user._id,
+    }).populate("event", "title date");
+    if (!notification) {
+      return res.status(404).json({ message: "Notification not found" });
+    }
+    res.json({ notification });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+const getUnreadCount = async (req, res) => {
+  try {
+    const count = await Notification.countDocuments({
+      recipient: req.user._id,
+      read: false,
+    });
+    res.json({ count });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 const markAsRead = async (req, res) => {
   try {
     const notification = await Notification.findOne({
@@ -57,6 +118,11 @@ const markAsRead = async (req, res) => {
     }
     notification.read = true;
     await notification.save();
+
+    // Keep other open tabs of the same user in sync (badge + list state).
+    const unread = await emitUnreadCount(req.user._id);
+    emitToUser(req.user._id, "notification:read", { id: notification._id, unread });
+
     res.json({ notification });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -69,6 +135,8 @@ const markAllAsRead = async (req, res) => {
       { recipient: req.user._id, read: false },
       { read: true }
     );
+    emitToUser(req.user._id, "notifications:read-all", { unread: 0 });
+
     res.json({ message: "All notifications marked as read" });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -78,6 +146,8 @@ const markAllAsRead = async (req, res) => {
 module.exports = {
   createNotification,
   getMyNotifications,
+  getNotification,
+  getUnreadCount,
   markAsRead,
   markAllAsRead,
 };

@@ -22,6 +22,15 @@ const ticketSchema = new mongoose.Schema(
       required: true,
       unique: true,
     },
+    // Derived mirror of status used ONLY by the uniqueness index below.
+    // Atlas/MongoDB partial indexes don't support {$ne: ...} filters, so a
+    // status-based partial filter ("everything but cancelled") cannot be
+    // expressed — instead the pre-save hook keeps `active` in sync and the
+    // partial index keys on { active: true } (equality is supported).
+    active: {
+      type: Boolean,
+      default: true,
+    },
     status: {
       type: String,
       enum: ["valid", "checked-in", "cancelled"],
@@ -68,10 +77,15 @@ const ticketSchema = new mongoose.Schema(
 // One live ticket per attendee per event. Cancelled tickets are excluded so
 // a user can cancel and re-register (or re-purchase) for the same event —
 // the old (event, attendee) unique index made re-registration after a cancel
-// fail with a duplicate-key error.
+// fail with a duplicate-key error. `active` mirrors "status !== cancelled".
 ticketSchema.index(
   { event: 1, attendee: 1 },
-  { unique: true, partialFilterExpression: { status: { $ne: "cancelled" } } }
+  { unique: true, partialFilterExpression: { active: true } }
 );
+
+ticketSchema.pre("save", function (next) {
+  this.active = this.status !== "cancelled";
+  next();
+});
 
 module.exports = mongoose.model("Ticket", ticketSchema);

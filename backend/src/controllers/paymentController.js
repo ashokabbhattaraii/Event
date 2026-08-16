@@ -273,6 +273,7 @@ const handleWebhook = async (req, res) => {
             title: "Payment refunded",
             message: `Your payment for ${ticket.event.title} was refunded and your ticket cancelled.`,
             event: ticket.event._id,
+            link: "/my-tickets",
           });
         }
       }
@@ -323,8 +324,11 @@ const initiateEsewaPayment = async (req, res) => {
       amount: event.price.amount,
       eventId: event._id.toString(),
       attendeeId: req.user._id.toString(),
-      successUrl: `${baseUrl}/api/payments/esewa/success`,
-      failureUrl: `${baseUrl}/api/payments/esewa/failure`,
+      // eventId in the path so the frontend can offer a "pay with card
+      // instead" fallback on failure/cancel without needing to decode
+      // eSewa's signed payload (which doesn't exist for a plain cancel).
+      successUrl: `${baseUrl}/api/payments/esewa/success/${event._id}`,
+      failureUrl: `${baseUrl}/api/payments/esewa/failure/${event._id}`,
     });
 
     res.json({ action, fields });
@@ -340,7 +344,9 @@ const initiateEsewaPayment = async (req, res) => {
 // eSewa's API — never from the redirect alone — the same "redirect is not
 // proof of payment" principle the Stripe webhook above is built on.
 const handleEsewaSuccess = async (req, res) => {
-  const fail = (reason) => res.redirect(`${FRONTEND_URL}/checkout/success?provider=esewa&error=${reason}`);
+  const eventIdParam = req.params.eventId ? `&eventId=${req.params.eventId}` : "";
+  const fail = (reason) =>
+    res.redirect(`${FRONTEND_URL}/checkout/success?provider=esewa&error=${reason}${eventIdParam}`);
 
   try {
     const raw = req.query.data;
@@ -429,7 +435,8 @@ const handleEsewaSuccess = async (req, res) => {
 };
 
 const handleEsewaFailure = (req, res) => {
-  res.redirect(`${FRONTEND_URL}/checkout/success?provider=esewa&error=cancelled`);
+  const eventIdParam = req.params.eventId ? `&eventId=${req.params.eventId}` : "";
+  res.redirect(`${FRONTEND_URL}/checkout/success?provider=esewa&error=cancelled${eventIdParam}`);
 };
 
 module.exports = {

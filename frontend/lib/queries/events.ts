@@ -10,6 +10,7 @@ import {
   type CreateEventPayload,
   type EventListParams,
 } from "../api/events";
+import { useHasToken } from "../hooks/use-has-token";
 import type { AdvancedFilterParams, SortState, PaginationState } from "../api/list";
 
 export const eventKeys = {
@@ -50,6 +51,25 @@ export function useEvent(id: string) {
     queryKey: eventKeys.detail(id),
     queryFn: () => eventsApi.getById(id),
     enabled: !!id,
+  });
+}
+
+export interface EventAiInsightData {
+  eventId: string;
+  insight: string;
+  source: "ai" | "heuristic";
+  forecast: { predicted: number; registered: number; capacity: number };
+}
+
+// Real AI-generated insight + attendance forecast for a managed event
+// (LLM with a deterministic fallback server-side). Organizer/admin only —
+// see the /:id/ai-insight route.
+export function useEventAiInsight(eventId?: string) {
+  const hasToken = useHasToken();
+  return useQuery({
+    queryKey: ["events", eventId, "ai-insight"] as const,
+    queryFn: () => eventsApi.getAiInsight(eventId!),
+    enabled: Boolean(eventId) && hasToken,
   });
 }
 

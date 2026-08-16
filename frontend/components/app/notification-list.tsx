@@ -1,7 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { Bell, CalendarCheck2, Info, Loader2, MapPin, Sparkles } from "lucide-react"
+import Link from "next/link"
+import { Bell, CalendarCheck2, ChevronRight, Info, Loader2, MapPin, Sparkles, UserCheck } from "lucide-react"
 import { Reveal } from "@/components/anim/reveal"
 import { useMarkAllNotificationsRead, useMarkNotificationRead, useNotifications } from "@/lib/queries/notifications"
 import type { Notification } from "@/lib/api/notifications"
@@ -15,6 +16,7 @@ const iconForType: Record<Notification["type"], typeof Bell> = {
   "event-update": Info,
   system: Sparkles,
   "nearby-event": MapPin,
+  "check-in": UserCheck,
 }
 
 const toneForType: Record<Notification["type"], string> = {
@@ -23,6 +25,7 @@ const toneForType: Record<Notification["type"], string> = {
   "event-update": "text-secondary bg-secondary/15",
   system: "text-primary bg-primary/12",
   "nearby-event": "text-flame bg-flame/12",
+  "check-in": "text-secondary bg-secondary/15",
 }
 
 const typeFilterOptions = [
@@ -30,6 +33,7 @@ const typeFilterOptions = [
   { label: "Registrations", value: "registration" },
   { label: "Reminders", value: "reminder" },
   { label: "Event updates", value: "event-update" },
+  { label: "Check-ins", value: "check-in" },
   { label: "System", value: "system" },
   { label: "Nearby events", value: "nearby-event" },
 ]
@@ -40,7 +44,7 @@ const readFilterOptions = [
   { label: "Read", value: "true" },
 ]
 
-export function NotificationList() {
+export function NotificationList({ basePath }: { basePath: string }) {
   const [search, setSearch] = useState("")
   const [type, setType] = useState("all")
   const [read, setRead] = useState("all")
@@ -112,22 +116,31 @@ export function NotificationList() {
           {notifications.map((notice) => {
             const Icon = iconForType[notice.type]
             return (
-              <button
+              <Link
                 key={notice._id}
+                href={`${basePath}/${notice._id}`}
                 onClick={() => !notice.read && markRead.mutate(notice._id)}
-                className={`text-left rounded-2xl border p-6 shadow-[0_2px_24px_rgba(0,0,0,0.04)] transition-colors ${
+                className={`group relative text-left rounded-2xl border p-6 shadow-[0_2px_24px_rgba(0,0,0,0.04)] transition-colors ${
                   notice.read ? "border-border bg-card" : "border-primary/30 bg-primary/[0.03]"
                 }`}
               >
+                {!notice.read && (
+                  <span className="absolute right-5 top-5 size-2 rounded-full bg-flame" aria-hidden="true" />
+                )}
                 <span className={`flex size-10 items-center justify-center rounded-xl ${toneForType[notice.type]}`}>
                   <Icon className="size-5" />
                 </span>
-                <h2 className="font-display mt-4 text-base font-semibold text-ink">{notice.title}</h2>
+                <h2 className="font-display mt-4 text-base font-semibold text-ink transition-colors group-hover:text-primary">
+                  {notice.title}
+                </h2>
                 <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{notice.message}</p>
-                <p className="mt-3 text-xs text-muted-foreground">
-                  {new Date(notice.createdAt).toLocaleString()}
+                <p className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
+                  <span>{new Date(notice.createdAt).toLocaleString()}</span>
+                  <span className="inline-flex items-center gap-0.5 font-medium text-primary">
+                    View details <ChevronRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
+                  </span>
                 </p>
-              </button>
+              </Link>
             )
           })}
         </Reveal>
@@ -138,7 +151,7 @@ export function NotificationList() {
           <p className="text-sm text-muted-foreground">
             {debouncedSearch || type !== "all" || read !== "all"
               ? "No notifications match your search or filters."
-              : "No notifications yet."}
+              : "No notifications yet. You'll see live updates here as they happen."}
           </p>
         </div>
       )}

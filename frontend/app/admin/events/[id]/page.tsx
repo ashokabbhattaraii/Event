@@ -13,7 +13,7 @@ export default function AdminEventDetailPage({ params }: { params: Promise<{ id:
   return (
     <RoleEventDetail
       eventId={id}
-      role={user?.role === "admin" ? "Administrator" : "Administrator"}
+      role="Administrator"
       userName={user?.name || "Admin"}
       title="Event Oversight"
       backHref="/admin/events"

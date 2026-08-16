@@ -157,7 +157,7 @@ export default function OrganizerDashboardPage() {
             </Link>
           </Reveal>
           <Reveal stagger={0.1} y={28} className="mt-5 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {myEvents.slice(0, 3).map((e) => (
+            {myEvents.slice(0, 6).map((e) => (
               <EventCard key={e.id} event={e} href={`/organizer/events/${e.id}`} />
             ))}
           </Reveal>

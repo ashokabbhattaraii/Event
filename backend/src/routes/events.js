@@ -8,6 +8,7 @@ const {
   deleteEvent,
   getAllEvents,
   getOrgEvents,
+  getEventAiInsight,
   addCoHostOrganization,
   removeCoHostOrganization,
   listCoHostOrganizations,
@@ -39,6 +40,10 @@ router.get("/:id", optionalAuth, getEventById);
 // Full attendee roster for a managed event (organizer/admin) — powers the
 // Tickets & Check-in dashboard's attendee list + per-attendee detail view.
 router.get("/:id/attendees", protect, authorize("organizer", "admin"), getEventAttendees);
+
+// Real AI insight (LLM with heuristic fallback) + attendance forecast for
+// the organizer's event workspace.
+router.get("/:id/ai-insight", protect, authorize("organizer", "admin"), getEventAiInsight);
 
 router.post(
   "/",

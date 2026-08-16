@@ -7,169 +7,20 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
-  CreditCard,
   Loader2,
   QrCode,
   ShieldCheck,
   Ticket,
-  UserRound,
   XCircle,
 } from "lucide-react"
 import { AppShell } from "@/components/app/app-shell"
 import { StatCard } from "@/components/app/stat-card"
 import { Reveal } from "@/components/anim/reveal"
 import { QrScanner } from "@/components/app/qr-scanner"
-import { SearchInput, FilterSelect } from "@/components/app/search-input"
-import { Pagination } from "@/components/app/pagination"
-import { useEventAttendees, useVerifyTicket } from "@/lib/queries/tickets"
+import { AttendeeRoster } from "@/components/app/attendee-roster"
+import { useVerifyTicket } from "@/lib/queries/tickets"
 import { useMyEvents } from "@/lib/queries/events"
 import { useCurrentUser } from "@/lib/queries/auth"
-import { useDebounce } from "@/lib/hooks/use-debounce"
-import type { EventAttendee } from "@/lib/api/tickets"
-
-const attendeeStatusFilterOptions = [
-  { label: "All statuses", value: "all" },
-  { label: "Registered", value: "valid" },
-  { label: "Checked in", value: "checked-in" },
-  { label: "Cancelled", value: "cancelled" },
-]
-
-const statusPill: Record<EventAttendee["status"], { label: string; className: string }> = {
-  "checked-in": { label: "Checked in", className: "bg-secondary/15 text-secondary" },
-  valid: { label: "Registered", className: "bg-primary/10 text-primary" },
-  cancelled: { label: "Cancelled", className: "bg-destructive/10 text-destructive" },
-}
-
-function AttendeeRow({ attendee }: { attendee: EventAttendee }) {
-  const pill = statusPill[attendee.status]
-  const paid = attendee.payment.status === "paid"
-  return (
-    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-background px-4 py-3">
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted">
-        <UserRound className="size-4 text-muted-foreground" />
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="truncate text-sm font-semibold text-ink">{attendee.attendee.name}</span>
-          <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${pill.className}`}>
-            {pill.label}
-          </span>
-        </div>
-        <p className="truncate text-xs text-muted-foreground">{attendee.attendee.email}</p>
-      </div>
-      <div className="text-right">
-        <div className="flex items-center justify-end gap-1.5 text-sm font-semibold text-ink">
-          <CreditCard className="size-3.5 text-muted-foreground" />
-          {paid ? `${attendee.payment.amount} ${attendee.payment.currency}` : "—"}
-        </div>
-        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-          {attendee.payment.status === "paid"
-            ? `Paid · ${attendee.payment.provider}`
-            : attendee.payment.status}
-        </p>
-      </div>
-      <div className="hidden text-right text-xs text-muted-foreground sm:block">
-        <div>Registered {new Date(attendee.registeredAt).toLocaleDateString()}</div>
-        {attendee.checkedInAt && (
-          <div className="text-secondary">
-            Checked in {new Date(attendee.checkedInAt).toLocaleString()}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function AttendeeRoster({ eventId, isOpen }: { eventId: string; isOpen: boolean }) {
-  const [search, setSearch] = useState("")
-  const [status, setStatus] = useState("all")
-  const [page, setPage] = useState(1)
-  const debouncedSearch = useDebounce(search, 400)
-  const { data, isLoading, isError } = useEventAttendees(
-    isOpen ? eventId : undefined,
-    { search: debouncedSearch, status, page, limit: 20 }
-  )
-
-  if (!isOpen) return null
-  if (isLoading) {
-    return (
-      <div className="mt-4 flex items-center justify-center rounded-xl border border-border bg-background py-6">
-        <Loader2 className="size-4 animate-spin text-primary" />
-      </div>
-    )
-  }
-  if (isError) {
-    return (
-      <div className="mt-4 rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-        Couldn't load the attendee list. Make sure you're the organizer or an admin of this event's
-        organization.
-      </div>
-    )
-  }
-
-  const { attendees, counts, pagination } = data!
-  return (
-    <div className="mt-4">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-xl border border-border bg-background p-3 text-center">
-          <p className="font-display text-xl font-bold text-ink">{counts.total}</p>
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Registered</p>
-        </div>
-        <div className="rounded-xl border border-border bg-background p-3 text-center">
-          <p className="font-display text-xl font-bold text-secondary">{counts.checkedIn}</p>
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Checked in</p>
-        </div>
-        <div className="rounded-xl border border-border bg-background p-3 text-center">
-          <p className="font-display text-xl font-bold text-primary">{counts.valid}</p>
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Not arrived</p>
-        </div>
-        <div className="rounded-xl border border-border bg-background p-3 text-center">
-          <p className="font-display text-xl font-bold text-destructive">{counts.cancelled}</p>
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Cancelled</p>
-        </div>
-      </div>
-
-      <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
-        <SearchInput
-          value={search}
-          onChange={(v) => {
-            setSearch(v)
-            setPage(1)
-          }}
-          placeholder="Search by attendee name or email..."
-          className="flex-1"
-        />
-        <FilterSelect
-          value={status}
-          onChange={(v) => {
-            setStatus(v)
-            setPage(1)
-          }}
-          options={attendeeStatusFilterOptions}
-          className="w-full sm:w-44"
-        />
-      </div>
-
-      <div className="mt-3 space-y-2">
-        {attendees.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
-            {debouncedSearch || status !== "all"
-              ? "No attendees match your search or filters."
-              : "No registrations yet. Tickets appear here as attendees register."}
-          </p>
-        ) : (
-          attendees.map((a) => <AttendeeRow key={a.ticketId} attendee={a} />)
-        )}
-      </div>
-
-      {pagination && pagination.totalPages > 1 && (
-        <div className="mt-3">
-          <Pagination pagination={pagination} onPageChange={setPage} />
-        </div>
-      )}
-    </div>
-  )
-}
 
 function VerifyTicketPanel({ onCheckedIn }: { onCheckedIn: () => void }) {
   const [qrToken, setQrToken] = useState("")

@@ -14,7 +14,14 @@ const notificationSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ["registration", "reminder", "event-update", "system", "nearby-event"],
+      enum: [
+        "registration",
+        "reminder",
+        "event-update",
+        "system",
+        "nearby-event",
+        "check-in",
+      ],
       default: "system",
     },
     title: {
@@ -28,6 +35,16 @@ const notificationSchema = new mongoose.Schema(
     event: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Event",
+    },
+    // Deep-link target for the "View" action / detail page — a client-side
+    // route the user can jump straight to (e.g. "/my-tickets"). Optional:
+    // notifications without a link still open a detail page.
+    link: {
+      type: String,
+    },
+    // Free-form metadata for the detail view (e.g. ticket id, provider ref).
+    data: {
+      type: mongoose.Schema.Types.Mixed,
     },
     read: {
       type: Boolean,

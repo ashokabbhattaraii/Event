@@ -48,8 +48,13 @@ export function useCreateSession(eventId: string) {
 export function useUpdateSession(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<CreateSessionPayload> }) =>
-      sessionsApi.update(eventId, id, data),
+    mutationFn: ({
+      id,
+      data,
+    }: {
+      id: string;
+      data: Partial<CreateSessionPayload> & { status?: SessionData["status"] };
+    }) => sessionsApi.update(eventId, id, data),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: sessionKeys.byEvent(eventId) });
       queryClient.invalidateQueries({ queryKey: sessionKeys.detail(variables.id) });

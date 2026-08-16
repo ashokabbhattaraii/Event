@@ -53,6 +53,8 @@ const claimAndIssueTicket = async ({ event, attendeeId, attendeeName, payment })
     title: "Registration confirmed",
     message: `You're registered for ${event.title}. Your QR ticket is ready.`,
     event: event._id,
+    link: "/my-tickets",
+    data: { ticketId: ticket._id },
   });
   await createNotification({
     recipient: event.organizer,
@@ -61,6 +63,8 @@ const claimAndIssueTicket = async ({ event, attendeeId, attendeeName, payment })
     title: "New registration",
     message: `${attendeeName} registered for ${event.title}.`,
     event: event._id,
+    link: "/organizer/tickets",
+    data: { ticketId: ticket._id },
   });
 
   // Ensure reminder jobs exist for this new attendee (fire-and-forget).

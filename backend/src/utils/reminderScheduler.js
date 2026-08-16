@@ -7,6 +7,7 @@ const Event = require("../models/Event");
 const Ticket = require("../models/Ticket");
 const ReminderJob = require("../models/ReminderJob");
 const Notification = require("../models/Notification");
+const { emitToUser } = require("./socket");
 const { sendMail } = require("./email");
 
 // Config via env; defaults are production-friendly (1 min tick, 3-day lookahead).
@@ -112,14 +113,23 @@ async function dispatchDueJobs() {
     }
 
     // Create in-app notification (always).
-    await Notification.create({
+    const notification = await Notification.create({
       recipient: recipient._id,
       organization: job.organization,
       type: "reminder",
       title,
       message,
       event: event._id,
+      link: `/event/${event._id}`,
     });
+
+    // Push it live — reminders land as a toast even if the app is open.
+    const unread = await Notification.countDocuments({
+      recipient: recipient._id,
+      read: false,
+    });
+    emitToUser(recipient._id, "notification:created", { notification, unread });
+    emitToUser(recipient._id, "unread:count", { count: unread });
 
     // Send dev-mode email if the recipient has reminderEmail enabled.
     if (recipient.reminderEmail) {

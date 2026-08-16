@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { AppShell } from "@/components/app/app-shell"
 import { EventCard } from "@/components/app/event-card"
 import { Reveal } from "@/components/anim/reveal"
@@ -31,6 +31,13 @@ export default function AttendeeDiscoverPage() {
   const [page, setPage] = useState(1)
   const debouncedQuery = useDebounce(query, 400)
   const user = userData?.user
+
+  // Seed search from the topbar's URL (?q=...) — done in an effect, not a
+  // state initializer, so it stays hydration-safe on the server render.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("q")
+    if (q) setQuery(q)
+  }, [])
 
   const { data, isLoading, isError } = useAllEvents({
     search: debouncedQuery,

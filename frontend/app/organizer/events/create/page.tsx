@@ -22,6 +22,7 @@ import { AppShell } from "@/components/app/app-shell"
 import { useCreateEvent } from "@/lib/queries/events"
 import { useCurrentUser } from "@/lib/queries/auth"
 import { EVENT_CATEGORIES, EVENT_STATUSES, EVENT_TYPES, SUGGESTED_TAGS } from "@/lib/constants/event-options"
+import { eventDateError, maxFutureEventDate, MAX_FUTURE_EVENT_YEARS, toDatetimeLocal } from "@/lib/event-date"
 import type { EventAgendaItem, EventSpeaker } from "@/lib/api/events"
 
 type FormState = {
@@ -33,8 +34,10 @@ type FormState = {
   category: string
   tags: string[]
   imageUrl: string
-  capacity: number
-  price: number
+  // Strings while editing so the field can be cleared and re-typed; they're
+  // converted to numbers in handleSubmit.
+  capacity: string
+  price: string
   status: (typeof EVENT_STATUSES)[number]
   agenda: EventAgendaItem[]
   speakers: EventSpeaker[]
@@ -55,8 +58,8 @@ const emptyForm: FormState = {
   category: "Technology",
   tags: [],
   imageUrl: "",
-  capacity: 100,
-  price: 0,
+  capacity: "100",
+  price: "0",
   status: "Draft",
   agenda: [],
   speakers: [],
@@ -122,7 +125,12 @@ export default function CreateEventPage() {
   }
 
   const step1Valid = form.title.trim().length >= 3 && form.description.trim().length >= 20 && !!form.category
-  const step2Valid = !!form.date && form.venue.trim().length >= 2 && Number(form.capacity) >= 1 && Number(form.price) >= 0
+  const dateError = eventDateError(form.date)
+  const step2Valid =
+    !dateError &&
+    form.venue.trim().length >= 2 &&
+    Number(form.capacity) >= 1 &&
+    Number(form.price) >= 0
   const stepValid = [true, step1Valid, step2Valid, true][step] ?? true
 
   const goNext = () => setStep((s) => Math.min(3, s + 1))
@@ -178,6 +186,12 @@ export default function CreateEventPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    // Only the Publish button (step 3) may create the event. Clicking
+    // "Continue" swaps this form's button into the type=submit Publish
+    // button at the same DOM position, and Chromium then fires a submit for
+    // it — without this guard a click on "Continue" on step 2 would publish
+    // the event straight away, skipping the review step.
+    if (step !== 3) return
     if (!step1Valid || !step2Valid) return
     createEvent.mutate(
       {
@@ -378,9 +392,21 @@ export default function CreateEventPage() {
                     required
                     type="datetime-local"
                     value={form.date}
+                    min={toDatetimeLocal(new Date())}
+                    max={toDatetimeLocal(maxFutureEventDate())}
                     onChange={(e) => update("date", e.target.value)}
-                    className={inputClass}
+                    className={`${inputClass} ${
+                      form.date && dateError ? "border-red-400 focus:border-red-500 focus:ring-red-500/10" : ""
+                    }`}
                   />
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs text-muted-foreground">
+                      Must be today or later, and no more than {MAX_FUTURE_EVENT_YEARS} years out.
+                    </p>
+                    {form.date && dateError && (
+                      <p className="text-xs font-medium text-red-600">{dateError}</p>
+                    )}
+                  </div>
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium text-ink">Venue</label>
@@ -402,7 +428,7 @@ export default function CreateEventPage() {
                     type="number"
                     min={1}
                     value={form.capacity}
-                    onChange={(e) => update("capacity", Number(e.target.value))}
+                    onChange={(e) => update("capacity", e.target.value)}
                     className={inputClass}
                   />
                 </div>
@@ -415,7 +441,7 @@ export default function CreateEventPage() {
                       min={0}
                       step="1"
                       value={form.price}
-                      onChange={(e) => update("price", Number(e.target.value))}
+                      onChange={(e) => update("price", e.target.value)}
                       placeholder="0"
                       className={`${inputClass} pl-10`}
                     />
@@ -643,7 +669,7 @@ export default function CreateEventPage() {
                   <div className="grid grid-cols-2 gap-3 text-xs text-muted-foreground sm:grid-cols-4">
                     <div><span className="block font-semibold text-ink">Venue</span>{form.venue || "—"}</div>
                     <div><span className="block font-semibold text-ink">Capacity</span>{form.capacity}</div>
-                    <div><span className="block font-semibold text-ink">Price</span>{form.price ? `Rs. ${form.price}` : "Free"}</div>
+                    <div><span className="block font-semibold text-ink">Price</span>{Number(form.price) > 0 ? `Rs. ${form.price}` : "Free"}</div>
                     <div><span className="block font-semibold text-ink">Status</span>{form.status}</div>
                   </div>
                 </div>
@@ -672,7 +698,8 @@ export default function CreateEventPage() {
               </button>
             ) : (
               <button
-                type="submit"
+                type="button"
+                onClick={handleSubmit}
                 disabled={createEvent.isPending || !step1Valid || !step2Valid}
                 className="flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-[0_8px_20px_-10px_rgba(91,76,245,0.8)] transition-all hover:-translate-y-0.5 disabled:pointer-events-none disabled:opacity-60"
               >

@@ -3,6 +3,9 @@ import { Inter, JetBrains_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import { QueryProvider } from '@/components/providers/query-provider'
 import { GoogleProvider } from '@/components/providers/google-provider'
+import { RealtimeNotifications } from '@/components/providers/realtime-notifications'
+import { ThemeProvider } from '@/components/theme-provider'
+import { Toaster } from '@/components/ui/sonner'
 import './globals.css'
 
 const inter = Inter({
@@ -36,12 +39,20 @@ export default function RootLayout({
   return (
     <html
       lang="en"
+      // next-themes injects `style="color-scheme:..."` on <html> client-side
+      // before React hydrates (its pre-hydration script), which the server
+      // HTML doesn't include — suppress the resulting attribute diff.
+      suppressHydrationWarning
       className={`${inter.variable} ${jetbrainsMono.variable} bg-background`}
     >
       <body className="font-sans antialiased">
         <GoogleProvider>
           <QueryProvider>
-            {children}
+            <ThemeProvider attribute="class" defaultTheme="light">
+              {children}
+              <RealtimeNotifications />
+              <Toaster position="bottom-right" closeButton richColors />
+            </ThemeProvider>
           </QueryProvider>
         </GoogleProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}

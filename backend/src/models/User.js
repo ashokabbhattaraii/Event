@@ -69,6 +69,11 @@ const userSchema = new mongoose.Schema(
     // Defaults to true so attendees get reminders out of the box; can be toggled
     // in Settings → Notifications.
     reminderEmail: { type: Boolean, default: true },
+    // Events the user bookmarked (the heart on event cards / detail pages).
+    // Server-side so saved lists follow the account across devices instead
+    // of living only in one browser's localStorage. Guests keep the
+    // localStorage fallback until they sign in.
+    savedEvents: [{ type: mongoose.Schema.Types.ObjectId, ref: "Event" }],
     // Captured (with permission) from the browser on login. Powers
     // distance-based recommendations and the chatbot's "near me" answers.
     location: {

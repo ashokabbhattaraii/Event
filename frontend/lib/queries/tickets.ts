@@ -48,10 +48,11 @@ export function useCancelTicket() {
 // a check-in so the roster counts stay in sync with the Verify panel.
 export function useEventAttendees(eventId?: string, params: AttendeeListParams = {}) {
   const queryClient = useQueryClient();
+  const hasToken = useHasToken();
   const query = useQuery({
     queryKey: ["events", eventId, "attendees", params] as const,
     queryFn: () => ticketsApi.getEventAttendees(eventId!, params),
-    enabled: Boolean(eventId) && useHasToken(),
+    enabled: Boolean(eventId) && hasToken,
   });
   const refetch = () =>
     queryClient.invalidateQueries({ queryKey: ["events", eventId, "attendees"] as const });

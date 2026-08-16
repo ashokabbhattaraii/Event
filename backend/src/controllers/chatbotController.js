@@ -21,6 +21,7 @@ const INTENTS = [
   "greeting",
   "categories",
   "event_count",
+  "create_event",
   "fallback",
 ];
 
@@ -31,6 +32,16 @@ const eventLink = (event) => `[${event.title}](/event/${event._id})`;
 
 const matchIntent = (message) => {
   const m = message.toLowerCase().trim();
+  // Creation must be checked early: "new event", "host an event", "plan a
+  // session" all collide with upcoming_events/categories regexes below, and
+  // the action (open the guided creation flow) is very different from a
+  // browse query.
+  if (
+    /(\bcreate\b|\bhost\b|\bplan\b|\borganiz\w*|\bmake\b|\bset up\b|\bschedule\b|\bnew\b|\badd\b|\bpublish\b|\bannounce\b|\blatt\b).{0,25}\bevents?\b/i.test(m) &&
+    !/\b(what|list|show|any|find|how many|tell|recommend|suggest|trending|popular|top)\b/.test(m)
+  ) {
+    return "create_event";
+  }
   if (/(\brecommend\b|\bsuggest\b|what should i (attend|go to)|what.*should.*attend|pick.*for me|top picks|best.*for me|recommendations)/.test(m)) return "recommend";
   if (/\b(near me|nearby|close to me|around me|closest|near by)\b/.test(m)) return "near_me";
   if (/\b(my ticket|my tickets|my registration|my registrations|my bookings|my booking|how many tickets|how many registrations)\b/.test(m)) return "my_tickets";
@@ -113,9 +124,10 @@ const answerFreeform = async (req, message, history) => {
     "models to understand tricky phrasing) built into EventNexus, an event-management app. " +
     "Answer the user's question in 1-3 short, friendly sentences.\n\n" +
     "If asked whether you're an AI, or what you are: yes, say so plainly — you're an AI-powered assistant.\n" +
-    "If asked to DO something you can't do yourself here (create, edit, cancel, or delete an event; change " +
-    "account settings; issue refunds): say so honestly, and point them to the right place — organizers create " +
-    "events from the Organizer dashboard's \"Create Event\" page; you can only look things up and answer " +
+    "If the user wants to create an event and they're an organizer or admin: tell them to say something like \"create an event\" or \"help me create an event\" and EventBot will open the guided creation workspace for them.\n" +
+    "If asked to DO something else you can't do yourself here (edit, cancel, or delete an event; change " +
+    "account settings; issue refunds): say so honestly, and point them to the right place — organizers manage " +
+    "events from the Organizer dashboard; you can only look things up and answer " +
     "questions, not perform actions.\n" +
     "For factual questions about events, use ONLY the event data below — never invent event names, dates, " +
     "prices, venues, or any fact not listed. When you mention an event, include its markdown link exactly as " +
@@ -263,6 +275,18 @@ const buildGroundedReply = async (req, intent, eventId, message, slots) => {
 
   if (intent === "greeting") {
     return "Hi! I'm EventBot 👋 — I can recommend events for you, find free vs. paid events, check capacity, venues, schedules, your tickets, or what's trending. Tap a suggestion below or ask me anything!";
+  }
+
+  if (intent === "create_event") {
+    const isOrganizer =
+      req.user && ["organizer", "admin"].includes(req.user.role);
+    if (!isOrganizer) {
+      return "Only organizers or admins can create events on EventNexus 🎟️ — if you're an organizer, sign in with your organizer account and ask me again. Attendees can register for any event from its detail page.";
+    }
+    return (
+      "I can help you create a professional event in minutes ✨ — I've prepared a guided workspace with all the details: title, schedule, venue, capacity, pricing and publishing. " +
+      "Tap **Start creating** below and I'll walk you through it."
+    );
   }
 
   if (intent === "recommend") {
@@ -621,7 +645,18 @@ const query = async (req, res) => {
       if (freeform) reply = freeform;
     }
 
-    res.json({ intent, reply });
+    // Frontend UX hook: intents that carry a UI affordance beyond the text
+    // reply signal it here (e.g. "create_event" → open the guided creation
+    // workspace). Strictly gated server-side — the action is only emitted
+    // for organizer/admin callers; the reply text above handles the rest.
+    const action =
+      intent === "create_event" &&
+      req.user &&
+      ["organizer", "admin"].includes(req.user.role)
+        ? "create-event"
+        : undefined;
+
+    res.json({ intent, reply, action });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -641,6 +676,9 @@ const getSuggestions = async (req, res) => {
     ]);
 
     const suggestions = ["🎯 Recommend events for me"];
+    if (["organizer", "admin"].includes(req.user.role)) {
+      suggestions.push("✨ Create an event with me");
+    }
     if (ticketCount > 0) suggestions.push("🎫 Show my tickets");
     if (hasValidCoords(req.user.location)) suggestions.push("📍 What's near me?");
     if (upcoming > 0) suggestions.push("📅 What events are coming up?");

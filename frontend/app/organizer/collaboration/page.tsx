@@ -5,6 +5,7 @@ import { AppShell } from "@/components/app/app-shell"
 import { Reveal } from "@/components/anim/reveal"
 import { useCurrentUser } from "@/lib/queries/auth"
 import { useOrganizations } from "@/lib/queries/organizations"
+import { useMyEvents, useOrgEvents } from "@/lib/queries/events"
 import {
   useCoHostOrganizations,
   useAddCoHostOrganization,
@@ -21,6 +22,8 @@ import {
   Plus,
   Trash2,
   AlertCircle,
+  Calendar,
+  ChevronLeft,
 } from "lucide-react"
 
 const orgStatusStyle: Record<string, string> = {
@@ -30,12 +33,113 @@ const orgStatusStyle: Record<string, string> = {
   rejected: "bg-muted text-muted-foreground",
 }
 
-export default function CollaborationPage({
+// Org admins can collaborate on behalf of the whole organization (any event
+// under it, not just ones they personally created), matching canManageEvent
+// on the backend — organizers only see events they created themselves.
+function useManagedEvents(role: string | undefined) {
+  const orgEvents = useOrgEvents({ limit: 100, sort: "-date" })
+  const myEvents = useMyEvents({ limit: 100, sort: "-date" })
+  return role === "admin" ? orgEvents : myEvents
+}
+
+function EventPicker({
+  onSelect,
+}: {
+  onSelect: (event: { id: string; title: string; date: string }) => void
+}) {
+  const { data: userData } = useCurrentUser()
+  const user = userData?.user
+  const { data, isLoading, isError } = useManagedEvents(user?.role)
+  const [search, setSearch] = useState("")
+
+  const events = data?.events ?? []
+  const filtered = events.filter((e) => e.title.toLowerCase().includes(search.toLowerCase()))
+
+  return (
+    <Reveal y={16}>
+      <div className="rounded-2xl border border-border bg-card p-6">
+        <h3 className="font-display text-lg font-bold text-ink">Choose an event</h3>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Co-hosting is configured per event. Pick which event you want to add or remove
+          co-host organizations for.
+        </p>
+
+        <div className="mt-4 relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search your events..."
+            className="w-full rounded-xl border border-border bg-background pl-10 pr-4 py-2.5 text-sm text-ink outline-none focus:border-primary focus:ring-4 focus:ring-primary/10"
+          />
+        </div>
+
+        {isLoading && (
+          <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" /> Loading events...
+          </div>
+        )}
+
+        {isError && (
+          <div className="mt-4 rounded-xl border border-dashed border-destructive/30 bg-destructive/5 p-4 text-center text-sm text-destructive">
+            Couldn't load your events.
+          </div>
+        )}
+
+        {!isLoading && !isError && events.length === 0 && (
+          <div className="mt-6 rounded-xl border border-dashed border-border p-8 text-center">
+            <Calendar className="mx-auto size-10 text-muted-foreground/50" />
+            <p className="mt-3 text-sm text-muted-foreground">
+              You don't have any events yet. Create one first, then come back here to add
+              co-hosts.
+            </p>
+          </div>
+        )}
+
+        {!isLoading && !isError && events.length > 0 && filtered.length === 0 && (
+          <p className="mt-4 text-center text-sm text-muted-foreground">
+            No events match "{search}".
+          </p>
+        )}
+
+        {!isLoading && !isError && filtered.length > 0 && (
+          <div className="mt-4 max-h-80 overflow-y-auto space-y-2">
+            {filtered.map((event) => (
+              <button
+                key={event._id}
+                onClick={() => onSelect({ id: event._id, title: event.title, date: event.date })}
+                className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-background px-4 py-3 text-left transition-colors hover:bg-muted/40"
+              >
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-ink">{event.title}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {new Date(event.date).toLocaleDateString("en-US", { dateStyle: "medium" })} ·{" "}
+                    {event.status}
+                  </p>
+                </div>
+                <Network className="size-4 shrink-0 text-muted-foreground" />
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </Reveal>
+  )
+}
+
+function CoHostManager({
   eventId,
-}: { eventId: string }) {
+  eventTitle,
+  onBack,
+}: {
+  eventId: string
+  eventTitle: string
+  onBack: () => void
+}) {
   const { data: userData } = useCurrentUser()
   const { data: orgsData, isLoading: orgsLoading } = useOrganizations()
-  const { data: coHostsData, isLoading: coHostsLoading, refetch: refetchCoHosts } = useCoHostOrganizations(eventId)
+  const { data: coHostsData, isLoading: coHostsLoading } = useCoHostOrganizations(eventId)
   const addCoHost = useAddCoHostOrganization(eventId)
   const removeCoHost = useRemoveCoHostOrganization(eventId)
   const user = userData?.user
@@ -77,25 +181,30 @@ export default function CollaborationPage({
   }
 
   return (
-    <AppShell role="Organizer" userName={user?.name || "Organizer"} title="Collaboration">
-      <div className="space-y-8">
-        <Reveal y={16}>
-          <div className="bg-brand-gradient relative overflow-hidden rounded-2xl p-6 text-white">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_85%_20%,rgba(255,255,255,0.25),transparent_50%)]" />
-            <div className="relative flex items-center gap-3">
-              <span className="flex size-11 items-center justify-center rounded-xl bg-white/20 backdrop-blur">
-                <Network className="size-6" />
-              </span>
-              <div>
-                <h2 className="font-display text-xl font-bold">Multi-Organization Collaboration</h2>
-                <p className="text-sm text-white/80">
-                  Invite other organizations to co-host this event. Co-host admins can manage
-                  attendees, check-in, analytics, and event details.
-                </p>
-              </div>
+    <div className="space-y-8">
+      <Reveal y={16}>
+        <div className="bg-brand-gradient relative overflow-hidden rounded-2xl p-6 text-white">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_85%_20%,rgba(255,255,255,0.25),transparent_50%)]" />
+          <div className="relative flex items-center gap-3">
+            <span className="flex size-11 items-center justify-center rounded-xl bg-white/20 backdrop-blur">
+              <Network className="size-6" />
+            </span>
+            <div className="min-w-0">
+              <button
+                onClick={onBack}
+                className="mb-1 flex items-center gap-1 text-xs font-medium text-white/80 hover:text-white"
+              >
+                <ChevronLeft className="size-3.5" /> Choose a different event
+              </button>
+              <h2 className="font-display truncate text-xl font-bold">{eventTitle}</h2>
+              <p className="text-sm text-white/80">
+                Invite other organizations to co-host this event. Co-host admins can manage
+                attendees, check-in, analytics, and event details.
+              </p>
             </div>
           </div>
-        </Reveal>
+        </div>
+      </Reveal>
 
         {/* Current Co-Hosts */}
         <Reveal stagger={0.1} y={24}>
@@ -266,7 +375,26 @@ export default function CollaborationPage({
             </div>
           </div>
         </Reveal>
-      </div>
+    </div>
+  )
+}
+
+export default function CollaborationPage() {
+  const { data: userData } = useCurrentUser()
+  const user = userData?.user
+  const [selected, setSelected] = useState<{ id: string; title: string; date: string } | null>(null)
+
+  return (
+    <AppShell role="Organizer" userName={user?.name || "Organizer"} title="Collaboration">
+      {selected ? (
+        <CoHostManager
+          eventId={selected.id}
+          eventTitle={selected.title}
+          onBack={() => setSelected(null)}
+        />
+      ) : (
+        <EventPicker onSelect={setSelected} />
+      )}
     </AppShell>
   )
 }

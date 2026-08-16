@@ -4,9 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
-import { Sparkles, X, Send, MessageCircle, ChevronDown, Plus, Trash2, Eraser } from "lucide-react"
+import { Plus, Sparkles, X, Send, MessageCircle, ChevronDown, Trash2, Eraser } from "lucide-react"
 import { ensureGsap, prefersReducedMotion } from "@/lib/gsap"
 import { chatbotApi } from "@/lib/api/chatbot"
+import { EventWizard } from "@/components/chatbot/event-wizard"
 import {
   useChatbotStore,
   type ChatConversation,
@@ -438,6 +439,11 @@ export function EventBot({
           </form>
         </div>
       )}
+
+      {/* Guided event-creation workspace (organizer-gated by the backend's
+          "create-event" action + a local role check in the store). Rendered
+          above the chat panel as an overlay dialog. */}
+      <EventWizard />
     </>
   )
 }

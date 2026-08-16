@@ -8,6 +8,10 @@ export interface ChatMessage {
 export interface ChatbotResponse {
   intent: string;
   reply: string;
+  // Optional UI affordance the frontend should surface on top of the text
+  // reply — e.g. "create-event" opens the guided EventBot creation
+  // workspace for organizers.
+  action?: string;
 }
 
 export interface ChatbotSuggestionsResponse {

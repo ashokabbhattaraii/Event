@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
-import { ArrowUpRight, CalendarDays, DollarSign, Loader2, Plus, Ticket, Users } from "lucide-react"
+import { ArrowUpRight, CalendarDays, DollarSign, Loader2, Pencil, Plus, Ticket, Users } from "lucide-react"
 import { AppShell } from "@/components/app/app-shell"
 import { StatCard } from "@/components/app/stat-card"
 import { Reveal } from "@/components/anim/reveal"
@@ -141,7 +141,17 @@ export default function OrganizerEventsPage() {
                   }`}>
                     {event.status}
                   </span>
-                  <span className="text-xs text-muted-foreground">{event.type}</span>
+                  <span className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">{event.type}</span>
+                    <Link
+                      href={`/organizer/events/${event._id}/edit`}
+                      onClick={(e) => e.stopPropagation()}
+                      aria-label={`Edit ${event.title}`}
+                      className="rounded-lg border border-border p-1.5 text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+                    >
+                      <Pencil className="size-3.5" />
+                    </Link>
+                  </span>
                 </div>
                 <h3 className="font-display text-lg font-bold text-ink group-hover:text-primary">
                   {event.title}

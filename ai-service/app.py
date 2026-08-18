@@ -20,6 +20,10 @@ POST /understand            LLM-first: intent + every slot in one call,
 POST /generate              generic Groq/Gemini call (prompt in, reply out)
 POST /log-intent            label (message, intent) pairs for retraining
 POST /train                 retrain all models from MongoDB
+POST /collaboration-match   batch co-host likelihood for event pairs —
+                            the advanced half of the AI collaboration
+                            suggestions (Node falls back to its heuristic
+                            scorer when this model is absent)
 """
 
 import os
@@ -34,7 +38,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 import db as data
-from features import build_rows
+from features import build_rows, build_pair_rows, cosine_texts, event_text
 from llm import generate_reply
 from nlu import extract_slots
 import train as training
@@ -46,6 +50,7 @@ app = FastAPI(title="EventNexus AI Service", version="1.0.0")
 _attendance = None
 _cf = None
 _intent = None
+_match = None
 
 # Closed intent set shared with the backend chatbot; used to validate
 # labels an admin assigns in the training-data console.
@@ -94,11 +99,16 @@ class PatchChatlogRequest(BaseModel):
     intent: str
 
 
+class CollabMatchRequest(BaseModel):
+    pairs: list[dict]
+
+
 def _load_models():
-    global _attendance, _cf, _intent
+    global _attendance, _cf, _intent, _match
     _attendance = joblib.load(training.ATTENDANCE_PATH) if os.path.exists(training.ATTENDANCE_PATH) else None
     _cf = joblib.load(training.CF_PATH) if os.path.exists(training.CF_PATH) else None
     _intent = joblib.load(training.INTENT_PATH) if os.path.exists(training.INTENT_PATH) else None
+    _match = joblib.load(training.MATCH_PATH) if os.path.exists(training.MATCH_PATH) else None
 
 
 @app.on_event("startup")
@@ -111,6 +121,7 @@ def _startup():
             ("attendance", training.ATTENDANCE_PATH),
             ("cf", training.CF_PATH),
             ("intent", training.INTENT_PATH),
+            ("collaboration_match", training.MATCH_PATH),
         ]
         if not os.path.exists(path)
     ]
@@ -128,6 +139,7 @@ def health():
             "attendance": _attendance is not None,
             "cf": _cf is not None,
             "intent": _intent is not None,
+            "collaboration": _match is not None,
         },
     }
 
@@ -167,6 +179,7 @@ def stats():
             "upcomingEvents": sum(1 for e in events if e.get("status") in ("Upcoming", "Live")),
             "tickets": data.get_db().tickets.count_documents({}),
             "chatlog": len(chatlog),
+            "collabPairs": len(data.load_collab_pairs()[0]),
         },
         "intentDistribution": distribution,
     }
@@ -245,6 +258,53 @@ def predict_attendance(req: AttendanceRequest):
         clipped = float(np.clip(preds[i], 0, cap if cap and cap > 0 else preds[i]))
         out.append({"event_id": eid, "predicted": round(clipped)})
     return {"predictions": out}
+
+
+@app.post("/collaboration-match")
+def collaboration_match(req: CollabMatchRequest):
+    """Batch co-host likelihood for event pairs.
+
+    The ML half of AI collaboration suggestions: each pair gets a calibrated-
+    by-training probability that the two organizations would co-host those
+    events together (RandomForest over structural features + TF-IDF content
+    cosine). Returns matches in input order; when the model is absent (cold
+    start — not enough real accept/decline decisions yet), returns an empty
+    list and the Node backend uses its deterministic scorer instead.
+    """
+    if _match is None:
+        return {"matches": []}
+    model, vectorizer = _match["model"], _match["vectorizer"]
+
+    X, ids = build_pair_rows(req.pairs)
+    if X.shape[0] == 0:
+        return {"matches": []}
+
+    # build_pair_rows drops malformed pairs, so X is aligned with `ids`, not
+    # with req.pairs — map each pair id to its row index for the text fill.
+    row_index = {pid: i for i, pid in enumerate(ids)}
+    for pair in req.pairs:
+        pid = pair.get("id") or pair.get("pair_id")
+        idx = row_index.get(pid)
+        if idx is None:
+            continue
+        a, b = pair.get("event_a"), pair.get("event_b")
+        if not a or not b:
+            continue
+        X[idx, 7] = cosine_texts(vectorizer, event_text(a), event_text(b))
+
+    probs = model.predict_proba(X)
+    pos_col = list(model.classes_).index(1)
+    return {
+        "matches": [
+            {
+                "id": ids[i],
+                "score": round(float(probs[i][pos_col]), 4),
+                "source": "ml",
+            }
+            for i in range(X.shape[0])
+            if ids[i]
+        ]
+    }
 
 
 @app.post("/recommendations")

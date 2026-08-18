@@ -17,6 +17,10 @@ export type ChatFrom = "bot" | "user"
 export interface ChatMsg {
   from: ChatFrom
   text: string
+  // Context-aware follow-up chips (from the backend) that the bot message
+  // renders as tappable quick replies, persisted so switching conversations
+  // brings the chips back with the message they belonged to.
+  quickReplies?: string[]
 }
 
 export interface ChatConversation {
@@ -40,18 +44,6 @@ export interface AiStatus {
 const SEED_MSG: ChatMsg = {
   from: "bot",
   text: "Hi, I'm EventBot 👋 — I can recommend events, check tickets, pricing, capacity and more. Try a suggestion below!",
-}
-
-// Organizers get an extra seed line so the creation capability is discoverable
-// without any extra round-trip; attendees keep the attendee-oriented greeting.
-export function seedMessageForRole(role?: string): ChatMsg {
-  const isCreator = role === "organizer" || role === "admin"
-  return {
-    from: "bot",
-    text: isCreator
-      ? "Hi, I'm EventBot 👋 — I can answer questions about events, and I can also **create a new event for you** in minutes with a guided workspace. Try: \"create an event\" or tap a suggestion below!"
-      : SEED_MSG.text,
-  }
 }
 
 // The backend only consumes the last ~8 turns per query; keeping ~20 on the
@@ -79,21 +71,6 @@ const getCurrentUserId = (): string => {
   }
 }
 
-// Parallel to getCurrentUserId: the signed-in user's role, read fresh from
-// localStorage. Used to mirror the backend's action gating locally (e.g.
-// never surface the creation workspace to an attendee even if a stale
-// backend response ever carried the action flag).
-const getCurrentUserRole = (): string => {
-  if (typeof window === "undefined") return ""
-  try {
-    const raw = localStorage.getItem(USER_KEY)
-    const parsed = raw ? JSON.parse(raw) : null
-    return parsed?.role || ""
-  } catch {
-    return ""
-  }
-}
-
 // Namespaces the persisted localStorage key by the logged-in user. Without
 // this, a single fixed key ("eventnexus-chatbot") means every account that
 // ever uses this browser reads and writes the SAME conversation history —
@@ -115,7 +92,7 @@ export function newConversation(): ChatConversation {
     title: "New chat",
     createdAt: Date.now(),
     updatedAt: Date.now(),
-    messages: [seedMessageForRole(getCurrentUserRole())],
+    messages: [SEED_MSG],
     context: [],
   }
 }
@@ -127,20 +104,13 @@ interface ChatbotState {
   input: string
   typing: boolean
   suggestions: string[]
-  suggestionsFetched: boolean
   aiStatus: AiStatus | null
-  // Guided event-creation workspace (organizers) — rendered as a modal
-  // overlay on top of the chat; kept in the store so it survives route
-  // changes just like the conversation itself.
-  creationOpen: boolean
 
   setOpen: (open: boolean) => void
-  setCreationOpen: (open: boolean) => void
   setInput: (value: string) => void
   setTyping: (value: boolean) => void
   setAiStatus: (status: AiStatus | null) => void
   setSuggestions: (suggestions: string[]) => void
-  setSuggestionsFetched: (fetched: boolean) => void
   startNewConversation: () => void
   switchConversation: (id: string) => void
   deleteConversation: (id: string) => void
@@ -158,17 +128,13 @@ export const useChatbotStore = create<ChatbotState>()(
       input: "",
       typing: false,
       suggestions: [],
-      suggestionsFetched: false,
       aiStatus: null,
-      creationOpen: false,
 
       setOpen: (open) => set({ open }),
-      setCreationOpen: (creationOpen) => set({ creationOpen }),
       setInput: (input) => set({ input }),
       setTyping: (typing) => set({ typing }),
       setAiStatus: (aiStatus) => set({ aiStatus }),
       setSuggestions: (suggestions) => set({ suggestions }),
-      setSuggestionsFetched: (suggestionsFetched) => set({ suggestionsFetched }),
 
       startNewConversation: () => {
         const conversation = newConversation()
@@ -257,21 +223,15 @@ export const useChatbotStore = create<ChatbotState>()(
           // The backend only needs the most recent turns for context.
           const res = await chatbotApi.query(trimmed, eventId, history.slice(-9))
           const reply = res.reply
-          // Backend emits a UI affordance for organizer-gated intents; the
-          // local role check is a second opinion so the workspace never
-          // flashes open for a non-organizer.
-          if (
-            res.action === "create-event" &&
-            ["organizer", "admin"].includes(getCurrentUserRole())
-          ) {
-            get().setCreationOpen(true)
-          }
           set((state) => ({
             conversations: state.conversations.map((c) =>
               c.id === state.activeId
                 ? {
                     ...c,
-                    messages: [...c.messages, { from: "bot" as const, text: reply }],
+                    messages: [
+                      ...c.messages,
+                      { from: "bot" as const, text: reply, quickReplies: res.quickReplies },
+                    ],
                     context: [...history, { role: "assistant" as const, content: reply }].slice(-MAX_CONTEXT),
                     updatedAt: Date.now(),
                   }
@@ -340,7 +300,6 @@ export function resetChatbotForUserChange() {
     conversations: [fresh],
     activeId: fresh.id,
     open: false,
-    creationOpen: false,
     input: "",
     typing: false,
   })

@@ -5,12 +5,16 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { usersApi, type CreateUserPayload, type UserListParams } from "../api/users";
+import { auditApi } from "../api/audit";
 import { useHasToken } from "../hooks/use-has-token";
 
 export const userKeys = {
   list: ["users", "list"] as const,
   listParams: (params: UserListParams) => ["users", "list", params] as const,
   stats: ["users", "stats"] as const,
+  detail: (id: string) => ["users", "detail", id] as const,
+  sessions: (id: string) => ["users", "sessions", id] as const,
+  audit: (id: string) => ["users", "audit", id] as const,
 };
 
 export function useOrgUsers(params: UserListParams = {}) {
@@ -26,14 +30,78 @@ export function useOrgStats() {
   return useQuery({ queryKey: userKeys.stats, queryFn: usersApi.stats, enabled: useHasToken() });
 }
 
+export function useUser(id: string | null) {
+  return useQuery({
+    queryKey: userKeys.detail(id ?? ""),
+    queryFn: () => usersApi.get(id as string),
+    enabled: useHasToken() && !!id,
+  });
+}
+
+export function useUserSessions(id: string | null) {
+  return useQuery({
+    queryKey: userKeys.sessions(id ?? ""),
+    queryFn: () => usersApi.sessions(id as string),
+    enabled: useHasToken() && !!id,
+  });
+}
+
+// Per-user audit trail shown in the detail dialog ("reflection": every
+// action this account has caused is visible right where it was managed).
+export function useUserAudit(id: string | null) {
+  return useQuery({
+    queryKey: userKeys.audit(id ?? ""),
+    queryFn: () => auditApi.forUser(id as string),
+    enabled: useHasToken() && !!id,
+  });
+}
+
+// Every mutation bumps the whole ["users"] cache tree — list, stats, the
+// open detail, sessions and trail — so a change made anywhere is reflected
+// everywhere immediately (the key factories above all share the prefix).
+const invalidateUserState = (queryClient: ReturnType<typeof useQueryClient>) => {
+  queryClient.invalidateQueries({ queryKey: ["users"] });
+};
+
 export function useUpdateUserRole() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, role }: { id: string; role: string }) =>
       usersApi.updateRole(id, role),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: userKeys.list });
-    },
+    onSuccess: () => invalidateUserState(queryClient),
+  });
+}
+
+export function useUpdateUserStatus() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, active }: { id: string; active: boolean }) =>
+      usersApi.updateStatus(id, active),
+    onSuccess: () => invalidateUserState(queryClient),
+  });
+}
+
+export function useRevokeUserSessions() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => usersApi.revokeSessions(id),
+    onSuccess: () => invalidateUserState(queryClient),
+  });
+}
+
+export function useAdminResetPassword() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => usersApi.resetPassword(id),
+    onSuccess: () => invalidateUserState(queryClient),
+  });
+}
+
+export function useRemoveUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => usersApi.remove(id),
+    onSuccess: () => invalidateUserState(queryClient),
   });
 }
 
@@ -41,9 +109,7 @@ export function useCreateUser() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: CreateUserPayload) => usersApi.create(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: userKeys.list });
-    },
+    onSuccess: () => invalidateUserState(queryClient),
   });
 }
 

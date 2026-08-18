@@ -44,6 +44,12 @@ const userSchema = new mongoose.Schema(
     // change invalidates every outstanding JWT and forces a re-login instead
     // of letting old sessions keep running with their previous role.
     tokenVersion: { type: Number, default: 0 },
+    // Administrative account state (report §18 identity management): an
+    // admin can deactivate an account — the owner keeps their data and
+    // history, but logins are refused and outstanding sessions are revoked
+    // until it's reactivated. Defaults to active so every existing account
+    // stays enabled. Audited as user_deactivated / user_reactivated.
+    active: { type: Boolean, default: true, index: true },
     // Set the first time the ADMIN_EMAILS allowlist grants the admin role
     // (Google sign-in or privileged registration). A deliberate demotion
     // sticks: once granted, allowlist logins never re-promote — without this

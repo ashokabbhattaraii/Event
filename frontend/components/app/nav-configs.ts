@@ -24,6 +24,7 @@ export const adminNav: NavItem[] = [
   { label: "Org Approvals", href: "/admin/approvals", icon: ClipboardCheck },
   { label: "Users & Roles", href: "/admin/users", icon: Users },
   { label: "Events", href: "/admin/events", icon: CalendarDays },
+  { label: "Collaboration", href: "/organizer/collaboration", icon: Network },
   { label: "Security & IAM", href: "/admin/security", icon: ShieldCheck },
   { label: "Analytics", href: "/analytics", icon: BarChart3 },
   { label: "AI Training", href: "/admin/ai", icon: Brain },
@@ -44,7 +45,7 @@ export const organizerNav: NavItem[] = [
 ]
 
 export const attendeeNav: NavItem[] = [
-  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { label: "Events", href: "/events", icon: CalendarDays },
   { label: "My Tickets", href: "/my-tickets", icon: Ticket },
   { label: "Saved", href: "/saved-events", icon: Heart },
   { label: "Check-in", href: "/check-in", icon: QrCode },

@@ -50,7 +50,7 @@ function resolveShellFromPath(pathname: string, fallbackRole: AppShellProps["rol
   if (pathname.startsWith("/organizer")) {
     return { nav: organizerNav, role: "Organizer" as const }
   }
-  if (pathname.startsWith("/dashboard") || pathname.startsWith("/event")) {
+  if (pathname.startsWith("/dashboard") || pathname.startsWith("/event") || pathname.startsWith("/events")) {
     return { nav: attendeeNav, role: "Attendee" as const }
   }
   return { nav: roleNavMap[fallbackRole], role: fallbackRole }
@@ -176,7 +176,7 @@ export function AppShell({ children, role, userName, title = "Welcome back" }: A
       ? "/admin/events"
       : roleLabel === "Organizer"
         ? "/organizer/events"
-        : "/dashboard"
+        : "/events"
 
   const submitSearch = (e: React.FormEvent) => {
     e.preventDefault()

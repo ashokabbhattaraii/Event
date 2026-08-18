@@ -78,6 +78,89 @@ def load_chat_log():
     return list(get_db().chatlog.find({}, {"message": 1, "intent": 1}))
 
 
+def load_orgs():
+    """Organization documents, for pair features (city/country signals)."""
+    return list(get_db().organizations.find({}, {"name": 1, "city": 1, "country": 1}))
+
+
+def load_collab_pairs():
+    """Labeled event pairs for the collaboration-match classifier.
+
+    Ground truth from two real signals:
+      - positives: suggestions both admins ACCEPTED (resolvedOutcome
+        "co-hosted") — the outcomes that actually became co-hostings — plus
+        event pairs currently bound as MUTUAL co-hosts in the events
+        collection (each org on the other event's coHostOrganizations).
+      - negatives: suggestions where at least one side DECLINED
+        (resolvedOutcome "rejected").
+
+    Returns (pairs, labels): pairs is a list of (event_a, event_b) dicts
+    (org city/country attached under "org"), labels is 1/0 in the same order.
+    """
+    db = get_db()
+    events_by_id = {
+        str(e["_id"]): e
+        for e in db.events.find(
+            {},
+            {
+                "title": 1, "description": 1, "date": 1, "venue": 1, "coordinates": 1,
+                "type": 1, "category": 1, "capacity": 1, "registered": 1,
+                "tags": 1, "highlights": 1, "agenda": 1, "speakers": 1,
+                "organization": 1, "coHostOrganizations": 1,
+            },
+        )
+    }
+    orgs_by_id = {str(o["_id"]): o for o in load_orgs()}
+
+    def attach(e):
+        out = dict(e)
+        org = orgs_by_id.get(str(e.get("organization") or "")) or {}
+        out["org"] = {"city": org.get("city"), "country": org.get("country")}
+        return out
+
+    pairs, labels = [], []
+    seen = set()
+
+    # Accepted collaboration suggestions (real positive decisions).
+    for s in db.collaborationsuggestions.find(
+        {"resolvedOutcome": {"$in": ["co-hosted", "rejected"]}},
+        {"eventA": 1, "eventB": 1, "resolvedOutcome": 1},
+    ):
+        e1, e2 = events_by_id.get(str(s.get("eventA"))), events_by_id.get(str(s.get("eventB")))
+        if not e1 or not e2:
+            continue
+        key = "-".join(sorted([str(e1.get("_id")), str(e2.get("_id"))]))
+        if key in seen:
+            continue
+        seen.add(key)
+        pairs.append((attach(e1), attach(e2)))
+        labels.append(1 if s.get("resolvedOutcome") == "co-hosted" else 0)
+
+    # Mutual co-hosts currently in the events collection (positive only).
+    event_list = list(events_by_id.values())
+    for e in event_list:
+        other_ids = [str(x) for x in (e.get("coHostOrganizations") or [])]
+        if not other_ids:
+            continue
+        for other in event_list:
+            if other.get("_id") == e.get("_id"):
+                continue
+            if str(other.get("organization")) not in other_ids:
+                continue
+            mutual = str(other.get("organization")) in other_ids and str(e.get("organization")) in [
+                str(x) for x in (other.get("coHostOrganizations") or [])
+            ]
+            if not mutual:
+                continue
+            key = "-".join(sorted([str(e.get("_id")), str(other.get("_id"))]))
+            if key in seen:
+                continue
+            seen.add(key)
+            pairs.append((attach(e), attach(other)))
+            labels.append(1)
+    return pairs, labels
+
+
 def insert_chat_log(message, intent):
     from datetime import datetime, timezone
 

@@ -9,6 +9,11 @@
      TF-IDF (word + char n-grams) -> LinearSVC, trained on a static seed
      corpus PLUS every (message, intent) pair the app confirmed via its
      deterministic regex cascade (self-improving over time).
+  4. match_model       — collaboration-match classifier: pair of events ->
+     probability the two organizations would co-host them. Trained on REAL
+     decisions (accepted suggestions = positive, declined = negative, plus
+     mutual co-host pairs), RandomForest over structural features +
+     TF-IDF content cosine. Inference happens in /collaboration-match.
 
 Everything persists to MODELS_DIR as joblib artifacts. Any model that
 can't be trained (empty DB) is skipped — inference then reports
@@ -23,7 +28,7 @@ import joblib
 import numpy as np
 from dotenv import load_dotenv
 
-from features import FEATURE_NAMES, build_rows
+from features import FEATURE_NAMES, PAIR_FEATURE_NAMES, build_rows, build_pair_rows, cosine_texts, event_text
 import db as data
 
 load_dotenv()
@@ -34,11 +39,16 @@ os.makedirs(MODELS_DIR, exist_ok=True)
 ATTENDANCE_PATH = os.path.join(MODELS_DIR, "attendance.joblib")
 CF_PATH = os.path.join(MODELS_DIR, "cf.joblib")
 INTENT_PATH = os.path.join(MODELS_DIR, "intent.joblib")
+MATCH_PATH = os.path.join(MODELS_DIR, "collaboration_match.joblib")
 META_PATH = os.path.join(MODELS_DIR, "meta.json")
 
 MIN_ATTENDANCE_SAMPLES = 5
 MIN_CF_USERS = 2
 MIN_INTENT_SAMPLES_PER_CLASS = 1
+# The collaboration classifier needs BOTH outcome classes; with fewer real
+# positive decisions its labels don't generalize — skip instead of fitting
+# noise (Node keeps its heuristic until real decisions accumulate).
+MIN_MATCH_POSITIVES = 8
 
 # Static seed corpus: covers the closed intent set even before the app has
 # accumulated its own labeled queries. Mirrors the backend's INTENTS list.
@@ -271,11 +281,88 @@ def train_intent():
     return meta
 
 
+def train_match():
+    """RandomForest classifier over event-pair features -> co-host likelihood.
+
+    Trained on REAL collaboration decisions: accepted suggestions and
+    current mutual co-hosts (positive), declined suggestions (negative).
+    The TF-IDF vectorizer for content similarity is fitted here on the full
+    event corpus and persisted with the model, so inference (/collaboration-
+    match) transforms text with the exact same vocabulary.
+    """
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.feature_extraction.text import TfidfVectorizer
+
+    pairs, labels = data.load_collab_pairs()
+    n_pos = sum(1 for y in labels if y == 1)
+    n_neg = len(labels) - n_pos
+    if n_pos < MIN_MATCH_POSITIVES or n_neg < 1:
+        print(
+            f"[train] collaboration_match skipped: {n_pos} positives / {n_neg} negatives "
+            f"(min {MIN_MATCH_POSITIVES} positives)"
+        )
+        _drop_stale(MATCH_PATH, "collaboration_match")
+        return _record_meta("collaboration_match", False, samples=len(labels))
+
+    # Fit TF-IDF on every event's text (both sides of each pair) so the
+    # inverted vocabulary is stable and richer than the pairs alone.
+    corpus = []
+    for a, b in pairs:
+        corpus.append(event_text(a))
+        corpus.append(event_text(b))
+    vectorizer = TfidfVectorizer(
+        ngram_range=(1, 2),
+        analyzer="word",
+        stop_words="english",
+        min_df=1,
+        sublinear_tf=True,
+    )
+    vectorizer.fit(corpus)
+
+    X_rows, pair_ids = build_pair_rows(
+        [{"id": f"{i}", "event_a": a, "event_b": b} for i, (a, b) in enumerate(pairs)]
+    )
+    if X_rows.shape[0] != len(labels):
+        print(f"[train] collaboration_match skipped: {X_rows.shape[0]} rows vs {len(labels)} labels")
+        _drop_stale(MATCH_PATH, "collaboration_match")
+        return _record_meta("collaboration_match", False, samples=len(labels))
+
+    # Fill the text-similarity column with the fitted vectorizer.
+    for i, (a, b) in enumerate(pairs):
+        X_rows[i, 7] = cosine_texts(vectorizer, event_text(a), event_text(b))
+
+    model = RandomForestClassifier(
+        n_estimators=300,
+        max_depth=6,
+        min_samples_leaf=2,
+        class_weight="balanced",
+        random_state=42,
+        n_jobs=-1,
+    )
+    model.fit(X_rows, labels)
+
+    joblib.dump(
+        {
+            "model": model,
+            "vectorizer": vectorizer,
+            "feature_names": PAIR_FEATURE_NAMES,
+        },
+        MATCH_PATH,
+    )
+    meta = _record_meta("collaboration_match", True, samples=len(labels))
+    print(
+        f"[train] collaboration_match: {len(labels)} pairs "
+        f"({n_pos} pos / {n_neg} neg) -> {MATCH_PATH}"
+    )
+    return meta
+
+
 def train_all():
     results = {
         "attendance": train_attendance(),
         "cf": train_cf(),
         "intent": train_intent(),
+        "collaboration_match": train_match(),
     }
     results["trainedAt"] = datetime.now(timezone.utc).isoformat()
     return results

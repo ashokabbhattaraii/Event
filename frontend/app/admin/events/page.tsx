@@ -134,9 +134,22 @@ export default function AdminEventsPage() {
 
         {events.length > 0 && (
           <Reveal stagger={0.08} y={22} className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
-            {events.map((event) => (
-              <EventCard key={event._id} event={toAppEvent(event)} href={`/admin/events/${event._id}`} />
-            ))}
+            {events.map((event) => {
+              // getOrgEvents populates organization ({_id, name}); events from
+              // another org than the admin's are co-hosted ones.
+              const eventOrg =
+                typeof event.organization === "object" ? event.organization : null
+              const isCoHosted =
+                !!eventOrg && !!user?.organization && eventOrg._id !== user.organization
+              return (
+                <EventCard
+                  key={event._id}
+                  event={toAppEvent(event)}
+                  href={`/admin/events/${event._id}`}
+                  coHosted={isCoHosted}
+                />
+              )
+            })}
           </Reveal>
         )}
 

@@ -8,7 +8,7 @@ const statusStyle: Record<string, string> = {
   Past: "bg-white/70 text-ink",
 }
 
-export function EventCard({ event, href }: { event: AppEvent; href?: string }) {
+export function EventCard({ event, href, coHosted }: { event: AppEvent; href?: string; coHosted?: boolean }) {
   const pct = Math.round((event.registered / event.capacity) * 100)
   return (
     <Link
@@ -25,6 +25,11 @@ export function EventCard({ event, href }: { event: AppEvent; href?: string }) {
           <span className="rounded-full bg-black/20 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur">
             {event.type}
           </span>
+          {coHosted && (
+            <span className="rounded-full bg-white/20 px-2.5 py-1 text-[11px] font-semibold text-white backdrop-blur">
+              Co-hosted
+            </span>
+          )}
         </div>
         {event.matchScore != null && (
           <span className="absolute bottom-3 right-3 inline-flex items-center gap-1 rounded-full bg-black/25 px-2.5 py-1 text-[11px] font-semibold text-white backdrop-blur">

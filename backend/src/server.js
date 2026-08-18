@@ -20,6 +20,7 @@ const paymentRoutes = require("./routes/payments");
 const aiRoutes = require("./routes/ai");
 const auditRoutes = require("./routes/audit");
 const iamRoutes = require("./routes/iam");
+const collaborationRoutes = require("./routes/collaboration");
 const systemRoutes = require("./routes/system");
 const { handleWebhook } = require("./controllers/paymentController");
 const aiHealth = require("./utils/aiClient").health;
@@ -92,6 +93,7 @@ app.use("/api/ai", aiRoutes);
 
 app.use("/api/audit", auditRoutes);
 app.use("/api/iam", iamRoutes);
+app.use("/api/collaboration", collaborationRoutes);
 app.use("/api/system", systemRoutes);
 
 app.get("/api/health", (req, res) => {

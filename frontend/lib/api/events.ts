@@ -40,7 +40,9 @@ export interface EventData {
   price: EventPrice;
   status: "Upcoming" | "Live" | "Past" | "Draft";
   organizer: { _id: string; name: string } | string;
-  organization: string;
+  // Populated object on org-scoped/admin endpoints (getOrgEvents), a bare id
+  // elsewhere (e.g. getMyEvents).
+  organization: { _id: string; name: string } | string;
   registered: number;
   createdAt: string;
   predictedAttendance?: number;

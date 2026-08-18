@@ -3,7 +3,10 @@ const Event = require("../models/Event");
 const Organization = require("../models/Organization");
 const OrganizationMember = require("../models/OrganizationMember");
 const Session = require("../models/Session");
+const Ticket = require("../models/Ticket");
 const { audit } = require("../utils/audit");
+const { generateEmailToken, hashToken } = require("../utils/tokens");
+const { sendMail } = require("../utils/email");
 const {
   parsePagination,
   buildSearch,
@@ -12,10 +15,59 @@ const {
   paginate,
 } = require("../utils/query");
 
+const EMAIL_TOKEN_TTL_MS = 24 * 60 * 60 * 1000; // 24h, matches auth resets
+
+// Resolve a user the calling admin may manage. The OVERALL system admin
+// (no organization) reaches every tenant; org admins are hard-scoped to
+// their own. Returns the populated user or null (404 / 403 handled by the
+// caller so it can distinguish "not found" from "not yours").
+const findUserInScope = async (req, id) => {
+  const user = await User.findById(id).populate("organization", "name");
+  if (!user) return null;
+  const targetOrg = user.organization?._id || user.organization;
+  if (req.user.organization && String(targetOrg || "") !== String(req.user.organization)) {
+    return null;
+  }
+  return user;
+};
+
+// Root-of-trust guard, shared by every account-level action: the tenant
+// owner (Organization.owner) and the tenant's LAST active admin can't be
+// demoted, deactivated or removed by another admin — doing so would leave
+// the organization permanently unmanageable.
+const assertManagementSafe = async (req, res, user) => {
+  if (String(user._id) === String(req.user._id)) {
+    return res.status(400).json({ message: "You can't manage your own account" });
+  }
+  const orgId = user.organization?._id || user.organization;
+  if (orgId) {
+    const org = await Organization.findById(orgId);
+    if (org?.owner && String(org.owner) === String(user._id)) {
+      return res.status(400).json({ message: "The organization owner's account can't be changed" });
+    }
+    if (user.role === "admin") {
+      const otherActiveAdmins = await User.countDocuments({
+        _id: { $ne: user._id },
+        organization: orgId,
+        role: "admin",
+        active: true,
+      });
+      if (otherActiveAdmins === 0) {
+        return res
+          .status(400)
+          .json({ message: "This is the organization's only active admin — promote or create another first" });
+      }
+    }
+  }
+  return null;
+};
+
 // Admin-only. An org admin (admin with an organization) is scoped to their
 // own tenant; the OVERALL system admin (role "admin", no organization) sees
 // every tenant (PDF: "Administrators have control over all the tenant
-// companies on the platform").
+// companies on the platform"). Every returned user carries accurate live
+// aggregates (last activity, ticket count, hosted-event count, tenant name)
+// so the directory doesn't guess from the page it happens to be showing.
 const listOrgUsers = async (req, res) => {
   try {
     const { page, limit, skip } = parsePagination(req.query);
@@ -29,7 +81,11 @@ const listOrgUsers = async (req, res) => {
       ...buildSearch(req.query.search, ["name", "email"]),
       ...buildFilters(req.query, ["role"]),
     };
-    const sort = parseSort(req.query.sort, ["name", "createdAt"], {
+    // ?status=true|false filters active vs. deactivated accounts.
+    if (req.query.status === "true" || req.query.status === "false") {
+      filter.active = req.query.status === "true";
+    }
+    const sort = parseSort(req.query.sort, ["name", "createdAt", "active"], {
       createdAt: -1,
     });
 
@@ -39,8 +95,50 @@ const listOrgUsers = async (req, res) => {
       limit,
       skip,
       sort,
+      populate: { path: "organization", select: "name" },
+      select: "name email role organization active createdAt emailVerifiedAt googleId",
     });
-    res.json({ users: data, pagination });
+
+    // One aggregate per live metric for the whole page — no N+1, and the
+    // numbers are exact rather than derived from a table list.
+    const pageIds = data.map((u) => u._id);
+    const [sessions, tickets, hosted] = await Promise.all([
+      Session.aggregate([
+        { $match: { user: { $in: pageIds }, revokedAt: null } },
+        { $group: { _id: "$user", lastUsedAt: { $max: "$lastUsedAt" }, count: { $sum: 1 } } },
+      ]),
+      Ticket.aggregate([
+        { $match: { attendee: { $in: pageIds }, active: true } },
+        { $group: { _id: "$attendee", count: { $sum: 1 } } },
+      ]),
+      Event.aggregate([
+        { $match: { organizer: { $in: pageIds } } },
+        { $group: { _id: "$organizer", count: { $sum: 1 } } },
+      ]),
+    ]);
+    const sessionByUser = new Map(sessions.map((s) => [String(s._id), s]));
+    const ticketByUser = new Map(tickets.map((t) => [String(t._id), t.count]));
+    const hostedByUser = new Map(hosted.map((h) => [String(h._id), h.count]));
+
+    const users = data.map((u) => ({
+      _id: u._id,
+      name: u.name,
+      email: u.email,
+      role: u.role,
+      active: u.active !== false,
+      emailVerifiedAt: u.emailVerifiedAt,
+      googleAccount: Boolean(u.googleId),
+      organization: u.organization?._id || u.organization,
+      organizationName: u.organization?.name || null,
+      createdAt: u.createdAt,
+      // lastUsedAt may be null (never used a refresh session since 1.0);
+      // lastActiveAt mirrors availability for the table's "last active".
+      lastActiveAt: sessionByUser.get(String(u._id))?.lastUsedAt || null,
+      activeSessions: sessionByUser.get(String(u._id))?.count || 0,
+      ticketCount: ticketByUser.get(String(u._id)) || 0,
+      hostedEventCount: hostedByUser.get(String(u._id)) || 0,
+    }));
+    res.json({ users, pagination });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -306,19 +404,30 @@ const getOrgStats = async (req, res) => {
   try {
     // System admin (no org) → platform-wide stats; org admin → own tenant.
     const scope = req.user.organization ? { organization: req.user.organization } : {};
-    const [userCount, eventCount, roleRows] = await Promise.all([
+    const monthAgo = new Date();
+    monthAgo.setMonth(monthAgo.getMonth() - 1);
+    const [userCount, eventCount, roleRows, activeCount, newThisMonth] = await Promise.all([
       User.countDocuments(scope),
       Event.countDocuments(scope),
       User.aggregate([
         { $match: scope },
         { $group: { _id: "$role", count: { $sum: 1 } } },
       ]),
+      User.countDocuments({ ...scope, active: { $ne: false } }),
+      User.countDocuments({ ...scope, createdAt: { $gte: monthAgo } }),
     ]);
     const roleCounts = { admin: 0, organizer: 0, attendee: 0 };
     roleRows.forEach((r) => {
       if (r._id in roleCounts) roleCounts[r._id] = r.count;
     });
-    res.json({ userCount, eventCount, roleCounts });
+    res.json({
+      userCount,
+      eventCount,
+      roleCounts,
+      activeCount,
+      deactivatedCount: userCount - activeCount,
+      newThisMonth,
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -383,10 +492,239 @@ const removeSavedEvent = async (req, res) => {
   }
 };
 
+// Full administrative profile of one user: identity + verification status,
+// tenant, live activity metrics (sessions, tickets, hosted events, saved
+// bookmarks) — nothing here is guessed from list page data.
+const getUserDetail = async (req, res) => {
+  try {
+    const user = await findUserInScope(req, req.params.id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const [sessions, ticketRows, hostedRows] = await Promise.all([
+      Session.find({ user: user._id }).select("ip userAgent lastUsedAt createdAt expiresAt revokedAt").sort({ createdAt: -1 }).limit(50).lean(),
+      Ticket.aggregate([
+        { $match: { attendee: user._id } },
+        { $group: { _id: null, total: { $sum: 1 }, active: { $sum: { $cond: [{ $eq: ["$active", true] }, 1, 0] } } } },
+      ]),
+      Event.countDocuments({ organizer: user._id }),
+    ]);
+    const lastUsed = await Session.findOne({ user: user._id, revokedAt: null })
+      .sort({ lastUsedAt: -1, createdAt: -1 })
+      .select("lastUsedAt ip userAgent createdAt");
+
+    res.json({
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        active: user.active !== false,
+        emailVerifiedAt: user.emailVerifiedAt,
+        googleAccount: Boolean(user.googleId),
+        organization: user.organization?._id || user.organization,
+        organizationName: user.organization?.name || null,
+        createdAt: user.createdAt,
+        activeSessions: sessions.filter((s) => !s.revokedAt).length,
+        lastActiveAt: lastUsed?.lastUsedAt || null,
+        tickets: ticketRows[0] || { total: 0, active: 0 },
+        hostedEventCount: hostedRows,
+        savedCount: (user.savedEvents || []).length,
+        recentSessions: sessions.slice(0, 10),
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Admin view of a user's refresh sessions (devices): which are live, when
+// last used, expiry — the raw material behind "revoke everywhere".
+const listUserSessions = async (req, res) => {
+  try {
+    if (!(await findUserInScope(req, req.params.id))) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    const sessions = await Session.find({ user: req.params.id })
+      .select("ip userAgent createdAt lastUsedAt expiresAt revokedAt")
+      .sort({ revokedAt: 1, lastUsedAt: -1 })
+      .limit(50)
+      .lean();
+    res.json({ sessions });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Deactivate (active=false) or reactivate an account. Deactivation is the
+// reversible, safe form of "removal": the account keeps data and history,
+// but every session is revoked and the next login is refused; the admin can
+// reactivate at any time. Guarded like every privilege change:
+// self/tenant-owner/last-admin can't be touched, cross-tenant is 403.
+const updateUserStatus = async (req, res) => {
+  try {
+    const { active } = req.body;
+    const user = await findUserInScope(req, req.params.id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const blocked = await assertManagementSafe(req, res, user);
+    if (blocked) return blocked;
+
+    if (user.active !== false && active === false) {
+      // Deactivate: kill every device, invalidate every JWT (tokenVersion),
+      // so the account is dead before either list or login could serve it.
+      user.active = false;
+      user.tokenVersion = (user.tokenVersion ?? 0) + 1;
+      await user.save();
+      await Session.updateMany({ user: user._id, revokedAt: null }, { revokedAt: new Date() });
+      audit({
+        req,
+        action: "user_deactivated",
+        resourceType: "User",
+        resourceId: user._id,
+        metadata: { by: req.user._id, sessionsRevoked: true },
+      });
+      return res.json({
+        user: { _id: user._id, name: user.name, email: user.email, active: false },
+        message: `${user.name} has been deactivated. All sessions were revoked and login is blocked.`,
+      });
+    }
+    if (user.active === false && active !== false) {
+      user.active = true;
+      await user.save();
+      audit({
+        req,
+        action: "user_reactivated",
+        resourceType: "User",
+        resourceId: user._id,
+        metadata: { by: req.user._id },
+      });
+      return res.json({
+        user: { _id: user._id, name: user.name, email: user.email, active: true },
+        message: `${user.name} can log in again.`,
+      });
+    }
+    res.json({ user: { _id: user._id, active: user.active !== false }, message: "No change needed" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Log a user out of every device (refresh sessions revoked + JWT version
+// bump). The user itself stays active and can simply log back in.
+const revokeUserSessions = async (req, res) => {
+  try {
+    const user = await findUserInScope(req, req.params.id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const n = await Session.updateMany({ user: user._id, revokedAt: null }, { revokedAt: new Date() });
+    user.tokenVersion = (user.tokenVersion ?? 0) + 1;
+    await user.save();
+    audit({
+      req,
+      action: "sessions_revoked",
+      resourceType: "User",
+      resourceId: user._id,
+      metadata: { by: req.user._id, revoked: n.modifiedCount },
+    });
+    res.json({ message: `${n.modifiedCount} session(s) revoked — the user must log in again` });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Admin-initiated password reset: mints the same single-use, 24h, hashed
+// token the self-service forgot-password flow uses and emails the link.
+// The admin never sees or sets the password itself.
+const adminResetPassword = async (req, res) => {
+  try {
+    const user = await findUserInScope(req, req.params.id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    if (user.googleId) {
+      return res
+        .status(400)
+        .json({ message: "This is a Google-linked account — it has no password to reset" });
+    }
+    const token = generateEmailToken();
+    user.passwordResetToken = hashToken(token);
+    user.passwordResetExpiresAt = new Date(Date.now() + EMAIL_TOKEN_TTL_MS);
+    await user.save();
+
+    const link = `${process.env.FRONTEND_URL}/reset-password?token=${token}`;
+    await sendMail({
+      to: user.email,
+      subject: "Reset your EventNexus password",
+      template: "password-reset",
+      templateData: { name: user.name, link },
+    });
+
+    audit({
+      req,
+      action: "password_reset_requested",
+      resourceType: "User",
+      resourceId: user._id,
+      metadata: { by: req.user._id, via: "admin" },
+    });
+    res.json({ message: `Password reset link sent to ${user.email}` });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Permanent removal. Deliberately the LEAST convenient option: deactivation
+// covers almost every real case (it's reversible), so removal is only
+// allowed for accounts with no footprint — no hosted events, no active
+// tickets — and never for the tenant owner, the last admin, or yourself.
+const removeUser = async (req, res) => {
+  try {
+    const user = await findUserInScope(req, req.params.id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const blocked = await assertManagementSafe(req, res, user);
+    if (blocked) return blocked;
+
+    const orgId = user.organization?._id || user.organization;
+    const [ticketRows, hostedCount] = await Promise.all([
+      Ticket.countDocuments({ attendee: user._id, active: true }),
+      Event.countDocuments({ organizer: user._id }),
+    ]);
+    if (ticketRows > 0) {
+      return res.status(400).json({
+        message: `${user.name} still holds ${ticketRows} active ticket(s). Deactivate the account instead — removal requires canceling/all refunding them first.`,
+      });
+    }
+    if (hostedCount > 0) {
+      return res.status(400).json({
+        message: `${user.name} hosts ${hostedCount} event(s). Reassign the organizer before removing the account.`,
+      });
+    }
+
+    await Session.deleteMany({ user: user._id });
+    await OrganizationMember.deleteMany({ user: user._id });
+    await User.deleteOne({ _id: user._id });
+    audit({
+      req,
+      action: "user_removed",
+      resourceType: "User",
+      resourceId: user._id,
+      metadata: { by: req.user._id, name: user.name, email: user.email, organization: orgId },
+    });
+    res.json({ message: `${user.name} was removed permanently.` });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   listOrgUsers,
   createUser,
   updateUserRole,
+  getUserDetail,
+  listUserSessions,
+  updateUserStatus,
+  revokeUserSessions,
+  adminResetPassword,
+  removeUser,
   updateMyLocation,
   updateMyProfile,
   updateMyPassword,

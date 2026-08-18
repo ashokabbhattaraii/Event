@@ -5,7 +5,7 @@ const { audit } = require("../utils/audit");
 const {
   parsePagination,
   buildSearch,
-  buildFilters,
+  buildAdvancedFilters,
   parseSort,
   paginate,
 } = require("../utils/query");
@@ -134,6 +134,17 @@ const createEvent = async (req, res) => {
       );
     }
 
+    // Fire-and-forget: a new published event is immediately matched against
+    // other organizations' events, so collaboration suggestions appear on
+    // the Collaboration page without waiting for a manual scan. Best-effort
+    // — the scan never blocks event creation.
+    {
+      const { scanForSuggestions } = require("../utils/collaborationEngine");
+      scanForSuggestions(event.organization).catch((err) =>
+        console.error("[collab-suggest] scan failed:", err.message)
+      );
+    }
+
     audit({
       req,
       action: "event_created",
@@ -154,7 +165,8 @@ const getMyEvents = async (req, res) => {
     const filter = {
       organizer: req.user._id,
       ...buildSearch(req.query.search, EVENT_SEARCH_FIELDS),
-      ...buildFilters(req.query, ["status", "type", "category"]),
+      // type supports multi-select (?type=In-person&type=Virtual) via $in
+      ...buildAdvancedFilters(req.query, ["status", "type", "category"], { arrayFields: ["type"] }),
     };
     const sort = parseSort(req.query.sort, EVENT_SORT_FIELDS, { createdAt: -1 });
 
@@ -313,6 +325,20 @@ const updateEvent = async (req, res) => {
   }
 };
 
+// Returns true only for the event owner / owning organization's admins.
+// Co-host organization admins may manage an event (canManageEvent) but must
+// never delete it — deletion is an ownership action (matches the documented
+// co-host policy: "except ownership").
+const isOwningOrgManager = (event, user) => {
+  const isOwner = event.organizer?.toString() === user._id.toString();
+  const isOrgAdmin =
+    user.role === "admin" &&
+    event.organization &&
+    user.organization &&
+    event.organization.toString() === user.organization.toString();
+  return isOwner || isOrgAdmin;
+};
+
 const deleteEvent = async (req, res) => {
   try {
     const event = await Event.findById(req.params.id);
@@ -320,7 +346,7 @@ const deleteEvent = async (req, res) => {
       return res.status(404).json({ message: "Event not found" });
     }
 
-    if (!canManageEvent(event, req.user)) {
+    if (!isOwningOrgManager(event, req.user)) {
       return res.status(403).json({ message: "Not authorized" });
     }
 
@@ -352,7 +378,8 @@ const getAllEvents = async (req, res) => {
 
     const filter = {
       ...buildSearch(req.query.search, EVENT_SEARCH_FIELDS),
-      ...buildFilters(req.query, ["category", "type"]),
+      // type supports multi-select (?type=In-person&type=Virtual) via $in
+      ...buildAdvancedFilters(req.query, ["category", "type"], { arrayFields: ["type"] }),
     };
     // Public browse never exposes drafts. An explicit status filter is honored
     // for any non-draft value; otherwise all non-draft events are returned.
@@ -386,14 +413,35 @@ const getAllEvents = async (req, res) => {
 // scoped like the rest of the admin surface (users, stats, orgs), otherwise
 // an admin sees — and is expected to verify — events from other tenants,
 // which verifyTicket explicitly forbids.
+//
+// Exception: events where the admin's organization is a co-host. Their org
+// is a managing party (canManageEvent), so they must be listed — otherwise
+// co-host org admins have no way to reach those events, even though the
+// backend grants them management access (check-in, analytics, feedback).
 const getOrgEvents = async (req, res) => {
   try {
     const { page, limit, skip } = parsePagination(req.query, { defaultLimit: 9 });
 
+    let scope = { organization: req.user.organization };
+    if (req.user.organization) {
+      const coHosted = await Event.find({ coHostOrganizations: req.user.organization })
+        .select("_id")
+        .lean();
+      if (coHosted.length > 0) {
+        scope = {
+          $or: [
+            { organization: req.user.organization },
+            { _id: { $in: coHosted.map((e) => e._id) } },
+          ],
+        };
+      }
+    }
+
     const filter = {
-      organization: req.user.organization,
+      ...scope,
       ...buildSearch(req.query.search, EVENT_SEARCH_FIELDS),
-      ...buildFilters(req.query, ["status", "type", "category"]),
+      // type supports multi-select (?type=In-person&type=Virtual) via $in
+      ...buildAdvancedFilters(req.query, ["status", "type", "category"], { arrayFields: ["type"] }),
     };
     const { status } = req.query;
     filter.status =

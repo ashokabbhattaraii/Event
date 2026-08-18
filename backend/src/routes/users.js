@@ -1,9 +1,15 @@
 const express = require("express");
-const { body } = require("express-validator");
+const { body, param } = require("express-validator");
 const {
   listOrgUsers,
   createUser,
   updateUserRole,
+  getUserDetail,
+  listUserSessions,
+  updateUserStatus,
+  revokeUserSessions,
+  adminResetPassword,
+  removeUser,
   updateMyLocation,
   updateMyProfile,
   updateMyPassword,
@@ -64,6 +70,56 @@ router.patch(
 
 router.get("/", protect, requireRole("admin"), listOrgUsers);
 router.get("/stats", protect, requireRole("admin"), getOrgStats);
+
+// --- Admin user management (report §18 identity management) ---
+const mongoIdParam = param("id").isMongoId().withMessage("Invalid user id");
+
+// Full admin profile of one user (live activity, sessions, ticket/event
+// counts). Org admins are tenant-scoped; the system admin sees every tenant.
+router.get("/:id", protect, requireRole("admin"), [mongoIdParam], validate, getUserDetail);
+// Refresh sessions (devices) of one user, newest first.
+router.get("/:id/sessions", protect, requireRole("admin"), [mongoIdParam], validate, listUserSessions);
+// Deactivate / reactivate an account. Deactivation revokes every session and
+// blocks further logins; the account keeps its data and can be restored.
+router.patch(
+  "/:id/status",
+  protect,
+  requireRole("admin"),
+  [mongoIdParam, body("active").isBoolean().withMessage("active must be a boolean")],
+  validate,
+  updateUserStatus
+);
+// Log the user out of every device (sessions revoked, tokens invalidated).
+router.post(
+  "/:id/revoke-sessions",
+  protect,
+  requireRole("admin"),
+  [mongoIdParam],
+  validate,
+  revokeUserSessions
+);
+// Admin-initiated password reset — emails the user a single-use reset link;
+// the admin never sees or sets a password. Only for local (non-Google)
+// accounts.
+router.post(
+  "/:id/reset-password",
+  protect,
+  requireRole("admin"),
+  [mongoIdParam],
+  validate,
+  adminResetPassword
+);
+// Permanent removal — guarded (no self, no tenant owner, no last admin, no
+// active tickets or hosted events). Deactivation is the recommended
+// reversible alternative and is always available.
+router.delete(
+  "/:id",
+  protect,
+  requireRole("admin"),
+  [mongoIdParam],
+  validate,
+  removeUser
+);
 
 // Server-side saved events — available to every authenticated role.
 router.get("/me/saved-events", protect, getMySavedEvents);

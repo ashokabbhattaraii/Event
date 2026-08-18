@@ -36,6 +36,17 @@ const ADMIN_EMAILS = (
 
 const isAdminEmail = (email) => ADMIN_EMAILS.includes((email || "").toLowerCase());
 
+// Deactivated accounts (admin-managed, see User.active) are refused at every
+// auth entry point: password login, Google sign-in, and refresh-token
+// rotation. The message avoids leaking account state semantics to strangers —
+// "disabled" only appears once the credential check has already passed.
+const assertUserActive = (user) => {
+  if (user && user.active === false) {
+    return { status: 403, message: "Your account has been disabled by an administrator" };
+  }
+  return null;
+};
+
 // Admin routes are tenant-scoped, so an admin must belong to an organization.
 // Attach the given user to the first existing org, creating a default one if
 // none exists yet. Mutates the user document; caller is responsible for saving.
@@ -68,17 +79,48 @@ const serializeUser = (user) => ({
   emailVerified: Boolean(user.emailVerifiedAt),
 });
 
+// A coarse "same browser on the same device" key: normalized user-agent +
+// the client IP. Tabs, profiles and incognito windows of the same browser
+// share the user-agent, so this matches exactly the browser the user means;
+// the IP keeps a user's phone (same UA pattern? no — different UA) and
+// different devices apart. Good enough to enforce "one active session per
+// account per browser" without logging the user out of their phone/laptop.
+const deviceFingerprintFor = (req) => {
+  const ua = (req.get("user-agent") || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
+  return `${req.ip}::${ua}`;
+};
+
 // Create a refresh-token session for the user and return the plaintext
 // token (the only time it's ever visible; the DB stores the hash).
+// Enforces one active session per account per device: any other active
+// session for the same user from the same browser (same fingerprint) is
+// revoked, so logging in as a different account — or again as this one —
+// never leaves the previous session alive in the same browser. Sessions on
+// other devices (different user-agent) are untouched.
 const createSession = async (user, req) => {
   const refreshToken = generateRefreshToken();
+  const fingerprint = deviceFingerprintFor(req);
   await Session.create({
     user: user._id,
     refreshTokenHash: hashToken(refreshToken),
     ip: req.ip,
     userAgent: req.get("user-agent")?.slice(0, 300),
+    deviceFingerprint: fingerprint,
     expiresAt: new Date(Date.now() + REFRESH_TTL_MS),
   });
+  await Session.updateMany(
+    {
+      user: user._id,
+      deviceFingerprint: fingerprint,
+      revokedAt: null,
+      expiresAt: { $gt: new Date() },
+    },
+    { $set: { revokedAt: new Date() } }
+  );
   return refreshToken;
 };
 
@@ -268,11 +310,16 @@ const orgRegister = async (req, res) => {
       return res.status(400).json({ message: "An organization with that name already exists" });
     }
 
+    // The org's business email is the admin account's email — the form no
+    // longer asks for the same address twice. (Default keeps older clients
+    // that still send a distinct orgEmail working.)
+    const orgEmailResolved = orgEmail || adminEmail;
+
     // Owner set after the user is created (chicken-and-egg on the ref).
     const organization = await Organization.create({
       name: orgName,
       slug,
-      email: orgEmail,
+      email: orgEmailResolved,
       phone: orgPhone,
       address: orgAddress,
       city: orgCity,
@@ -375,6 +422,11 @@ const login = async (req, res) => {
       return res.status(401).json({ message: "Invalid email or password" });
     }
 
+    const disabled = assertUserActive(user);
+    if (disabled) {
+      return res.status(disabled.status).json({ message: disabled.message });
+    }
+
     const gate = await assertOrgApproved(user);
     if (gate) {
       return res.status(gate.status).json({ message: gate.message, code: gate.code });
@@ -473,6 +525,11 @@ const googleLogin = async (req, res) => {
       await user.save();
     }
 
+    const disabled = assertUserActive(user);
+    if (disabled) {
+      return res.status(disabled.status).json({ message: disabled.message });
+    }
+
     const gate = await assertOrgApproved(user);
     if (gate) {
       return res.status(gate.status).json({ message: gate.message, code: gate.code });
@@ -552,6 +609,14 @@ const refresh = async (req, res) => {
     const user = await User.findById(session.user);
     if (!user) {
       return res.status(401).json({ message: "User no longer exists" });
+    }
+    // Deactivation revokes every session server-side, but defensive gate:
+    // never rotate a refresh token for a disabled account even if a revoke
+    // raced with an in-flight request.
+    const disabled = assertUserActive(user);
+    if (disabled) {
+      await Session.updateMany({ user: user._id, revokedAt: null }, { revokedAt: new Date() });
+      return res.status(disabled.status).json({ message: disabled.message });
     }
 
     // Rotation: mint a new token, swap the stored hash (the old token is

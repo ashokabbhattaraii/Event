@@ -52,6 +52,26 @@ export const clearSession = () => {
   localStorage.removeItem(USER_KEY);
 };
 
+// Keep every tab of the browser on the same account. localStorage is shared
+// per origin, so when another tab logs in as a different account (or logs
+// out), the session keys change out from under this tab — whose React Query
+// cache still holds the previous account, letting the same browser show two
+// accounts "logged in" at once. Reload so the whole browser reflects one
+// account: the tab logged in under the previous account lands back on the
+// login page (its server session is revoked by the backend's one-session-
+// per-device policy on login).
+//
+// Token *rotation* (silent refresh) rewrites TOKEN_KEY/REFRESH_KEY without
+// touching USER_KEY, so it never triggers a reload here — only a real
+// account switch (USER_KEY replaced) or a logout (TOKEN_KEY removed) does.
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (e) => {
+    if (e.key === USER_KEY || (e.key === TOKEN_KEY && !e.newValue)) {
+      window.location.reload();
+    }
+  });
+}
+
 apiClient.interceptors.request.use((config) => {
   const token = getAccessToken();
   if (token) {

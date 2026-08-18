@@ -124,7 +124,7 @@ const answerFreeform = async (req, message, history) => {
     "models to understand tricky phrasing) built into EventNexus, an event-management app. " +
     "Answer the user's question in 1-3 short, friendly sentences.\n\n" +
     "If asked whether you're an AI, or what you are: yes, say so plainly — you're an AI-powered assistant.\n" +
-    "If the user wants to create an event and they're an organizer or admin: tell them to say something like \"create an event\" or \"help me create an event\" and EventBot will open the guided creation workspace for them.\n" +
+    "If the user wants to create an event and they're an organizer or admin: tell them to open the My Events page in their organizer dashboard and use the New Event wizard.\n" +
     "If asked to DO something else you can't do yourself here (edit, cancel, or delete an event; change " +
     "account settings; issue refunds): say so honestly, and point them to the right place — organizers manage " +
     "events from the Organizer dashboard; you can only look things up and answer " +
@@ -281,11 +281,11 @@ const buildGroundedReply = async (req, intent, eventId, message, slots) => {
     const isOrganizer =
       req.user && ["organizer", "admin"].includes(req.user.role);
     if (!isOrganizer) {
-      return "Only organizers or admins can create events on EventNexus 🎟️ — if you're an organizer, sign in with your organizer account and ask me again. Attendees can register for any event from its detail page.";
+      return "Only organizers can create events on EventNexus 🎟️ — if you're an organizer, sign in with your organizer account and ask me again. Attendees can register for any event from its detail page.";
     }
     return (
-      "I can help you create a professional event in minutes ✨ — I've prepared a guided workspace with all the details: title, schedule, venue, capacity, pricing and publishing. " +
-      "Tap **Start creating** below and I'll walk you through it."
+      "I can't create events inside the chat anymore, but it takes under a minute yourself ✨ — open **My Events**, tap **New Event**, and the guided wizard walks you through title, schedule, venue, capacity, pricing and publishing. " +
+      "Come back any time to ask me about events, pricing, capacity or what's trending."
     );
   }
 
@@ -594,6 +594,31 @@ const buildGroundedReply = async (req, intent, eventId, message, slots) => {
   return "I'm not sure how to help with that yet 🤔 Here's what I can do:\n\n• 🎯 **Recommend events** for you\n• 📍 Find events **near you**\n• 🎫 Show your **tickets**\n• 📅 List **upcoming** events\n• 💰 Check **free vs. paid** pricing\n• 👥 Check event **capacity**\n• 🔥 Find **popular/trending** events\n• 🗺️ Tell you about **venue and schedule**\n• ✅ Check your **registration status**\n\nWhat would you like to know?";
 };
 
+// Context-aware follow-up chips attached to every bot reply — the frontend
+// renders them under the message so each answer naturally invites the next
+// question ("show me these" → "what's free?" → "what's near me?"). The
+// array is short and static per intent: these are conversation prompts,
+// not live data, so there's nothing to go stale.
+const FOLLOW_UP_SUGGESTIONS = {
+  recommend: ["📅 What events are coming up?", "🔥 What's trending?", "💰 Any free events?"],
+  near_me: ["📅 What events are coming up?", "🎯 Recommend events for me"],
+  my_tickets: ["📅 What events are coming up?", "💰 Any free events?"],
+  pricing: ["🎯 Recommend events for me", "📅 What events are coming up?", "🔥 What's trending?"],
+  organizer: ["🎯 Recommend events for me", "📍 What's near me?"],
+  upcoming_events: ["🔥 What's trending?", "💰 Any free events?", "📍 What's near me?"],
+  event_count: ["📅 List the upcoming events", "🔥 What's trending?"],
+  popular_events: ["📅 What events are coming up?", "💰 Any free events?"],
+  venue: ["🗓️ What's the schedule?", "📅 What events are coming up?"],
+  schedule: ["📍 Where is it?", "🎯 Recommend events for me"],
+  capacity: ["💰 What's the price?", "🗓️ What's the schedule?"],
+  registration_status: ["🎫 Show my tickets", "📅 What events are coming up?"],
+  cancellation: ["🎫 Show my tickets", "📅 What events are coming up?"],
+  categories: ["📅 What events are coming up?", "💰 Any free events?"],
+  create_event: ["📅 What events are coming up?", "🎯 Recommend events for me"],
+  greeting: ["📅 What events are coming up?", "💰 Any free events?", "🔥 What's trending?"],
+  fallback: ["📅 What events are coming up?", "🎯 Recommend events for me", "💰 Any free events?"],
+};
+
 // Once an intent + slots are known (from understandMessage — the LLM in
 // the normal case), the reply is always the grounded, DB-computed fact
 // string returned verbatim — no LLM rephrasing step. An earlier version
@@ -645,18 +670,12 @@ const query = async (req, res) => {
       if (freeform) reply = freeform;
     }
 
-    // Frontend UX hook: intents that carry a UI affordance beyond the text
-    // reply signal it here (e.g. "create_event" → open the guided creation
-    // workspace). Strictly gated server-side — the action is only emitted
-    // for organizer/admin callers; the reply text above handles the rest.
-    const action =
-      intent === "create_event" &&
-      req.user &&
-      ["organizer", "admin"].includes(req.user.role)
-        ? "create-event"
-        : undefined;
+    // Interactive follow-up chips for the frontend to render under the
+    // reply — every answer invites the next question instead of dead-ending.
+    const quickReplies =
+      FOLLOW_UP_SUGGESTIONS[intent] ?? FOLLOW_UP_SUGGESTIONS.fallback;
 
-    res.json({ intent, reply, action });
+    res.json({ intent, reply, quickReplies });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -676,9 +695,6 @@ const getSuggestions = async (req, res) => {
     ]);
 
     const suggestions = ["🎯 Recommend events for me"];
-    if (["organizer", "admin"].includes(req.user.role)) {
-      suggestions.push("✨ Create an event with me");
-    }
     if (ticketCount > 0) suggestions.push("🎫 Show my tickets");
     if (hasValidCoords(req.user.location)) suggestions.push("📍 What's near me?");
     if (upcoming > 0) suggestions.push("📅 What events are coming up?");

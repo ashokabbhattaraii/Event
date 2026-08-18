@@ -33,6 +33,13 @@ const sessionSchema = new mongoose.Schema(
     previousTokenHash: { type: String, select: false },
     ip: String,
     userAgent: String,
+    // Coarse "same browser on the same device" key (normalized user-agent +
+    // IP). Used to enforce one active session per account per device: a fresh
+    // login from the same browser revokes the previous session (see
+    // createSession in authController), so switching accounts can't leave
+    // zombie sessions alive in the same browser. Different devices (different
+    // user-agent) are never matched.
+    deviceFingerprint: { type: String, index: true },
     expiresAt: {
       type: Date,
       required: true,

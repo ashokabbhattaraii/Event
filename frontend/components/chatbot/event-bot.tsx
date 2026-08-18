@@ -7,7 +7,6 @@ import remarkGfm from "remark-gfm"
 import { Plus, Sparkles, X, Send, MessageCircle, ChevronDown, Trash2, Eraser } from "lucide-react"
 import { ensureGsap, prefersReducedMotion } from "@/lib/gsap"
 import { chatbotApi } from "@/lib/api/chatbot"
-import { EventWizard } from "@/components/chatbot/event-wizard"
 import {
   useChatbotStore,
   type ChatConversation,
@@ -53,14 +52,27 @@ const markdownComponents = {
   ol: ({ children }: { children?: React.ReactNode }) => <ol className="my-1 list-decimal space-y-0.5 pl-4">{children}</ol>,
 }
 
-function BotBubble({ text }: { text: string }) {
+function BotBubble({ text, quickReplies, onQuickReply }: { text: string; quickReplies?: string[]; onQuickReply?: (q: string) => void }) {
   return (
-    <div className="bot-msg flex justify-start">
+    <div className="bot-msg flex flex-col items-start gap-1.5">
       <div className="max-w-[90%] rounded-2xl rounded-bl-md border-l-2 border-secondary bg-muted px-3.5 py-2.5 text-sm leading-relaxed text-ink">
         <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
           {text}
         </ReactMarkdown>
       </div>
+      {quickReplies && quickReplies.length > 0 && (
+        <div className="flex max-w-[92%] flex-wrap gap-1.5">
+          {quickReplies.map((q) => (
+            <button
+              key={q}
+              onClick={() => onQuickReply?.(q)}
+              className="rounded-full border border-primary/25 bg-primary/[0.06] px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/15"
+            >
+              {q}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -202,8 +214,6 @@ export function EventBot({
   const activeId = useChatbotStore((s) => s.activeId)
   const suggestions = useChatbotStore((s) => s.suggestions)
   const setSuggestions = useChatbotStore((s) => s.setSuggestions)
-  const suggestionsFetched = useChatbotStore((s) => s.suggestionsFetched)
-  const setSuggestionsFetched = useChatbotStore((s) => s.setSuggestionsFetched)
   const aiStatus = useChatbotStore((s) => s.aiStatus)
   const setAiStatus = useChatbotStore((s) => s.setAiStatus)
   const send = useChatbotStore((s) => s.send)
@@ -238,18 +248,19 @@ export function EventBot({
       .catch(() => setAiStatus({ online: false, attendance: false, cf: false, intent: false }))
   }, [open, aiStatus, setAiStatus])
 
-  // Fetch personalized suggestion chips once per app session when the chat
-  // first opens; static fallback covers offline / serverless failures.
+  // Refresh personalized suggestion chips every time the panel opens — they
+  // are computed live server-side (upcoming counts, ticket existence, live
+  // categories), so an event created or tickets bought elsewhere shows up
+  // on the next open instead of a stale list from the first session.
   useEffect(() => {
-    if (!open || suggestionsFetched) return
-    setSuggestionsFetched(true)
+    if (!open) return
     chatbotApi
       .suggestions()
       .then(({ suggestions: s }) => {
         if (s?.length) setSuggestions(s)
       })
       .catch(() => {})
-  }, [open, suggestionsFetched, setSuggestions, setSuggestionsFetched])
+  }, [open, setSuggestions])
 
   // Drag a panel edge to resize. The chat is anchored bottom-right, so the
   // free edges are left (width) and top (height). Bounds: usable minimum,
@@ -381,7 +392,11 @@ export function EventBot({
           {/* messages */}
           <div ref={listRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
             {messages.map((m, i) =>
-              m.from === "user" ? <UserBubble key={i} text={m.text} /> : <BotBubble key={i} text={m.text} />
+              m.from === "user" ? (
+                <UserBubble key={i} text={m.text} />
+              ) : (
+                <BotBubble key={i} text={m.text} quickReplies={m.quickReplies} onQuickReply={(q) => send(q, eventId)} />
+              )
             )}
             {typing && (
               <div className="flex justify-start">
@@ -439,11 +454,6 @@ export function EventBot({
           </form>
         </div>
       )}
-
-      {/* Guided event-creation workspace (organizer-gated by the backend's
-          "create-event" action + a local role check in the store). Rendered
-          above the chat panel as an overlay dialog. */}
-      <EventWizard />
     </>
   )
 }

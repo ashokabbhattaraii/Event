@@ -25,6 +25,7 @@ import {
   Share2,
   Sparkles,
   Ticket,
+  Trash2,
   Users,
   Wallet,
   X,
@@ -42,7 +43,7 @@ import { SessionsPanel } from "@/components/app/sessions-panel"
 import { RemindersPanel } from "@/components/app/reminders-panel"
 import { AttendeeRoster } from "@/components/app/attendee-roster"
 import { EventAiInsights } from "@/components/app/event-ai-insights"
-import { useEvent, useUpdateEvent } from "@/lib/queries/events"
+import { useEvent, useUpdateEvent, useDeleteEvent } from "@/lib/queries/events"
 import { useMyTickets, useRegisterForEvent, useCancelTicket } from "@/lib/queries/tickets"
 import { useCurrentUser } from "@/lib/queries/auth"
 import { useUpdateLocation } from "@/lib/queries/location"
@@ -106,6 +107,7 @@ export function RoleEventDetail({
   const esewaMutation = useInitiateEsewaPayment()
   const updateLocation = useUpdateLocation()
   const updateEvent = useUpdateEvent()
+  const deleteEvent = useDeleteEvent()
   const { data: sessionsData } = useEventSessions(eventId)
   const createSession = useCreateSession(eventId)
   const updateSession = useUpdateSession(eventId)
@@ -132,6 +134,7 @@ export function RoleEventDetail({
 
   const [showShareFeedback, setShowShareFeedback] = useState(false)
   const [confirmingCancel, setConfirmingCancel] = useState(false)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
 
   // Organizer/admin workspace tabs — the workspace concept, proper: one hub
   // with clear sections instead of one long scrolling page of panels.
@@ -226,6 +229,14 @@ export function RoleEventDetail({
     if (!registeredTicket) return
     cancelMutation.mutate(registeredTicket._id, {
       onSuccess: () => setConfirmingCancel(false),
+    })
+  }
+
+  // Permanently removes the event (cascades its tickets and notifications
+  // server-side) and returns to the management list.
+  const handleDelete = () => {
+    deleteEvent.mutate(eventId, {
+      onSuccess: () => router.push(backHref),
     })
   }
 
@@ -360,6 +371,49 @@ export function RoleEventDetail({
                 </button>
               )
             })}
+          </Reveal>
+        )}
+
+        {/* Event management: edit the listing or delete it (organizer/admin). */}
+        {!isAttendee && (
+          <Reveal y={12} className="flex flex-wrap items-center gap-2">
+            <Link
+              href={`/organizer/events/${eventId}/edit`}
+              className="flex items-center gap-1.5 rounded-xl border border-border bg-card px-3.5 py-2 text-sm font-medium text-ink transition-colors hover:border-primary/40 hover:text-primary"
+            >
+              <Edit className="size-3.5" /> Edit event
+            </Link>
+            {confirmingDelete ? (
+              <div className="flex items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2">
+                <span className="text-xs font-medium text-ink">Delete this event permanently?</span>
+                <button
+                  onClick={handleDelete}
+                  disabled={deleteEvent.isPending}
+                  className="flex items-center gap-1 rounded-lg bg-destructive px-2.5 py-1 text-xs font-semibold text-destructive-foreground disabled:opacity-60"
+                >
+                  {deleteEvent.isPending && <Loader2 className="size-3 animate-spin" />}
+                  Yes, delete
+                </button>
+                <button
+                  onClick={() => setConfirmingDelete(false)}
+                  className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-ink hover:bg-muted"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setConfirmingDelete(true)}
+                className="flex items-center gap-1.5 rounded-xl border border-border bg-card px-3.5 py-2 text-sm font-medium text-ink transition-colors hover:border-destructive/40 hover:text-destructive"
+              >
+                <Trash2 className="size-3.5" /> Delete
+              </button>
+            )}
+            {deleteEvent.isError && (
+              <span className="text-xs text-destructive">
+                {(deleteEvent.error as any)?.response?.data?.message || "Couldn't delete the event."}
+              </span>
+            )}
           </Reveal>
         )}
 

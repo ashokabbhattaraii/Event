@@ -117,6 +117,21 @@ const generate = async (systemPrompt, userPrompt, history = [], timeoutMs = 4500
   return generateReplyLocal(systemPrompt, userPrompt, history);
 };
 
+// ML co-host likelihood for event pairs (the "advanced AI" half of the
+// collaboration suggestions — ai-service's collaboration_match model, see
+// train.py). Each input pair: { id, event_a, event_b } where the events
+// carry the fields the pair-feature builder needs (title, description,
+// date, venue, coordinates, type, category, capacity, registered, tags,
+// highlights, agenda, speakers, and an embedded org: { city, country }).
+// Returns [{ id, score (0..1), source }] in input order, or null when the
+// service/model is unavailable — the caller (collaborationEngine) then
+// falls back to its deterministic scorer.
+const collaborationMatch = async (pairs, timeoutMs = 3000) => {
+  const data = await call("/collaboration-match", { pairs }, timeoutMs);
+  if (!data?.matches) return null;
+  return data.matches;
+};
+
 // Service + model health. Returns null when the AI service is unreachable
 // (app is then running in deterministic fallback mode).
 const health = async (timeoutMs = 1500) => {
@@ -132,6 +147,7 @@ const health = async (timeoutMs = 1500) => {
       attendance: !!models.attendance,
       cf: !!models.cf,
       intent: !!models.intent,
+      collaboration: !!models.collaboration,
     };
   } catch {
     return null;
@@ -209,6 +225,7 @@ module.exports = {
   parse,
   understand,
   generate,
+  collaborationMatch,
   logIntent,
   health,
   getStats,

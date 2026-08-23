@@ -42,7 +42,7 @@ export default function OrgApprovalsPage() {
   const reject = useRejectOrganization()
 
   const user = userData?.user
-  const isSystemAdmin = user?.role === "admin" && !user?.organization
+  const isSystemAdmin = user?.role === "admin"
 
   return (
     <AppShell

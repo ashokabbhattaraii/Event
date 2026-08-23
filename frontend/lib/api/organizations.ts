@@ -39,13 +39,77 @@ export const organizationsApi = {
     return res.data;
   },
 
-  addCoHost: async (eventId: string, organizationId: string): Promise<{ coHostOrganizations: CoHostOrganization[] }> => {
-    const res = await apiClient.post(`/events/${eventId}/co-hosts`, { organizationId });
+  // Co-hosting is never granted directly — it is the result of the invited
+  // organization ACCEPTING an invitation (see coHostInvitationsApi below).
+  // Removing revokes an existing, already-agreed link, so it stays here.
+  removeCoHost: async (eventId: string, orgId: string): Promise<{ coHostOrganizations: CoHostOrganization[] }> => {
+    const res = await apiClient.delete(`/events/${eventId}/co-hosts/${orgId}`);
+    return res.data;
+  },
+};
+
+export type CoHostInvitationStatus = "pending" | "accepted" | "declined" | "cancelled";
+
+export interface CoHostInvitation {
+  _id: string;
+  event: {
+    _id: string;
+    title: string;
+    date: string;
+    venue: string;
+    category: string;
+    type: string;
+    status: string;
+    capacity: number;
+  };
+  fromOrganization: { _id: string; name: string; city?: string; country?: string };
+  toOrganization: { _id: string; name: string; city?: string; country?: string };
+  invitedBy?: { _id: string; name: string; email: string };
+  message: string;
+  status: CoHostInvitationStatus;
+  responseMessage?: string;
+  respondedAt?: string;
+  createdAt: string;
+}
+
+export const coHostInvitationsApi = {
+  // --- inviting side (scoped to one event) ---
+  listForEvent: async (eventId: string): Promise<{ invitations: CoHostInvitation[] }> => {
+    const res = await apiClient.get(`/events/${eventId}/co-host-invitations`);
     return res.data;
   },
 
-  removeCoHost: async (eventId: string, orgId: string): Promise<{ coHostOrganizations: CoHostOrganization[] }> => {
-    const res = await apiClient.delete(`/events/${eventId}/co-hosts/${orgId}`);
+  invite: async (
+    eventId: string,
+    organizationId: string,
+    message: string
+  ): Promise<{ invitation: CoHostInvitation }> => {
+    const res = await apiClient.post(`/events/${eventId}/co-host-invitations`, {
+      organizationId,
+      message,
+    });
+    return res.data;
+  },
+
+  cancel: async (eventId: string, invitationId: string): Promise<{ invitation: CoHostInvitation }> => {
+    const res = await apiClient.delete(`/events/${eventId}/co-host-invitations/${invitationId}`);
+    return res.data;
+  },
+
+  // --- invited side (my organization's inbox, across all events) ---
+  listMine: async (): Promise<{ invitations: CoHostInvitation[] }> => {
+    const res = await apiClient.get("/collaboration/invitations");
+    return res.data;
+  },
+
+  respond: async (
+    invitationId: string,
+    action: "accept" | "decline",
+    message = ""
+  ): Promise<{ invitation: CoHostInvitation }> => {
+    const res = await apiClient.post(`/collaboration/invitations/${invitationId}/${action}`, {
+      message,
+    });
     return res.data;
   },
 };

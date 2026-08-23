@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
-    "seed": "node src/seed.js"
+    "seed": "node src/seed.js",
+    "migrate:org-admin": "node src/scripts/migrate-org-admin-role.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

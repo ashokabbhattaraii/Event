@@ -113,4 +113,16 @@ detail page.
 - [x] Bug fix: `Session` model collision resolved — restored `models/Session.js` as the refresh-token session store (`user, refreshTokenHash, previousTokenHash, ip, userAgent, expiresAt, lastUsedAt, revokedAt`) and extracted the event-schedule session into `models/EventSession.js` (`event, organization, title, startTime, endTime, track, ...`); `sessionController.js` and `/api/events/:id/sessions` repointed to `EventSession`. Login / refresh / sessions-list / logout / org-suspend session revocation all hit the correct model again
 - [x] Verified: admin login `200` (token + refreshToken); refresh rotation `200`; `GET /api/auth/sessions` lists active sessions; attendee posts feedback `201` with sentiment classification; suspend/rename org PATCH `200`
 - [ ] Pending cleanup: prune phantom permission codes not enforced by any `requirePermission` gate or surfaced in the UI (`ai:use`, `report:view`, `role:manage`) and reconcile the `report:view` vs `analytics:view` naming drift so the matrix UI and the runtime matrix stay in lockstep
-- [ ] `role-event-detail.tsx` rebuild: the event schedule-sessions panel (`SessionsPanel`) was scaffolded but its component body was removed mid-refactor; finish the panel (create/edit/delete schedule sessions) and restore a compiling event detail page
+- [x] `role-event-detail.tsx` rebuild: the schedule-sessions panel (`SessionsPanel`) was scaffolded but its component body was removed mid-refactor — **verified complete** (fully implemented at ~350 lines with create/edit/delete, wired into `role-event-detail.tsx:562`; event detail page compiles under `tsc --noEmit`)
+
+## Round 9 — Admin user lifecycle management (advanced Users console)
+- [x] `User.active` field + auth gates: deactivated accounts refused at password login, Google sign-in and refresh rotation (`assertUserActive`, authController)
+- [x] Enriched directory: `GET /api/users` now returns tenant name, active/verified flags, last-active time, active-session/ticket/hosted-event counts from page-level aggregates (no N+1, exact numbers)
+- [x] Accurate stats: `GET /api/users/stats` adds `activeCount`, `deactivatedCount`, `newThisMonth` (30-day) — frontend cards read this, never page-scoped guesses
+- [x] `GET /api/users/:id` full admin profile (live sessions, tickets, hosted/saved counts, org, auth method); `GET /api/users/:id/sessions` device list
+- [x] `PATCH /api/users/:id/status` deactivate/reactivate — revokes all sessions + tokenVersion bump on deactivate; blocked at self, tenant owner, and tenant's last active admin
+- [x] `POST /api/users/:id/revoke-sessions` (sign out everywhere) and `POST /api/users/:id/reset-password` (emails single-use 24h link; refused for Google accounts)
+- [x] `DELETE /api/users/:id` — removal refused while the user holds active tickets or hosts events; same root-of-trust guards
+- [x] All actions audited (`user_created`, `role_changed`, `user_deactivated`, `user_reactivated`, `sessions_revoked`, `user_removed`, `password_reset_requested`)
+- [x] Frontend `/admin/users` rebuilt: accurate stat cards, status filter, status badges + tenant column (system admin), role select with system-managed badge fallback, per-row actions menu, confirm dialogs mirroring the backend guards (backend messages surface verbatim), user detail dialog with sessions + audit trail, sonner toasts everywhere, full `["users"]` cache-tree invalidation for instant reflection
+- [x] Verified: `tsc --noEmit` clean for the frontend; backend files parse (`node --check`)

@@ -25,6 +25,7 @@ const systemRoutes = require("./routes/system");
 const { handleWebhook } = require("./controllers/paymentController");
 const aiHealth = require("./utils/aiClient").health;
 const { notFound, errorHandler } = require("./middleware/errors");
+const { sanitizeRequest } = require("./middleware/sanitize");
 
 const app = express();
 
@@ -32,6 +33,10 @@ connectDB().then(() => {
   // Start the in-process reminder scheduler once the DB is ready.
   const { startScheduler } = require("./utils/reminderScheduler");
   startScheduler();
+  // Warn loudly if any account still carries the pre-split admin shape —
+  // the role checks in code are exact, so stale rows fail silently as
+  // "not authorized" rather than as an obvious misconfiguration.
+  require("./utils/roleIntegrity").checkRoleIntegrity();
 });
 
 // Secure HTTP headers (report §18): HSTS, X-Content-Type-Options, frame
@@ -66,6 +71,14 @@ app.post(
 // URLs, since no object-storage provider is configured) fit in the body —
 // the frontend downsizes images client-side before sending, well under this.
 app.use(express.json({ limit: "8mb" }));
+
+// NoSQL-injection guard, applied to every request regardless of whether the
+// route happens to run express-validator's `validate` — several list
+// endpoints (GET /events/my, GET /users, GET /tickets, ...) take req.query
+// straight into buildFilters()/buildAdvancedFilters() with no validators at
+// all. Express's query parser turns `?role[$ne]=admin` into an object
+// (`{ $ne: "admin" }`), which would otherwise reach those filters unfiltered.
+app.use(sanitizeRequest);
 
 app.use("/api/auth", authRoutes);
 app.use("/api/events", eventRoutes);

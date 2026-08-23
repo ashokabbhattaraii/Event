@@ -78,14 +78,18 @@ import { useCurrentUser } from "@/lib/queries/auth"
 import { useOrganizations } from "@/lib/queries/organizations"
 import { useDebounce } from "@/lib/hooks/use-debounce"
 
-// Org admins can only manage organizer/attendee roles; the admin role is
-// reserved for the system admin to grant (privilege-escalation guard).
+// Org admins can only manage organizer/attendee roles; org_admin itself is
+// reserved for the system admin to grant (privilege-escalation guard —
+// see userController.createUser/updateUserRole). The literal "admin"
+// (platform-wide system admin) is never offered here at all — it's only
+// ever assigned via the ADMIN_EMAILS allowlist on Google sign-in.
 const orgAdminRoleOptions = ["organizer", "attendee"] as const
-const systemAdminRoleOptions = ["admin", "organizer", "attendee"] as const
+const systemAdminRoleOptions = ["org_admin", "organizer", "attendee"] as const
 
 const roleFilterOptions = [
   { label: "All roles", value: "all" },
   { label: "Admins", value: "admin" },
+  { label: "Org Admins", value: "org_admin" },
   { label: "Organizers", value: "organizer" },
   { label: "Attendees", value: "attendee" },
 ]
@@ -98,6 +102,7 @@ const statusFilterOptions = [
 
 const roleBadgeStyles: Record<string, string> = {
   admin: "bg-primary/12 text-primary",
+  org_admin: "bg-primary/12 text-primary",
   organizer: "bg-secondary/15 text-secondary",
   attendee: "bg-flame/12 text-flame",
 }
@@ -553,7 +558,7 @@ export default function AdminUsersPage() {
   const [actionError, setActionError] = useState<string | null>(null)
   const debouncedSearch = useDebounce(search, 400)
   const user = userData?.user
-  const isSystemAdmin = !user?.organization
+  const isSystemAdmin = user?.role === "admin"
 
   const { data: orgsData } = useOrganizations()
   const organizations = orgsData?.organizations ?? []
@@ -699,7 +704,7 @@ export default function AdminUsersPage() {
           />
           <StatCard
             label="Administrators"
-            value={stats?.roleCounts?.admin ?? 0}
+            value={(stats?.roleCounts?.admin ?? 0) + (stats?.roleCounts?.org_admin ?? 0)}
             icon={ShieldCheck}
             accent="secondary"
           />
@@ -841,7 +846,7 @@ export default function AdminUsersPage() {
                           ) : (
                             <Badge className={roleBadgeStyles[u.role]}>
                               {u.role}
-                              {!isSystemAdmin && u.role === "admin" && (
+                              {!isSystemAdmin && u.role === "org_admin" && (
                                 <span className="ml-1 font-normal normal-case">
                                   (system-managed)
                                 </span>

@@ -56,7 +56,11 @@ export default function AnalyticsPage() {
   }, [events, totalRegistered, fillRate])
 
   return (
-    <AppShell role={user?.role === "admin" ? "Administrator" : "Organizer"} userName={user?.name || "User"} title="Analytics & Insights">
+    <AppShell
+      role={user?.role === "admin" || user?.role === "org_admin" ? "Administrator" : "Organizer"}
+      userName={user?.name || "User"}
+      title="Analytics & Insights"
+    >
       <div className="space-y-8">
         <Reveal className="flex flex-col gap-1">
           <div className="flex items-center gap-2">

@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils"
 function sectionForRole(): string {
   try {
     const user = JSON.parse(localStorage.getItem("user") || "{}")
-    if (user?.role === "admin") return "/admin/notifications"
+    if (user?.role === "admin" || user?.role === "org_admin") return "/admin/notifications"
     if (user?.role === "organizer") return "/organizer/notifications"
   } catch {}
   return "/notifications"

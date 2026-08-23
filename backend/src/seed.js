@@ -168,7 +168,7 @@ async function seed() {
     name: "Dev Adhikari",
     email: "orgadmin@eventnexus.dev",
     password: DEMO_PASSWORD,
-    role: "admin",
+    role: "org_admin",
     emailVerifiedAt: new Date(),
   });
 
@@ -224,6 +224,7 @@ async function seed() {
     { code: "event:register", name: "Register for events", description: "Book a ticket to an event", scope: "system" },
     { code: "feedback:submit", name: "Submit event feedback", description: "Leave a rating and comment after an event", scope: "system" },
     { code: "iam:manage", name: "Manage roles & permissions", description: "Edit role permission sets (IAM matrix)", scope: "system" },
+    { code: "ai:manage", name: "Manage AI console", description: "Retrain platform-wide ML models and curate shared chatbot training data (system admin)", scope: "system" },
     { code: "org:approve", name: "Approve organization registrations", description: "Accept or reject new tenant signups (system admin)", scope: "system" },
     { code: "org:manage", name: "Manage organization", description: "Edit organization profile and settings", scope: "system" },
     { code: "security:view", name: "View security settings", description: "Access the admin security / IAM console", scope: "system" },
@@ -241,6 +242,16 @@ async function seed() {
       scope: "system",
       permissions: [
         "org:approve", "org:manage", "user:manage", "security:view", "event:manage",
+        "analytics:view", "ticket:verify", "audit:view", "iam:manage", "ai:manage",
+        "collaboration:invite", "session:manage",
+      ],
+    },
+    {
+      name: "org_admin",
+      description: "Tenant admin — scoped to their own organization",
+      scope: "organization",
+      permissions: [
+        "org:manage", "user:manage", "security:view", "event:manage",
         "analytics:view", "ticket:verify", "audit:view", "iam:manage",
         "collaboration:invite", "session:manage",
       ],

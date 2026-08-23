@@ -4,7 +4,20 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
-import { Plus, Sparkles, X, Send, MessageCircle, ChevronDown, Trash2, Eraser } from "lucide-react"
+import {
+  Plus,
+  Sparkles,
+  X,
+  Send,
+  MessageCircle,
+  ChevronDown,
+  Trash2,
+  Eraser,
+  Copy,
+  Check,
+  RotateCcw,
+  ArrowDown,
+} from "lucide-react"
 import { ensureGsap, prefersReducedMotion } from "@/lib/gsap"
 import { chatbotApi } from "@/lib/api/chatbot"
 import {
@@ -52,13 +65,72 @@ const markdownComponents = {
   ol: ({ children }: { children?: React.ReactNode }) => <ol className="my-1 list-decimal space-y-0.5 pl-4">{children}</ol>,
 }
 
-function BotBubble({ text, quickReplies, onQuickReply }: { text: string; quickReplies?: string[]; onQuickReply?: (q: string) => void }) {
+const formatTime = (ts: number) =>
+  new Date(ts).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
   return (
-    <div className="bot-msg flex flex-col items-start gap-1.5">
-      <div className="max-w-[90%] rounded-2xl rounded-bl-md border-l-2 border-secondary bg-muted px-3.5 py-2.5 text-sm leading-relaxed text-ink">
+    <button
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(text)
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1500)
+        } catch {
+          // Clipboard API can fail (permissions, insecure context) — the
+          // button just silently stays in its normal state rather than
+          // showing a false "copied" confirmation.
+        }
+      }}
+      aria-label="Copy message"
+      className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-ink"
+    >
+      {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+      {copied ? "Copied" : "Copy"}
+    </button>
+  )
+}
+
+function BotBubble({
+  text,
+  timestamp,
+  quickReplies,
+  error,
+  retryText,
+  onQuickReply,
+  onRetry,
+}: {
+  text: string
+  timestamp: number
+  quickReplies?: string[]
+  error?: boolean
+  retryText?: string
+  onQuickReply?: (q: string) => void
+  onRetry?: (text: string) => void
+}) {
+  return (
+    <div className="bot-msg group flex flex-col items-start gap-1">
+      <div
+        className={`max-w-[90%] rounded-2xl rounded-bl-md border-l-2 px-3.5 py-2.5 text-sm leading-relaxed text-ink ${
+          error ? "border-destructive bg-destructive/[0.06]" : "border-secondary bg-muted"
+        }`}
+      >
         <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
           {text}
         </ReactMarkdown>
+      </div>
+      <div className="flex items-center gap-2 px-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+        <span className="text-[10px] text-muted-foreground">{formatTime(timestamp)}</span>
+        <CopyButton text={text} />
+        {error && retryText && (
+          <button
+            onClick={() => onRetry?.(retryText)}
+            className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium text-destructive transition-colors hover:bg-destructive/10"
+          >
+            <RotateCcw className="size-3" /> Retry
+          </button>
+        )}
       </div>
       {quickReplies && quickReplies.length > 0 && (
         <div className="flex max-w-[92%] flex-wrap gap-1.5">
@@ -77,12 +149,15 @@ function BotBubble({ text, quickReplies, onQuickReply }: { text: string; quickRe
   )
 }
 
-function UserBubble({ text }: { text: string }) {
+function UserBubble({ text, timestamp }: { text: string; timestamp: number }) {
   return (
-    <div className="bot-msg flex justify-end">
+    <div className="bot-msg group flex flex-col items-end gap-1">
       <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-primary px-3.5 py-2.5 text-sm leading-relaxed text-primary-foreground">
         {text}
       </div>
+      <span className="px-1 text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
+        {formatTime(timestamp)}
+      </span>
     </div>
   )
 }
@@ -199,11 +274,13 @@ export function EventBot({
 }) {
   const panel = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   // Pixel override for the panel — null falls back to the CSS defaults
   // (h-[min(620px,...)] w-[min(400px,...)]). w/h are split so one axis can
   // be dragged without touching the other.
   const [size, setSize] = useState<{ w: number | null; h: number | null }>({ w: null, h: null })
   const [resizing, setResizing] = useState<"w" | "h" | null>(null)
+  const [showScrollButton, setShowScrollButton] = useState(false)
 
   const open = useChatbotStore((s) => s.open)
   const setOpen = useChatbotStore((s) => s.setOpen)
@@ -233,9 +310,55 @@ export function EventBot({
     return () => ctx.revert()
   }, [open])
 
+  // Only auto-scroll to the newest message when the user is already near
+  // the bottom — otherwise a reply arriving while they've scrolled up to
+  // re-read earlier context would yank the view away from what they're
+  // reading. When they're not near the bottom, show the jump-to-latest
+  // button instead.
   useEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" })
+    const el = listRef.current
+    if (!el) return
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120
+    if (nearBottom) {
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" })
+      setShowScrollButton(false)
+    } else if (messages.length) {
+      setShowScrollButton(true)
+    }
   }, [messages, typing, open])
+
+  // Hide the jump-to-latest button once the user manually scrolls back down.
+  useEffect(() => {
+    const el = listRef.current
+    if (!el || !open) return
+    const onScroll = () => {
+      const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120
+      if (nearBottom) setShowScrollButton(false)
+    }
+    el.addEventListener("scroll", onScroll)
+    return () => el.removeEventListener("scroll", onScroll)
+  }, [open])
+
+  // Escape closes the panel; autofocus the composer whenever it opens so
+  // typing can start immediately without an extra click.
+  useEffect(() => {
+    if (!open) return
+    textareaRef.current?.focus()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false)
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [open, setOpen])
+
+  // Auto-grow the composer up to a cap so a long question doesn't shrink
+  // the message list to nothing, then scrolls internally past that.
+  useEffect(() => {
+    const el = textareaRef.current
+    if (!el) return
+    el.style.height = "auto"
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`
+  }, [input])
 
   // Live AI model status (attendance / CF / intent) from the backend —
   // surfaces whether the trained Python models are serving or the app is in
@@ -361,7 +484,7 @@ export function EventBot({
               <div className="hidden items-center gap-1.5 text-[11px] text-secondary sm:flex">
                 {aiStatus === null ? (
                   <>
-                    <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" /> AI Assistant · Online
+                    <span className="size-1.5 animate-pulse rounded-full bg-muted-foreground" /> Checking status…
                   </>
                 ) : aiStatus.online ? (
                   aiStatus.attendance && aiStatus.cf && aiStatus.intent ? (
@@ -390,16 +513,31 @@ export function EventBot({
           </div>
 
           {/* messages */}
-          <div ref={listRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
-            {messages.map((m, i) =>
+          <div
+            ref={listRef}
+            role="log"
+            aria-live="polite"
+            aria-relevant="additions"
+            className="flex-1 space-y-3 overflow-y-auto px-4 py-4"
+          >
+            {messages.map((m) =>
               m.from === "user" ? (
-                <UserBubble key={i} text={m.text} />
+                <UserBubble key={m.id} text={m.text} timestamp={m.timestamp} />
               ) : (
-                <BotBubble key={i} text={m.text} quickReplies={m.quickReplies} onQuickReply={(q) => send(q, eventId)} />
+                <BotBubble
+                  key={m.id}
+                  text={m.text}
+                  timestamp={m.timestamp}
+                  quickReplies={m.quickReplies}
+                  error={m.error}
+                  retryText={m.retryText}
+                  onQuickReply={(q) => send(q, eventId)}
+                  onRetry={(t) => send(t, eventId)}
+                />
               )
             )}
             {typing && (
-              <div className="flex justify-start">
+              <div className="flex justify-start" aria-label="EventBot is typing">
                 <div className="flex gap-1 rounded-2xl rounded-bl-md bg-muted px-4 py-3">
                   {[0, 1, 2].map((d) => (
                     <span
@@ -412,6 +550,23 @@ export function EventBot({
               </div>
             )}
           </div>
+
+          {/* Jump-to-latest — appears once the user has scrolled up while
+              more of the conversation is below the fold. Auto-scroll only
+              fires on new messages when already near the bottom (see the
+              scroll useEffect), so this is the way back without losing
+              whatever the user scrolled up to read. */}
+          {showScrollButton && (
+            <button
+              onClick={() => {
+                listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" })
+              }}
+              aria-label="Scroll to latest message"
+              className="absolute bottom-[104px] left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-ink shadow-lg transition-colors hover:bg-muted"
+            >
+              <ArrowDown className="size-3.5" /> New messages
+            </button>
+          )}
 
           {/* suggested options — shown until the first user message */}
           {messages.length <= 1 && (
@@ -435,13 +590,23 @@ export function EventBot({
               e.preventDefault()
               handleSend()
             }}
-            className="flex items-center gap-2 border-t border-border px-3 py-3"
+            className="flex items-end gap-2 border-t border-border px-3 py-3"
           >
-            <input
+            <textarea
+              ref={textareaRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                // Enter sends; Shift+Enter inserts a newline for a longer,
+                // multi-line question instead of firing prematurely.
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault()
+                  handleSend()
+                }
+              }}
               placeholder="Ask EventBot anything..."
-              className="flex-1 rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm text-ink outline-none focus:border-primary focus:ring-4 focus:ring-primary/10"
+              rows={1}
+              className="max-h-[120px] min-h-[42px] flex-1 resize-none rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm text-ink outline-none focus:border-primary focus:ring-4 focus:ring-primary/10"
             />
             <button
               type="submit"

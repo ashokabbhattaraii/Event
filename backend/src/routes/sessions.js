@@ -13,13 +13,13 @@ const validate = require("../middleware/validate");
 const router = express.Router({ mergeParams: true });
 
 // Session routes (event-scoped)
-router.get("/", protect, authorize("organizer", "admin", "attendee"), getEventSessions);
-router.get("/:id", protect, authorize("organizer", "admin", "attendee"), getSessionById);
+router.get("/", protect, authorize("organizer", "admin", "org_admin", "attendee"), getEventSessions);
+router.get("/:id", protect, authorize("organizer", "admin", "org_admin", "attendee"), getSessionById);
 
 router.post(
   "/",
   protect,
-  authorize("organizer", "admin"),
+  authorize("organizer", "admin", "org_admin"),
   [
     body("title").notEmpty().withMessage("Title is required"),
     body("startTime").notEmpty().withMessage("startTime is required"),
@@ -36,7 +36,7 @@ router.post(
 router.put(
   "/:id",
   protect,
-  authorize("organizer", "admin"),
+  authorize("organizer", "admin", "org_admin"),
   [
     body("title").optional().notEmpty().withMessage("Title cannot be empty"),
     body("startTime").optional().isISO8601().withMessage("Invalid startTime"),
@@ -50,6 +50,6 @@ router.put(
   updateSession
 );
 
-router.delete("/:id", protect, authorize("organizer", "admin"), deleteSession);
+router.delete("/:id", protect, authorize("organizer", "admin", "org_admin"), deleteSession);
 
 module.exports = router;

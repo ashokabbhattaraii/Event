@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { Building2, Loader2, UserRound } from "lucide-react"
+import { Building2, Loader2, MailCheck, UserRound } from "lucide-react"
 import { AuthShell } from "@/components/auth/auth-shell"
 import { useRegister } from "@/lib/queries/auth"
 import { useOrganizations } from "@/lib/queries/organizations"
@@ -102,11 +102,17 @@ export default function RegisterPage() {
       ? ((m as any).error?.response?.data?.message || "Something went wrong.")
       : null
 
+  const orgSuccess = orgRegister.isSuccess
+
   return (
     <AuthShell heading="Create your account" sub="Set up your EventNexus workspace in minutes.">
       {/* Account type selector: join as an attendee or register a whole
-          organization. Both live on this page — no separate /org-register. */}
-      <div className="grid grid-cols-2 gap-2 rounded-xl border border-border bg-muted/40 p-1">
+           organization. Both live on this page — no separate /org-register. */}
+      <div
+        className={`grid grid-cols-2 gap-2 rounded-xl border border-border bg-muted/40 p-1 transition ${
+          orgSuccess ? "pointer-events-none opacity-60" : ""
+        }`}
+      >
         <button
           type="button"
           onClick={() => setMode("attendee")}
@@ -130,7 +136,7 @@ export default function RegisterPage() {
       </div>
 
       {mode === "attendee" ? (
-        <form className="space-y-5" onSubmit={handleAttendeeSubmit}>
+        <form className="mt-6 space-y-5" onSubmit={handleAttendeeSubmit}>
           {errorMessage(registerMutation) && (
             <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
               {errorMessage(registerMutation)}
@@ -182,30 +188,41 @@ export default function RegisterPage() {
           </button>
         </form>
       ) : (
-        <form className="space-y-5" onSubmit={handleOrgSubmit}>
+        <form className="mt-6 space-y-5" onSubmit={handleOrgSubmit}>
           {orgRegister.isError && (
             <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
               {(orgRegister.error as any)?.response?.data?.message || "Registration failed."}
             </div>
           )}
-          {orgRegister.isSuccess && (
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-6 text-center">
-              <h2 className="font-display text-lg font-bold text-ink">Application submitted</h2>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                <span className="font-semibold text-ink">{form.orgName}</span> is now pending review.
-                A system admin will verify your details — you&apos;ll receive an email and can log in
-                once your organization is approved.
-              </p>
+          {orgSuccess && (
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 p-6 text-center shadow-sm sm:p-7">
+              <span className="mx-auto flex size-12 items-center justify-center rounded-full bg-emerald-100">
+                <MailCheck className="size-6 text-emerald-600" />
+              </span>
+              <h2 className="mt-4 font-display text-lg font-bold text-ink">Application submitted</h2>
+              <div className="mt-3 space-y-3 text-sm leading-relaxed text-muted-foreground">
+                <p>
+                  We&apos;ve sent a verification email to{" "}
+                  <span className="font-semibold text-ink break-all">{form.orgEmail}</span>. Please check
+                  your inbox (and spam folder) and click the link to verify your email — the link expires
+                  in 24 hours.
+                </p>
+                <p>
+                  <span className="font-semibold text-ink">{form.orgName}</span>{" "}
+                  is now pending review. A system admin will verify your details — you&apos;ll receive a
+                  confirmation email and can log in once your organization is approved.
+                </p>
+              </div>
               <Link
                 href="/login"
-                className="mt-4 inline-block rounded-xl bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90"
+                className="mt-6 inline-flex items-center justify-center rounded-full bg-primary px-8 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-90"
               >
                 Back to login
               </Link>
             </div>
           )}
 
-          {!orgRegister.isSuccess && (
+          {!orgSuccess && (
             <>
               <div className="auth-field flex items-center gap-2 pt-2">
                 <Building2 className="size-4 text-primary" />
@@ -281,12 +298,14 @@ export default function RegisterPage() {
         </form>
       )}
 
-      <p className="auth-field text-center text-sm text-muted-foreground">
-        Already have an account?{" "}
-        <Link href="/login" className="font-semibold text-primary hover:underline">
-          Log In
-        </Link>
-      </p>
+      {!orgSuccess && (
+        <p className="auth-field mt-8 text-center text-sm text-muted-foreground">
+          Already have an account?{" "}
+          <Link href="/login" className="font-semibold text-primary hover:underline">
+            Log In
+          </Link>
+        </p>
+      )}
     </AuthShell>
   )
 }

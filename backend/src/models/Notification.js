@@ -21,6 +21,9 @@ const notificationSchema = new mongoose.Schema(
         "system",
         "nearby-event",
         "check-in",
+        // Cross-organization co-hosting: a new AI match, the partner org
+        // accepting/declining, and the confirmed partnership.
+        "collaboration",
       ],
       default: "system",
     },

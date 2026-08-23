@@ -30,7 +30,11 @@ import {
 } from "lucide-react"
 
 const roleToShell = (role?: string) =>
-  role === "admin" ? "Administrator" : role === "organizer" ? "Organizer" : "Attendee"
+  role === "admin" || role === "org_admin"
+    ? "Administrator"
+    : role === "organizer"
+      ? "Organizer"
+      : "Attendee"
 
 export default function AttendeeSettingsPage() {
   const { data: userData, refetch: refetchUser } = useCurrentUser()

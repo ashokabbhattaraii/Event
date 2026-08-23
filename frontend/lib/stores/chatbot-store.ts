@@ -15,12 +15,18 @@ import { USER_KEY } from "@/lib/api/client"
 export type ChatFrom = "bot" | "user"
 
 export interface ChatMsg {
+  id: string
   from: ChatFrom
   text: string
+  timestamp: number
   // Context-aware follow-up chips (from the backend) that the bot message
   // renders as tappable quick replies, persisted so switching conversations
   // brings the chips back with the message they belonged to.
   quickReplies?: string[]
+  // Set on the "couldn't reach the server" bubble so the UI can offer a
+  // Retry button that resends the exact user text that failed.
+  error?: boolean
+  retryText?: string
 }
 
 export interface ChatConversation {
@@ -41,10 +47,12 @@ export interface AiStatus {
   intent: boolean
 }
 
-const SEED_MSG: ChatMsg = {
+const seedMsg = (): ChatMsg => ({
+  id: uid(),
   from: "bot",
   text: "Hi, I'm EventBot 👋 — I can recommend events, check tickets, pricing, capacity and more. Try a suggestion below!",
-}
+  timestamp: Date.now(),
+})
 
 // The backend only consumes the last ~8 turns per query; keeping ~20 on the
 // conversation keeps enough for multi-turn follow-ups without unbounded
@@ -92,7 +100,7 @@ export function newConversation(): ChatConversation {
     title: "New chat",
     createdAt: Date.now(),
     updatedAt: Date.now(),
-    messages: [SEED_MSG],
+    messages: [seedMsg()],
     context: [],
   }
 }
@@ -182,7 +190,7 @@ export const useChatbotStore = create<ChatbotState>()(
             c.id === activeId
               ? {
                   ...c,
-                  messages: [...c.messages, { from: "bot" as const, text }],
+                  messages: [...c.messages, { id: uid(), from: "bot" as const, text, timestamp: Date.now() }],
                   context: [...c.context, { role: "assistant" as const, content: text }].slice(-MAX_CONTEXT),
                   updatedAt: Date.now(),
                 }
@@ -210,7 +218,7 @@ export const useChatbotStore = create<ChatbotState>()(
               ? {
                   ...c,
                   title: c.messages.length <= 1 ? trimmed.slice(0, 40) : c.title,
-                  messages: [...c.messages, { from: "user" as const, text: trimmed }],
+                  messages: [...c.messages, { id: uid(), from: "user" as const, text: trimmed, timestamp: Date.now() }],
                   context: history.slice(-MAX_CONTEXT),
                   updatedAt: Date.now(),
                 }
@@ -230,7 +238,7 @@ export const useChatbotStore = create<ChatbotState>()(
                     ...c,
                     messages: [
                       ...c.messages,
-                      { from: "bot" as const, text: reply, quickReplies: res.quickReplies },
+                      { id: uid(), from: "bot" as const, text: reply, timestamp: Date.now(), quickReplies: res.quickReplies },
                     ],
                     context: [...history, { role: "assistant" as const, content: reply }].slice(-MAX_CONTEXT),
                     updatedAt: Date.now(),
@@ -244,7 +252,17 @@ export const useChatbotStore = create<ChatbotState>()(
               c.id === state.activeId
                 ? {
                     ...c,
-                    messages: [...c.messages, { from: "bot" as const, text: "I couldn't reach the server just now — please try again." }],
+                    messages: [
+                      ...c.messages,
+                      {
+                        id: uid(),
+                        from: "bot" as const,
+                        text: "I couldn't reach the server just now — please try again.",
+                        timestamp: Date.now(),
+                        error: true,
+                        retryText: trimmed,
+                      },
+                    ],
                     updatedAt: Date.now(),
                   }
                 : c
@@ -273,7 +291,12 @@ export const useChatbotStore = create<ChatbotState>()(
             ...newConversation(),
             ...c,
             title: c.title || "New chat",
-            messages: c.messages?.length ? c.messages : [SEED_MSG],
+            // Backfills id/timestamp on messages persisted before those
+            // fields existed, so older localStorage history doesn't crash
+            // React's key prop or show a blank timestamp.
+            messages: c.messages?.length
+              ? c.messages.map((m) => ({ ...m, id: m.id || uid(), timestamp: m.timestamp || c.updatedAt || Date.now() }))
+              : [seedMsg()],
             context: Array.isArray(c.context) ? c.context : [],
           }))
           .slice(0, MAX_STORED_CONVERSATIONS)

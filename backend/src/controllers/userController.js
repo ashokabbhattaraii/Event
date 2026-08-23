@@ -45,11 +45,11 @@ const assertManagementSafe = async (req, res, user) => {
     if (org?.owner && String(org.owner) === String(user._id)) {
       return res.status(400).json({ message: "The organization owner's account can't be changed" });
     }
-    if (user.role === "admin") {
+    if (user.role === "org_admin") {
       const otherActiveAdmins = await User.countDocuments({
         _id: { $ne: user._id },
         organization: orgId,
-        role: "admin",
+        role: "org_admin",
         active: true,
       });
       if (otherActiveAdmins === 0) {
@@ -157,20 +157,24 @@ const createUser = async (req, res) => {
     if (password.length < 6) {
       return res.status(400).json({ message: "Password must be at least 6 characters" });
     }
-    if (!["admin", "organizer", "attendee"].includes(role)) {
+    // "admin" (the platform-wide system admin) is never created here — every
+    // account this endpoint creates belongs to a tenant (org._id is always
+    // set below), and a system admin must never carry an organization. The
+    // tenant-admin role is "org_admin".
+    if (!["org_admin", "organizer", "attendee"].includes(role)) {
       return res.status(400).json({ message: "Invalid role" });
     }
     if (await User.findOne({ email })) {
       return res.status(400).json({ message: "User already exists" });
     }
 
-    const isSystemAdmin = !req.user.organization;
+    const isSystemAdmin = req.user.role === "admin";
 
-    // RBAC: only the system admin may grant the admin role — an org admin
-    // creating more admins is privilege escalation (it bypasses the system
-    // admin's org-approval authority). Org admins provision organizer/
-    // attendee accounts for their own tenant.
-    if (role === "admin" && !isSystemAdmin) {
+    // RBAC: only the system admin may grant the org_admin role — an org
+    // admin creating more org admins is privilege escalation (it bypasses
+    // the system admin's org-approval authority). Org admins provision
+    // organizer/attendee accounts for their own tenant.
+    if (role === "org_admin" && !isSystemAdmin) {
       return res
         .status(403)
         .json({ message: "Only the system admin can create organization admins" });
@@ -206,7 +210,7 @@ const createUser = async (req, res) => {
     await OrganizationMember.create({
       organization: org._id,
       user: user._id,
-      roleInOrg: role === "admin" ? "admin" : "member",
+      roleInOrg: role === "org_admin" ? "admin" : "member",
       invitedBy: req.user._id,
     });
 
@@ -250,12 +254,25 @@ const updateUserRole = async (req, res) => {
     if (user._id.toString() === req.user._id.toString()) {
       return res.status(400).json({ message: "You can't change your own role" });
     }
-    // No privilege escalation: granting the admin role is the system admin's
-    // call (org admins may still manage organizer/attendee roles).
-    if (role === "admin" && req.user.organization) {
+    // The literal "admin" (platform-wide system admin) role can never be
+    // granted through user management — it's only ever assigned via the
+    // ADMIN_EMAILS allowlist on Google sign-in (authController.js), which
+    // guarantees the account stays organization-less. Granting it here
+    // would leave the target with full system-admin permissions
+    // (org:approve, ai:manage, iam:manage) while still attached to their
+    // tenant's organization — exactly the ambiguous state the org_admin
+    // role exists to eliminate.
+    if (role === "admin") {
       return res
         .status(403)
-        .json({ message: "Only the system admin can grant the admin role" });
+        .json({ message: "The system admin role can't be granted here" });
+    }
+    // No privilege escalation: granting the org_admin role is the system
+    // admin's call (org admins may still manage organizer/attendee roles).
+    if (role === "org_admin" && req.user.role !== "admin") {
+      return res
+        .status(403)
+        .json({ message: "Only the system admin can grant the org_admin role" });
     }
     // The tenant owner is the org's root of trust — a misclick here would
     // permanently lock the org out of admin privileges.
@@ -277,7 +294,7 @@ const updateUserRole = async (req, res) => {
     if (user.organization) {
       await OrganizationMember.updateOne(
         { organization: user.organization, user: user._id, status: { $ne: "removed" } },
-        { roleInOrg: role === "admin" ? "admin" : "member" },
+        { roleInOrg: role === "org_admin" ? "admin" : "member" },
         { upsert: false }
       );
     }
@@ -416,7 +433,7 @@ const getOrgStats = async (req, res) => {
       User.countDocuments({ ...scope, active: { $ne: false } }),
       User.countDocuments({ ...scope, createdAt: { $gte: monthAgo } }),
     ]);
-    const roleCounts = { admin: 0, organizer: 0, attendee: 0 };
+    const roleCounts = { admin: 0, org_admin: 0, organizer: 0, attendee: 0 };
     roleRows.forEach((r) => {
       if (r._id in roleCounts) roleCounts[r._id] = r.count;
     });

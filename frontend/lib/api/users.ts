@@ -14,7 +14,7 @@ export interface OrgUser {
   _id: string;
   name: string;
   email: string;
-  role: "admin" | "organizer" | "attendee";
+  role: "admin" | "org_admin" | "organizer" | "attendee";
   organization: string;
   // Live aggregates computed by the API for exactly this row (one aggregate
   // per page, not guessed from the list) — so the directory is accurate.
@@ -43,7 +43,7 @@ export interface UserDetail {
   _id: string;
   name: string;
   email: string;
-  role: "admin" | "organizer" | "attendee";
+  role: "admin" | "org_admin" | "organizer" | "attendee";
   active: boolean;
   emailVerifiedAt?: string | null;
   googleAccount: boolean;
@@ -62,7 +62,7 @@ export interface CreateUserPayload {
   name: string;
   email: string;
   password: string;
-  role: "admin" | "organizer" | "attendee";
+  role: "admin" | "org_admin" | "organizer" | "attendee";
   // The system admin (platform view) scopes the new account to a tenant.
   organizationId?: string;
 }
@@ -70,7 +70,7 @@ export interface CreateUserPayload {
 export interface OrgStats {
   userCount: number;
   eventCount: number;
-  roleCounts: { admin: number; organizer: number; attendee: number };
+  roleCounts: { admin: number; org_admin: number; organizer: number; attendee: number };
   activeCount: number;
   deactivatedCount: number;
   newThisMonth: number;

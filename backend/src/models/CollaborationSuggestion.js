@@ -48,9 +48,15 @@ const collaborationSuggestionSchema = new mongoose.Schema(
     // dimension with a human-readable detail ("Same category: Technology").
     matchedFactors: [
       {
+        // Stable dimension key: category | format | date | location |
+        // audience | content | tags. Machine-readable so the UI can icon and
+        // group by dimension rather than parsing `detail` prose.
         factor: { type: String, required: true },
         detail: { type: String, default: "" },
         weight: { type: Number, default: 0 },
+        // How many of the final 0-100 points this dimension actually
+        // contributed — lets the UI rank reasons by real influence.
+        contribution: { type: Number, default: 0 },
       },
     ],
     // 2-3 sentence rationale ("co-hosting would merge your audiences…").

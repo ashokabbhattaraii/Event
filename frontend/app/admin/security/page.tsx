@@ -20,12 +20,14 @@ import type { PermissionDefinition, RolePermission } from "@/lib/api/iam"
 
 const roleIcons: Record<string, ReactElement> = {
   admin: <ShieldCheck className="size-5 text-primary" />,
+  org_admin: <ShieldCheck className="size-5 text-primary" />,
   organizer: <UserCog className="size-5 text-secondary" />,
   attendee: <Users className="size-5 text-flame" />,
 }
 
 const roleColors: Record<string, string> = {
   admin: "bg-primary/12 text-primary",
+  org_admin: "bg-primary/12 text-primary",
   organizer: "bg-secondary/15 text-secondary",
   attendee: "bg-flame/12 text-flame",
 }
@@ -39,10 +41,11 @@ export default function SecurityPage() {
   const updateRole = useUpdateUserRole()
 
   const user = userData?.user
-  const isSystemAdmin = !user?.organization
-  // Tenant admins (admin WITH an org) may edit their own roles but the
-  // system roles stay locked to the system admin.
-  const canEditRoles = !!user?.role && (isSystemAdmin || user.role === "admin")
+  const isSystemAdmin = user?.role === "admin"
+  // Org admins may edit organization-scope roles but system-scope roles
+  // stay locked to the system admin (enforced server-side in
+  // iamController.updateRolePermissions regardless of this UI gate).
+  const canEditRoles = user?.role === "admin" || user?.role === "org_admin"
   const users = usersData?.users ?? []
   const roles = rolesData?.roles ?? []
   const permissions = permsData?.permissions ?? []
@@ -56,7 +59,7 @@ export default function SecurityPage() {
       u.role.toLowerCase().includes(query.toLowerCase()),
   )
 
-  const admins = users.filter((u) => u.role === "admin").length
+  const admins = users.filter((u) => u.role === "admin" || u.role === "org_admin").length
   const organizers = users.filter((u) => u.role === "organizer").length
   const attendees = users.filter((u) => u.role === "attendee").length
 
@@ -356,8 +359,11 @@ export default function SecurityPage() {
                           className="mt-1 rounded-lg border border-border bg-background px-2 py-1 text-xs font-medium text-ink outline-none focus:border-primary"
                         >
                           {isSystemAdmin ? (
+                            // The literal "admin" (platform-wide system admin) role
+                            // is never grantable here — only via the ADMIN_EMAILS
+                            // allowlist — so the highest option offered is org_admin.
                             <>
-                              <option value="admin">admin</option>
+                              <option value="org_admin">org_admin</option>
                               <option value="organizer">organizer</option>
                               <option value="attendee">attendee</option>
                             </>

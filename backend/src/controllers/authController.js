@@ -160,7 +160,7 @@ const register = async (req, res) => {
     // existing tenant.
     const requestedRole = role || "attendee";
     if (
-      (requestedRole === "admin" || requestedRole === "organizer") &&
+      (requestedRole === "org_admin" || requestedRole === "organizer") &&
       !isAdminEmail(email)
     ) {
       return res.status(403).json({
@@ -169,7 +169,7 @@ const register = async (req, res) => {
       });
     }
     const resolvedRole =
-      requestedRole === "admin" || requestedRole === "organizer"
+      requestedRole === "org_admin" || requestedRole === "organizer"
         ? requestedRole
         : "attendee";
 
@@ -180,15 +180,15 @@ const register = async (req, res) => {
 
     let organization;
 
-    if (resolvedRole === "admin") {
-      // Admin sign-up creates a brand-new tenant; the admin becomes its owner.
-      // The tenant starts "pending" — the system admin must approve it before
-      // anyone (including this admin) can log in. (Self-service admin
+    if (resolvedRole === "org_admin") {
+      // Org-admin sign-up creates a brand-new tenant; the signer becomes its
+      // owner. The tenant starts "pending" — the system admin must approve
+      // it before anyone (including this admin) can log in. (Self-service
       // sign-up is legacy; orgRegister is the intended onboarding flow.)
       if (!organizationName) {
         return res
           .status(400)
-          .json({ message: "Organization name is required for admin sign-up" });
+          .json({ message: "Organization name is required for org admin sign-up" });
       }
       const slug = slugify(organizationName);
       const slugTaken = await Organization.findOne({ slug });
@@ -215,16 +215,16 @@ const register = async (req, res) => {
       }
     }
 
+    // adminGrantedAt is never set here — it exists only to make the
+    // platform-wide "admin" role's ADMIN_EMAILS allowlist grant sticky
+    // (see googleLogin below). This path only ever creates org_admin,
+    // organizer, or attendee accounts, never the system admin.
     const user = await User.create({
       name,
       email,
       password,
       role: resolvedRole,
       organization: organization._id,
-      // Only the ADMIN_EMAILS allowlist can reach the admin branch, so record
-      // the grant — once granted, allowlist logins never re-promote a
-      // deliberately demoted account (see googleLogin).
-      adminGrantedAt: resolvedRole === "admin" ? new Date() : undefined,
     });
 
     if (resolvedRole === "admin") {
@@ -300,7 +300,8 @@ const orgRegister = async (req, res) => {
       return res.status(400).json({ message: "Password must be at least 6 characters" });
     }
 
-    // The org admin is always created as an "admin" within their own tenant.
+    // The org admin is always created as "org_admin" within their own tenant
+    // — the distinct tenant-scoped role, never the platform-wide "admin".
     const existingUser = await User.findOne({ email: adminEmail });
     if (existingUser) {
       return res.status(400).json({ message: "An account with that email already exists" });
@@ -335,7 +336,7 @@ const orgRegister = async (req, res) => {
       name: adminName,
       email: adminEmail,
       password: adminPassword,
-      role: "admin",
+      role: "org_admin",
       organization: organization._id,
     });
     organization.owner = user._id;

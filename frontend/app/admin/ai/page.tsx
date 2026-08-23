@@ -23,6 +23,7 @@ import {
   FlaskConical,
   Ticket,
   MessageSquare,
+  ShieldAlert,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
@@ -95,6 +96,12 @@ function ModelCard({
 export default function AdminAiPage() {
   const { data: userData } = useCurrentUser()
   const user = userData?.user
+  // The AI console retrains platform-wide models and reads cross-tenant
+  // chatlog data (backend: requireSystemAdmin on /api/ai) — a tenant admin
+  // (role "admin" WITH an organization) has no legitimate use for it and
+  // every call here would 403, so skip fetching and show why instead of a
+  // page full of failed requests.
+  const isSystemAdmin = user?.role === "admin"
 
   const [status, setStatus] = useState<AiStatusResponse | null>(null)
   const [chatlog, setChatlog] = useState<AiChatlogResponse | null>(null)
@@ -113,9 +120,10 @@ export default function AdminAiPage() {
   }, [])
 
   useEffect(() => {
+    if (!isSystemAdmin) return
     load().catch(() => setError("Failed to load AI service status."))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [isSystemAdmin])
 
   const handleTrain = async () => {
     setTraining(true)
@@ -186,6 +194,19 @@ export default function AdminAiPage() {
           </p>
         </Reveal>
 
+        {!isSystemAdmin ? (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-amber-800">
+            <div className="flex items-center gap-3">
+              <ShieldAlert className="size-5" />
+              <p className="text-sm font-medium">
+                Only the system admin (admin without an organization) can access AI training —
+                the models and chat samples here are shared across every tenant. Your account is
+                scoped to a tenant.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <>
         {error && (
           <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
             {error}
@@ -376,6 +397,8 @@ export default function AdminAiPage() {
             </div>
           )}
         </Reveal>
+          </>
+        )}
       </div>
     </AppShell>
   )

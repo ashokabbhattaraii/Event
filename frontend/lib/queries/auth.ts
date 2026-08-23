@@ -18,6 +18,7 @@ export const authKeys = {
 
 export const roleRoutes: Record<string, string> = {
   admin: "/admin",
+  org_admin: "/admin",
   organizer: "/organizer",
   attendee: "/dashboard",
 };

@@ -14,22 +14,27 @@ const { notifyNearbyUsers } = require("../utils/proximityNotify");
 const EVENT_SEARCH_FIELDS = ["title", "venue", "category", "description"];
 const EVENT_SORT_FIELDS = ["date", "title", "createdAt", "registered"];
 
-// A user may manage an event if they created it, or if they're an admin of
-// the event's own organization, or if they're an admin/owner of a co-host
-// organization (admins can't touch other tenants' events unless co-hosting).
+// A user may manage an event if they created it, if they're the platform-
+// wide system admin (role "admin", no organization — this app's own
+// design principle is that they "control all tenant companies," so they
+// see and manage every event, not just ones they personally created), if
+// they're an org admin of the event's own organization, or if they're an
+// org admin of a co-host organization (org admins can't touch other
+// tenants' events unless co-hosting).
 const canManageEvent = (event, user) => {
   const isOwner = event.organizer?.toString() === user._id.toString();
+  const isSystemAdmin = user.role === "admin" && !user.organization;
   const isOrgAdmin =
-    user.role === "admin" &&
+    user.role === "org_admin" &&
     event.organization &&
     user.organization &&
     event.organization.toString() === user.organization.toString();
   const isCoHostAdmin =
-    user.role === "admin" &&
+    user.role === "org_admin" &&
     event.coHostOrganizations &&
     user.organization &&
     event.coHostOrganizations.some((oid) => oid.toString() === user.organization.toString());
-  return isOwner || isOrgAdmin || isCoHostAdmin;
+  return isOwner || isSystemAdmin || isOrgAdmin || isCoHostAdmin;
 };
 
 // Accepts either a plain number (ticket amount) or an { amount, currency }
@@ -325,18 +330,24 @@ const updateEvent = async (req, res) => {
   }
 };
 
-// Returns true only for the event owner / owning organization's admins.
-// Co-host organization admins may manage an event (canManageEvent) but must
-// never delete it — deletion is an ownership action (matches the documented
-// co-host policy: "except ownership").
+// Returns true only for the event owner, the platform system admin, or the
+// owning organization's own admin. Co-host organization admins may manage
+// an event (canManageEvent) but must never delete it — deletion is an
+// ownership action (matches the documented co-host policy: "except
+// ownership"). The system admin is included here the same way as
+// canManageEvent above — they can already suspend/reject an entire
+// organization via the system-admin console, so being unable to remove a
+// single problematic event would be an inconsistent gap in that same
+// platform-moderation authority.
 const isOwningOrgManager = (event, user) => {
   const isOwner = event.organizer?.toString() === user._id.toString();
+  const isSystemAdmin = user.role === "admin" && !user.organization;
   const isOrgAdmin =
-    user.role === "admin" &&
+    user.role === "org_admin" &&
     event.organization &&
     user.organization &&
     event.organization.toString() === user.organization.toString();
-  return isOwner || isOrgAdmin;
+  return isOwner || isSystemAdmin || isOrgAdmin;
 };
 
 const deleteEvent = async (req, res) => {
@@ -486,33 +497,6 @@ const listCoHostOrganizations = async (req, res) => {
   }
 };
 
-// Add a co-host organization to an event.
-const addCoHostOrganization = async (req, res) => {
-  try {
-    const event = await Event.findById(req.params.id);
-    if (!event) {
-      return res.status(404).json({ message: "Event not found" });
-    }
-    if (!canManageEvent(event, req.user)) {
-      return res.status(403).json({ message: "Not authorized" });
-    }
-    const { organizationId } = req.body;
-    if (event.organization.toString() === organizationId) {
-      return res.status(400).json({ message: "Owning organization cannot be a co-host" });
-    }
-    if (event.coHostOrganizations?.some((oid) => oid.toString() === organizationId)) {
-      return res.status(400).json({ message: "Organization is already a co-host" });
-    }
-    event.coHostOrganizations = event.coHostOrganizations || [];
-    event.coHostOrganizations.push(organizationId);
-    await event.save();
-    await event.populate("coHostOrganizations", "name email phone city country status");
-    res.json({ coHostOrganizations: event.coHostOrganizations });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
 // Remove a co-host organization from an event.
 const removeCoHostOrganization = async (req, res) => {
   try {
@@ -529,6 +513,29 @@ const removeCoHostOrganization = async (req, res) => {
     }
     event.coHostOrganizations = event.coHostOrganizations.filter((oid) => oid.toString() !== orgId);
     await event.save();
+
+    // Retire any suggestion that produced this partnership. Without it the
+    // suggestion stayed stamped "co-hosted" forever: the UI kept showing
+    // "You're co-hosting <org>" for a link that no longer existed, and the
+    // engine's already-suggested guard meant the pair could never be
+    // matched again even though it was now a valid candidate. Marking it
+    // rejected both corrects the display and releases the pair.
+    try {
+      const CollaborationSuggestion = require("../models/CollaborationSuggestion");
+      await CollaborationSuggestion.updateMany(
+        {
+          resolvedOutcome: "co-hosted",
+          $or: [
+            { eventA: event._id, orgB: orgId },
+            { eventB: event._id, orgA: orgId },
+          ],
+        },
+        { $set: { resolvedOutcome: "rejected", resolvedAt: new Date() } }
+      );
+    } catch (error) {
+      console.error("[co-host] failed to retire suggestion:", error.message);
+    }
+
     await event.populate("coHostOrganizations", "name email phone city country status");
     res.json({ coHostOrganizations: event.coHostOrganizations });
   } catch (error) {
@@ -615,7 +622,6 @@ module.exports = {
   getAllEvents,
   getOrgEvents,
   getEventAiInsight,
-  addCoHostOrganization,
   removeCoHostOrganization,
   listCoHostOrganizations,
   canManageEvent,

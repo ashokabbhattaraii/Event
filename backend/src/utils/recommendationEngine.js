@@ -98,6 +98,13 @@ const scoreDeterministic = async ({
 
   const scored = candidates
     .filter((event) => !registeredEventIds.has(event._id.toString()))
+    // buildFromCf (tier 1) already excludes sold-out events; this fallback
+    // path didn't, and its own popularityScore (fillRate * 7) actively
+    // rewards a high fill rate — without this, a 100%-full event could
+    // score as a top pick and get recommended to someone who literally
+    // can't register for it. capacity is schema-required (min: 1), so this
+    // is a plain sold-out check, not an "unlimited capacity" allowance.
+    .filter((event) => event.registered < event.capacity)
     .map((event) => {
       const catScore = (categoryWeights[event.category] || 0) * 8;
       const typeScore = (typeWeights[event.type] || 0) * 4;
@@ -158,13 +165,21 @@ const scoreDeterministic = async ({
 // CF-first path: Python service ranked by collaborative filtering. We rehydrate
 // the event documents, attach deterministic context (distance, predicted) and
 // factor strings so the reason layer works identically.
-const buildFromCf = async ({ candidates, cf, location, limit }) => {
+const buildFromCf = async ({ candidates, cf, location, limit, registeredEventIds }) => {
   const hasUserLoc = hasValidCoords(location);
   const byId = new Map(candidates.map((e) => [e._id.toString(), e]));
   const entries = [];
   for (const r of cf.recommendations) {
     const event = byId.get(String(r.event_id));
     if (!event || event.registered >= event.capacity) continue;
+    // The CF model is trained offline/periodically — it can lag a very
+    // recent registration by minutes to hours. Its own matrix-based
+    // "attended" exclusion (ai-service) only reflects tickets that existed
+    // as of the last training run, so this live re-check against the
+    // caller's *current* tickets is required too, matching what the
+    // deterministic path already does — without it, tier-1 could
+    // recommend an event the user just registered for.
+    if (registeredEventIds.has(String(event._id))) continue;
     entries.push({ event, cfScore: r.score });
     if (entries.length >= limit) break;
   }
@@ -216,7 +231,7 @@ const scoreEvents = async ({ attendee, organization, location, limit = 12, withR
   // Tier 1: collaborative filtering from the Python AI service.
   const cf = await ai.recommend(attendee, organization);
   if (cf?.has_cf && cf.recommendations.length) {
-    const fromCf = await buildFromCf({ candidates, cf, location, limit });
+    const fromCf = await buildFromCf({ candidates, cf, location, limit, registeredEventIds });
     if (fromCf) {
       if (withReasons) await addAiReasons(fromCf.scored);
       return { ...fromCf, recommendations: fromCf.scored };

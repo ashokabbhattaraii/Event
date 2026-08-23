@@ -68,23 +68,23 @@ router.patch(
   updateMyPassword
 );
 
-router.get("/", protect, requireRole("admin"), listOrgUsers);
-router.get("/stats", protect, requireRole("admin"), getOrgStats);
+router.get("/", protect, requireRole("admin", "org_admin"), listOrgUsers);
+router.get("/stats", protect, requireRole("admin", "org_admin"), getOrgStats);
 
 // --- Admin user management (report §18 identity management) ---
 const mongoIdParam = param("id").isMongoId().withMessage("Invalid user id");
 
 // Full admin profile of one user (live activity, sessions, ticket/event
 // counts). Org admins are tenant-scoped; the system admin sees every tenant.
-router.get("/:id", protect, requireRole("admin"), [mongoIdParam], validate, getUserDetail);
+router.get("/:id", protect, requireRole("admin", "org_admin"), [mongoIdParam], validate, getUserDetail);
 // Refresh sessions (devices) of one user, newest first.
-router.get("/:id/sessions", protect, requireRole("admin"), [mongoIdParam], validate, listUserSessions);
+router.get("/:id/sessions", protect, requireRole("admin", "org_admin"), [mongoIdParam], validate, listUserSessions);
 // Deactivate / reactivate an account. Deactivation revokes every session and
 // blocks further logins; the account keeps its data and can be restored.
 router.patch(
   "/:id/status",
   protect,
-  requireRole("admin"),
+  requireRole("admin", "org_admin"),
   [mongoIdParam, body("active").isBoolean().withMessage("active must be a boolean")],
   validate,
   updateUserStatus
@@ -93,7 +93,7 @@ router.patch(
 router.post(
   "/:id/revoke-sessions",
   protect,
-  requireRole("admin"),
+  requireRole("admin", "org_admin"),
   [mongoIdParam],
   validate,
   revokeUserSessions
@@ -104,7 +104,7 @@ router.post(
 router.post(
   "/:id/reset-password",
   protect,
-  requireRole("admin"),
+  requireRole("admin", "org_admin"),
   [mongoIdParam],
   validate,
   adminResetPassword
@@ -115,7 +115,7 @@ router.post(
 router.delete(
   "/:id",
   protect,
-  requireRole("admin"),
+  requireRole("admin", "org_admin"),
   [mongoIdParam],
   validate,
   removeUser
@@ -128,14 +128,14 @@ router.delete("/me/saved-events/:eventId", protect, removeSavedEvent);
 router.post(
   "/",
   protect,
-  requireRole("admin"),
+  requireRole("admin", "org_admin"),
   [
     body("name").notEmpty().withMessage("Name is required"),
     body("email").isEmail().withMessage("Valid email is required"),
     body("password")
       .isLength({ min: 6 })
       .withMessage("Password must be at least 6 characters"),
-    body("role").optional().isIn(["admin", "organizer", "attendee"]).withMessage("Invalid role"),
+    body("role").optional().isIn(["admin", "org_admin", "organizer", "attendee"]).withMessage("Invalid role"),
     body("organizationId")
       .optional()
       .isMongoId()
@@ -147,10 +147,10 @@ router.post(
 router.put(
   "/:id/role",
   protect,
-  requireRole("admin"),
+  requireRole("admin", "org_admin"),
   [
     body("role")
-      .isIn(["admin", "organizer", "attendee"])
+      .isIn(["admin", "org_admin", "organizer", "attendee"])
       .withMessage("Invalid role"),
   ],
   validate,

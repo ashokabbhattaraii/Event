@@ -33,16 +33,15 @@ import { EventQrPoster } from "@/components/app/event-qr-poster"
 import { VenueMap } from "@/components/app/venue-map"
 import { useEvent } from "@/lib/queries/events"
 import { useMyTickets, useRegisterForEvent, useCancelTicket } from "@/lib/queries/tickets"
-import { useCurrentUser } from "@/lib/queries/auth"
+import { useCurrentUser, roleRoutes } from "@/lib/queries/auth"
 import { usePaymentConfig, useCreateCheckoutSession, useInitiateEsewaPayment } from "@/lib/queries/payments"
 import { submitEsewaForm } from "@/lib/esewa"
 import { formatPrice, isFreeEvent } from "@/lib/price"
 
-const roleHome: Record<string, string> = {
-  admin: "/admin",
-  organizer: "/organizer",
-  attendee: "/dashboard",
-}
+// Reuses the single shared role→home map (lib/queries/auth) rather than a
+// local copy: this duplicate was missing "org_admin", so an org admin got
+// `undefined` for their dashboard href — a dead link.
+const roleHome = roleRoutes
 
 // Stripe redirects here with ?checkout=cancelled when the buyer abandons the
 // checkout page — surface that clearly instead of a silent return to the
@@ -101,7 +100,7 @@ export default function PublicEventPage({ params }: { params: Promise<{ id: stri
   if (isError || !event) notFound()
 
   const isAttendeeUser = user?.role === "attendee"
-  const isStaffUser = user?.role === "organizer" || user?.role === "admin"
+  const isStaffUser = user?.role === "organizer" || user?.role === "admin" || user?.role === "org_admin"
 
   const registeredTicket = tickets.find((t) => {
     const ev = typeof t.event === "object" ? t.event : null

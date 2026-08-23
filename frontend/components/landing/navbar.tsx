@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { Hexagon, LayoutDashboard } from "lucide-react"
-import { useCurrentUser, useLogout } from "@/lib/queries/auth"
+import { useCurrentUser, useLogout, roleRoutes } from "@/lib/queries/auth"
 
 const links = [
   { label: "Features", href: "#features" },
@@ -12,11 +12,9 @@ const links = [
   { label: "Dashboard", href: "/dashboard" },
 ]
 
-const roleHome: Record<string, string> = {
-  admin: "/admin",
-  organizer: "/organizer",
-  attendee: "/dashboard",
-}
+// Shared role→home map rather than another local copy that can drift out
+// of sync as roles are added (this one predated "org_admin").
+const roleHome = roleRoutes
 
 export function Navbar() {
   const { data: userData } = useCurrentUser()

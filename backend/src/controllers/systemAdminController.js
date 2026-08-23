@@ -36,13 +36,11 @@ const listPendingOrgs = async (req, res) => {
 
     // Attach the org admin (the user who registered the org) for each.
     const orgIds = orgs.map((o) => o._id);
-    const admins = await User.find({ organization: { $in: orgIds }, role: "admin" })
-      .select("name email")
+    const admins = await User.find({ organization: { $in: orgIds }, role: "org_admin" })
+      .select("name email organization")
       .lean();
     const adminByOrg = {};
     admins.forEach((a) => {
-      // The system admin itself has role "admin" but no organization —
-      // skip org-less admins.
       if (!a.organization) return;
       const key = a.organization.toString();
       if (!adminByOrg[key]) adminByOrg[key] = a;

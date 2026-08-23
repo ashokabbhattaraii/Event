@@ -1,14 +1,21 @@
-// Admin-only AI console API. Proxies the Python AI service (ai-service/)
-// behind the app's auth so admins can inspect, retrain and curate the
-// models from the dashboard UI.
+// System-admin-only AI console API. Proxies the Python AI service
+// (ai-service/) behind the app's auth so the platform admin can inspect,
+// retrain and curate the models from the dashboard UI.
 const express = require("express");
-const { protect, requireRole } = require("../middleware/auth");
+const { protect, requireSystemAdmin } = require("../middleware/auth");
 const ai = require("../utils/aiClient");
 
 const router = express.Router();
 
-// All AI-management routes are admin-only.
-router.use(protect, requireRole("admin"));
+// System-admin only, not just any "admin" — /train retrains platform-wide
+// models from every tenant's data in one shot, and /chatlog exposes labeled
+// chatbot conversation samples pooled across every organization. Neither is
+// scoped by organization (nor could reasonably be, since the models are
+// shared), so a tenant admin (role "admin" WITH an organization) must not
+// reach this: they'd retrain the shared model and read/edit/delete other
+// tenants' chat samples. Only requireSystemAdmin (admin, no organization)
+// may use this console — same guard as the org-approval console.
+router.use(protect, requireSystemAdmin);
 
 // Combined service health + model metadata + training-data stats.
 router.get("/status", async (req, res) => {

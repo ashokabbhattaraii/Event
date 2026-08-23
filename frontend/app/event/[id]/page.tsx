@@ -12,7 +12,12 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
   const displayName = user?.name || "Attendee"
 
   // Use actual user role from server, not hardcoded
-  const role = user?.role === "admin" ? "Administrator" : user?.role === "organizer" ? "Organizer" : "Attendee"
+  const role =
+    user?.role === "admin" || user?.role === "org_admin"
+      ? "Administrator"
+      : user?.role === "organizer"
+        ? "Organizer"
+        : "Attendee"
 
   return (
     <RoleEventDetail

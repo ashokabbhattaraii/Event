@@ -13,7 +13,7 @@ router.post("/:id/cancel", protect, requireRole("attendee"), cancelTicket);
 router.post(
   "/verify",
   protect,
-  requireRole("organizer", "admin"),
+  requireRole("organizer", "admin", "org_admin"),
   [body("qrToken").notEmpty().withMessage("qrToken is required")],
   validate,
   verifyTicket

@@ -43,6 +43,10 @@ export interface EventData {
   // Populated object on org-scoped/admin endpoints (getOrgEvents), a bare id
   // elsewhere (e.g. getMyEvents).
   organization: { _id: string; name: string } | string;
+  // Organization ids this event has accepted as co-hosts — mirrors the
+  // backend's canManageEvent so the frontend can compute the same "can I
+  // manage this event" answer without a round trip that 403s.
+  coHostOrganizations?: (string | { _id: string })[];
   registered: number;
   createdAt: string;
   predictedAttendance?: number;

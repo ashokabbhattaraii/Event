@@ -35,7 +35,7 @@ const listOrganizations = async (req, res) => {
       limit,
       skip,
       sort,
-      select: "name _id slug city country",
+      select: "name _id slug city country status",
     });
     res.json({ organizations: data, pagination });
   } catch (error) {

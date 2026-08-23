@@ -10,7 +10,7 @@ const validate = require("../middleware/validate");
 
 const router = express.Router();
 
-router.use(protect, requireRole("admin"));
+router.use(protect, requireRole("admin", "org_admin"));
 
 // Role & permission management (report §4, §18) — administrators only.
 router.get("/roles", listRoles);

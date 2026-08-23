@@ -14,12 +14,14 @@ import {
   type LucideIcon,
 } from "lucide-react"
 import { EventBot } from "@/components/chatbot/event-bot"
-import { adminNav, attendeeNav, organizerNav } from "@/components/app/nav-configs"
+import { adminNav, attendeeNav, organizerNav, orgAdminNav } from "@/components/app/nav-configs"
 import { HelpDialog } from "@/components/app/help-dialog"
 import { NotificationBell } from "@/components/app/notification-bell"
 import { ensureGsap, prefersReducedMotion } from "@/lib/gsap"
 import { useUnreadCount } from "@/lib/queries/notifications"
 import { useCurrentUser, useLogout } from "@/lib/queries/auth"
+import { canAccessPath } from "@/lib/route-access"
+import { NotFoundScreen } from "@/components/app/not-found-screen"
 import { useChatbotStore } from "@/lib/stores/chatbot-store"
 
 export type NavItem = { label: string; href: string; icon: LucideIcon; badge?: number }
@@ -33,6 +35,7 @@ type AppShellProps = {
 
 const roleColorMap: Record<string, string> = {
   Administrator: "bg-primary/12 text-primary",
+  "Org Admin": "bg-primary/12 text-primary",
   Organizer: "bg-secondary/15 text-secondary",
   Attendee: "bg-flame/12 text-flame",
 }
@@ -43,18 +46,28 @@ const roleNavMap: Record<AppShellProps["role"], NavItem[]> = {
   Attendee: attendeeNav,
 }
 
-function resolveShellFromPath(pathname: string, fallbackRole: AppShellProps["role"]) {
-  if (pathname.startsWith("/admin")) {
-    return { nav: adminNav, role: "Administrator" as const }
-  }
-  if (pathname.startsWith("/organizer")) {
-    return { nav: organizerNav, role: "Organizer" as const }
-  }
-  if (pathname.startsWith("/dashboard") || pathname.startsWith("/event") || pathname.startsWith("/events")) {
-    return { nav: attendeeNav, role: "Attendee" as const }
-  }
-  return { nav: roleNavMap[fallbackRole], role: fallbackRole }
+// The shell's identity — sidebar, role badge, colour — is derived from the
+// AUTHENTICATED USER, never from the URL.
+//
+// This used to be resolved from the pathname instead (`/organizer/*` →
+// Organizer, `/admin/*` → Administrator). That meant the URL, not the
+// session, decided who you appeared to be: an attendee who reached any
+// /organizer/* link visibly "became" an Organizer — organizer sidebar,
+// "Organizer" badge — because the path said so. A URL is attacker- and
+// accident-controlled input; it can never be the source of truth for
+// identity. Only the signed-in account is.
+const ROLE_FOR_USER: Record<string, AppShellProps["role"]> = {
+  admin: "Administrator",
+  org_admin: "Administrator",
+  organizer: "Organizer",
+  attendee: "Attendee",
 }
+
+// Route permissions live in lib/route-access (imported above) — one table
+// shared by every check, rather than a coarse test duplicated per call site.
+// Enforced here in AppShell, the one component every page renders through,
+// so a single check covers every route: deep links, bookmarks, stale links
+// and in-app buttons alike.
 
 function matchesRoute(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`)
@@ -139,15 +152,41 @@ export function AppShell({ children, role, userName, title = "Welcome back" }: A
   useEffect(() => {
     if (needsVerification) router.replace("/verify-email")
   }, [needsVerification, router])
+
+  // Nobody may open another role's workspace by URL. A denied path renders
+  // the same 404 as a nonexistent one (see NotFoundScreen) rather than
+  // redirecting: a silent bounce looks like the click did nothing, and
+  // showing the page chrome with an apologetic banner — as this used to —
+  // leaks the title and purpose of a console the caller isn't entitled to.
+  const pathAllowed = !currentUser || canAccessPath(currentUser.role, pathname)
+
+  // Any reason to withhold the page body: unverified email, or a path this
+  // role must not see.
+  const blocked = needsVerification || !pathAllowed
+
   // The chat panel's open state lives in the zustand store (with the whole
   // conversation), so switching pages keeps both the chat open and its
   // history intact — AppShell unmounts on every route change.
   const botOpen = useChatbotStore((s) => s.open)
   const setBotOpen = useChatbotStore((s) => s.setOpen)
   const aside = useRef<HTMLElement>(null)
-  const resolvedShell = resolveShellFromPath(pathname, role)
-  const resolvedNav = resolvedShell.nav
-  const roleLabel = resolvedShell.role
+  // Identity from the session, not the URL (see ROLE_FOR_USER above). The
+  // `role` prop is only a fallback for the brief moment before the user
+  // query resolves, and for signed-out visitors on public pages.
+  const effectiveRole: AppShellProps["role"] = currentUser
+    ? ROLE_FOR_USER[currentUser.role] ?? "Attendee"
+    : role
+  // "org_admin" is the distinct, explicit tenant-scoped role (see
+  // backend/models/User.js) — never inferred from "admin" + organization
+  // set, which used to be ambiguous enough that a permission check (the AI
+  // console) accidentally treated org admins as full system admins. They
+  // get a trimmed nav that only lists routes actually scoped to their own
+  // org, and a distinct badge, so the console they land on after login
+  // doesn't imply platform-wide powers they don't have (org approvals, AI
+  // training, system settings all reject them server-side).
+  const isOrgScopedAdmin = currentUser?.role === "org_admin"
+  const resolvedNav = isOrgScopedAdmin ? orgAdminNav : roleNavMap[effectiveRole]
+  const roleLabel = isOrgScopedAdmin ? "Org Admin" : effectiveRole
   const roleColor = roleColorMap[roleLabel]
   const activeHref =
     resolvedNav
@@ -171,10 +210,13 @@ export function AppShell({ children, role, userName, title = "Welcome back" }: A
   const [helpOpen, setHelpOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
 
+  // Uses effectiveRole (Administrator/Organizer/Attendee), not the
+  // roleLabel badge — an Org Admin still belongs on /admin/events, same as
+  // the System Administrator, only the badge text differs.
   const searchHref =
-    roleLabel === "Administrator"
+    effectiveRole === "Administrator"
       ? "/admin/events"
-      : roleLabel === "Organizer"
+      : effectiveRole === "Organizer"
         ? "/organizer/events"
         : "/events"
 
@@ -206,6 +248,14 @@ export function AppShell({ children, role, userName, title = "Welcome back" }: A
     }, aside)
     return () => ctx.revert()
   }, [])
+
+  // Placed after every hook so hook order stays stable across renders.
+  // Replaces the whole shell rather than just the body: the topbar renders
+  // the page's own `title` prop, so keeping the chrome would still announce
+  // "Organization approvals" to someone who may not see that console.
+  if (currentUser && !pathAllowed) {
+    return <NotFoundScreen />
+  }
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -353,7 +403,7 @@ export function AppShell({ children, role, userName, title = "Welcome back" }: A
             >
               <Sparkles className="size-4" /> Ask EventBot
             </button>
-            <NotificationBell role={roleLabel} />
+            <NotificationBell role={effectiveRole} />
             <button
               onClick={() => setHelpOpen(true)}
               className="hidden size-10 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground transition-colors hover:text-ink md:flex"
@@ -364,14 +414,14 @@ export function AppShell({ children, role, userName, title = "Welcome back" }: A
           </div>
         </header>
 
-        <main className="flex-1 px-6 py-6">{needsVerification ? null : children}</main>
+        <main className="flex-1 px-6 py-6">{blocked ? null : children}</main>
       </div>
 
-      {!needsVerification && <EventBot eventId={currentEventId} />}
+      {!blocked && <EventBot eventId={currentEventId} />}
 
       <HelpDialog
         open={helpOpen}
-        role={roleLabel}
+        role={effectiveRole}
         onClose={() => setHelpOpen(false)}
         onAskBot={() => {
           setHelpOpen(false)

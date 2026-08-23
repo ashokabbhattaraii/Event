@@ -112,7 +112,7 @@ function OrgDirectory() {
         />
         <StatCard
           label="Administrators"
-          value={stats?.roleCounts?.admin ?? 0}
+          value={(stats?.roleCounts?.admin ?? 0) + (stats?.roleCounts?.org_admin ?? 0)}
           icon={ShieldCheck}
           accent="primary"
         />
@@ -250,7 +250,9 @@ function OrgDirectory() {
 export default function AdminOrganizationsPage() {
   const { data: userData } = useCurrentUser()
   const user = userData?.user
-  const isSystemAdmin = !user?.organization
+  // Explicit role, not the old "has no organization" inference — that
+  // shorthand is what let tenant admins be mistaken for platform admins.
+  const isSystemAdmin = user?.role === "admin"
 
   return isSystemAdmin ? (
     <AppShell role="Administrator" userName={user?.name || "Admin"} title="Organization">

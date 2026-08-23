@@ -1,8 +1,44 @@
 const CollaborationSuggestion = require("../models/CollaborationSuggestion");
 const Event = require("../models/Event");
+const User = require("../models/User");
 const { scanForSuggestions } = require("../utils/collaborationEngine");
 const { parsePagination, parseSort, paginate } = require("../utils/query");
 const { audit } = require("../utils/audit");
+const { createNotification } = require("./notificationController");
+
+// Notify every admin of an organization. Co-hosting is a two-sided
+// handshake — it only completes when BOTH orgs accept — but nothing used to
+// tell the other side anything at all: not that a match existed, not that
+// you had accepted and were waiting on them. The handshake could therefore
+// only complete if both admins happened to open the page independently.
+//
+// Fire-and-forget: a notification failure must never roll back a decision
+// that has already been committed to the suggestion.
+const notifyOrgAdmins = async ({ organization, excludeUser, ...payload }) => {
+  try {
+    const admins = await User.find({
+      organization,
+      role: "org_admin",
+      active: { $ne: false },
+      ...(excludeUser ? { _id: { $ne: excludeUser } } : {}),
+    })
+      .select("_id")
+      .lean();
+    await Promise.all(
+      admins.map((a) =>
+        createNotification({
+          recipient: a._id,
+          organization,
+          type: "collaboration",
+          link: "/admin/collaboration",
+          ...payload,
+        })
+      )
+    );
+  } catch (error) {
+    console.error("[collaboration] notify failed:", error.message);
+  }
+};
 
 const POPULATE = [
   { path: "eventA", select: "title date venue category type status capacity organization" },
@@ -22,7 +58,7 @@ const sideFor = (suggestion, user) => {
 // Only organization admins act on behalf of their org; organizers may view
 // suggestions involving their org's events but must not decide for it.
 const requireOrgAdmin = (user, suggestion) => {
-  if (user.role !== "admin" || !user.organization) return false;
+  if (user.role !== "org_admin" || !user.organization) return false;
   return sideFor(suggestion, user) !== null;
 };
 
@@ -66,6 +102,30 @@ const listSuggestions = async (req, res) => {
 const generateSuggestions = async (req, res) => {
   try {
     const { created, skipped } = await scanForSuggestions(req.user.organization);
+
+    // Tell the counterparty orgs a match now exists. The scanning org sees
+    // the results in the response; the other side had no signal at all, so
+    // a match could sit unseen indefinitely while both events went ahead
+    // separately. One notification per partner org, not per suggestion, so
+    // a scan that surfaces eight matches with one partner isn't eight alerts.
+    const partnerOrgs = new Map();
+    for (const s of created) {
+      const partner = String(s.orgA?._id ?? s.orgA) === String(req.user.organization)
+        ? s.orgB
+        : s.orgA;
+      const id = String(partner?._id ?? partner);
+      partnerOrgs.set(id, (partnerOrgs.get(id) || 0) + 1);
+    }
+    await Promise.all(
+      [...partnerOrgs.entries()].map(([organization, count]) =>
+        notifyOrgAdmins({
+          organization,
+          title: `${count} new collaboration ${count === 1 ? "match" : "matches"}`,
+          message: `The AI matcher paired ${count === 1 ? "one of your events" : "some of your events"} with another organization's. Review to consider co-hosting.`,
+        })
+      )
+    );
+
     audit({
       req,
       user: req.user,
@@ -75,7 +135,7 @@ const generateSuggestions = async (req, res) => {
       action: "collab_suggestions_generated",
       resourceType: "Organization",
       resourceId: req.user.organization,
-      metadata: { created: created.length, skipped },
+      metadata: { created: created.length, skipped, partnersNotified: partnerOrgs.size },
     });
     res.json({ created, skipped, message: `Found ${created.length} new collaboration matches.` });
   } catch (error) {
@@ -110,30 +170,71 @@ const acceptSuggestion = async (req, res) => {
       return res.status(400).json({ message: "You declined this suggestion and cannot reverse it" });
     }
 
-    suggestion[mySide.field] = "accepted";
+    // Claim this side atomically, conditional on it still being undecided.
+    // The previous read-modify-write could interleave: two concurrent
+    // requests (a double-click, or both admins of the same org acting at
+    // once) each read "suggested", each wrote "accepted", and each then ran
+    // the both-accepted branch — pushing the co-host twice and resolving
+    // twice. Making the write itself the guard means exactly one request
+    // can transition a given side.
+    const claimed = await CollaborationSuggestion.findOneAndUpdate(
+      { _id: suggestion._id, [mySide.field]: "suggested" },
+      { $set: { [mySide.field]: "accepted" } },
+      { new: true }
+    );
+    if (!claimed) {
+      return res.status(409).json({ message: "This suggestion was just updated — reload to see its current state" });
+    }
 
     // Both sides in → establish the mutual co-host link on both events.
-    if (bothAccepted(suggestion)) {
+    if (bothAccepted(claimed)) {
       const [eventA, eventB] = await Promise.all([
-        Event.findById(suggestion.eventA),
-        Event.findById(suggestion.eventB),
+        Event.findById(claimed.eventA).select("_id"),
+        Event.findById(claimed.eventB).select("_id"),
       ]);
       if (!eventA || !eventB) {
         return res.status(404).json({ message: "One of the events no longer exists" });
       }
-      eventA.coHostOrganizations = eventA.coHostOrganizations || [];
-      eventB.coHostOrganizations = eventB.coHostOrganizations || [];
-      if (!eventA.coHostOrganizations.some((id) => String(id) === String(suggestion.orgB))) {
-        eventA.coHostOrganizations.push(suggestion.orgB);
-      }
-      if (!eventB.coHostOrganizations.some((id) => String(id) === String(suggestion.orgA))) {
-        eventB.coHostOrganizations.push(suggestion.orgA);
-      }
-      await Promise.all([eventA.save(), eventB.save()]);
-      suggestion.resolvedAt = new Date();
-      suggestion.resolvedOutcome = "co-hosted";
+      // $addToSet is atomic and idempotent — a retry or a concurrent writer
+      // can never produce a duplicate co-host entry.
+      await Promise.all([
+        Event.updateOne({ _id: claimed.eventA }, { $addToSet: { coHostOrganizations: claimed.orgB } }),
+        Event.updateOne({ _id: claimed.eventB }, { $addToSet: { coHostOrganizations: claimed.orgA } }),
+      ]);
+      // Guarded on resolvedOutcome being unset so only the first writer
+      // stamps the resolution.
+      await CollaborationSuggestion.updateOne(
+        { _id: claimed._id, resolvedOutcome: { $exists: false } },
+        { $set: { resolvedAt: new Date(), resolvedOutcome: "co-hosted" } }
+      );
     }
-    await suggestion.save();
+
+    const theirOrg = mySide.side === "A" ? claimed.orgB : claimed.orgA;
+    if (bothAccepted(claimed)) {
+      // Confirmed partnership — tell BOTH sides, including the acting org's
+      // other admins, since the co-host link is now live for everyone.
+      await Promise.all([
+        notifyOrgAdmins({
+          organization: theirOrg,
+          title: "Co-hosting confirmed",
+          message: "Both organizations accepted — you can now manage both events together.",
+        }),
+        notifyOrgAdmins({
+          organization: req.user.organization,
+          excludeUser: req.user._id,
+          title: "Co-hosting confirmed",
+          message: "Both organizations accepted — you can now manage both events together.",
+        }),
+      ]);
+    } else {
+      // One side in, waiting on the other — this is the notification whose
+      // absence made the handshake un-completable in practice.
+      await notifyOrgAdmins({
+        organization: theirOrg,
+        title: "A partner accepted a collaboration match",
+        message: "Another organization accepted an AI collaboration match with one of your events. Review it to start co-hosting.",
+      });
+    }
 
     audit({
       req,
@@ -141,8 +242,8 @@ const acceptSuggestion = async (req, res) => {
       organization: { _id: req.user.organization },
       action: "collab_suggestion_accepted",
       resourceType: "CollaborationSuggestion",
-      resourceId: suggestion._id,
-      metadata: { side: mySide.side, outcome: suggestion.resolvedOutcome || "pending" },
+      resourceId: claimed._id,
+      metadata: { side: mySide.side, outcome: bothAccepted(claimed) ? "co-hosted" : "pending" },
     });
 
     const populated = await CollaborationSuggestion.findById(suggestion._id).populate(POPULATE);
@@ -175,10 +276,34 @@ const declineSuggestion = async (req, res) => {
       return res.status(400).json({ message: "You already accepted this suggestion — use the co-host list to remove it if needed" });
     }
 
-    suggestion[mySide.field] = "declined";
-    suggestion.resolvedAt = new Date();
-    suggestion.resolvedOutcome = "rejected";
-    await suggestion.save();
+    // Same atomic claim as accept: the transition is the guard, so a
+    // double-click can't resolve the suggestion twice.
+    const claimed = await CollaborationSuggestion.findOneAndUpdate(
+      { _id: suggestion._id, [mySide.field]: "suggested" },
+      {
+        $set: {
+          [mySide.field]: "declined",
+          resolvedAt: new Date(),
+          resolvedOutcome: "rejected",
+        },
+      },
+      { new: true }
+    );
+    if (!claimed) {
+      return res.status(409).json({ message: "This suggestion was just updated — reload to see its current state" });
+    }
+
+    // Only worth telling the other side if they were actually waiting on us
+    // (they'd already accepted). Announcing a decline to an org that never
+    // engaged is noise, not information.
+    const theirField = mySide.side === "A" ? "statusB" : "statusA";
+    if (claimed[theirField] === "accepted") {
+      await notifyOrgAdmins({
+        organization: mySide.side === "A" ? claimed.orgB : claimed.orgA,
+        title: "Collaboration match declined",
+        message: "The other organization declined the collaboration you accepted. No co-hosting link was created.",
+      });
+    }
 
     audit({
       req,
@@ -186,7 +311,7 @@ const declineSuggestion = async (req, res) => {
       organization: { _id: req.user.organization },
       action: "collab_suggestion_declined",
       resourceType: "CollaborationSuggestion",
-      resourceId: suggestion._id,
+      resourceId: claimed._id,
       metadata: { side: mySide.side },
     });
 

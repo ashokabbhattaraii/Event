@@ -8,27 +8,33 @@ import Link from "next/link"
 import { AppShell } from "@/components/app/app-shell"
 import { EventWizard } from "@/components/app/event-wizard"
 import { useEvent, useUpdateEvent } from "@/lib/queries/events"
-import { useCurrentUser } from "@/lib/queries/auth"
+import { useRequireRole } from "@/lib/hooks/use-require-role"
 
 export default function EditEventPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const router = useRouter()
-  const { data: userData } = useCurrentUser()
+  // Attendees must never reach the event editor. The gate waits for the
+  // session to resolve before deciding — the previous inline check ran
+  // while `user` was still undefined, so it neither reliably blocked the
+  // wrong role nor reliably allowed the right one.
+  const { gate, user } = useRequireRole(["organizer", "admin", "org_admin"])
   const { data: eventData, isLoading, isError } = useEvent(id)
   const updateEvent = useUpdateEvent()
-  const user = userData?.user
 
-  // Only organizers and admins can edit events
-  if (!user || (user.role !== "organizer" && user.role !== "admin")) {
-    notFound()
+  if (gate !== "allowed" || !user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="size-6 animate-spin text-primary" />
+      </div>
+    )
   }
 
-  const role = user.role === "admin" ? "Administrator" : "Organizer"
+  const role = user.role === "admin" || user.role === "org_admin" ? "Administrator" : "Organizer"
   const event = eventData?.event
 
   if (isLoading) {
     return (
-      <AppShell role={role} userName={user?.name || "Organizer"} title="Edit Event">
+      <AppShell role={role} userName={user.name || "Organizer"} title="Edit Event">
         <div className="flex items-center justify-center py-24">
           <Loader2 className="size-6 animate-spin text-primary" />
         </div>

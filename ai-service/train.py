@@ -115,6 +115,14 @@ SEED_CORPUS = [
     ("event_count", "how many events are coming up"),
     ("event_count", "how many events this week"),
     ("event_count", "how many events are live"),
+    ("create_event", "I want to create an event"),
+    ("create_event", "how do I create an event"),
+    ("create_event", "I want to host a workshop"),
+    ("create_event", "help me set up a new event"),
+    ("create_event", "I'd like to organize a meetup"),
+    ("create_event", "how can I publish an event"),
+    ("create_event", "let's plan a conference"),
+    ("create_event", "add a new event"),
 ]
 
 

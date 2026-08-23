@@ -9,10 +9,14 @@ const {
   getAllEvents,
   getOrgEvents,
   getEventAiInsight,
-  addCoHostOrganization,
   removeCoHostOrganization,
   listCoHostOrganizations,
 } = require("../controllers/eventController");
+const {
+  createInvitation,
+  listEventInvitations,
+  cancelInvitation,
+} = require("../controllers/coHostInvitationController");
 const { registerForEvent, getEventAttendees } = require("../controllers/ticketController");
 const {
   submitFeedback,
@@ -31,24 +35,24 @@ const router = express.Router();
 
 router.get("/", getAllEvents);
 
-router.get("/my", protect, authorize("organizer", "admin"), getMyEvents);
+router.get("/my", protect, authorize("organizer", "admin", "org_admin"), getMyEvents);
 
-router.get("/org", protect, authorize("admin"), getOrgEvents);
+router.get("/org", protect, authorize("admin", "org_admin"), getOrgEvents);
 
 router.get("/:id", optionalAuth, getEventById);
 
 // Full attendee roster for a managed event (organizer/admin) — powers the
 // Tickets & Check-in dashboard's attendee list + per-attendee detail view.
-router.get("/:id/attendees", protect, authorize("organizer", "admin"), getEventAttendees);
+router.get("/:id/attendees", protect, authorize("organizer", "admin", "org_admin"), getEventAttendees);
 
 // Real AI insight (LLM with heuristic fallback) + attendance forecast for
 // the organizer's event workspace.
-router.get("/:id/ai-insight", protect, authorize("organizer", "admin"), getEventAiInsight);
+router.get("/:id/ai-insight", protect, authorize("organizer", "admin", "org_admin"), getEventAiInsight);
 
 router.post(
   "/",
   protect,
-  authorize("organizer", "admin"),
+  authorize("organizer", "admin", "org_admin"),
   [
     body("title").notEmpty().withMessage("Title is required"),
     body("date").notEmpty().withMessage("Date is required"),
@@ -70,31 +74,49 @@ router.post(
   createEvent
 );
 
-router.put("/:id", protect, authorize("organizer", "admin"), updateEvent);
+router.put("/:id", protect, authorize("organizer", "admin", "org_admin"), updateEvent);
 
-router.delete("/:id", protect, authorize("organizer", "admin"), deleteEvent);
+router.delete("/:id", protect, authorize("organizer", "admin", "org_admin"), deleteEvent);
 
 // Co-host organization management (event organizer or owning org admin)
 router.get(
   "/:id/co-hosts",
   protect,
-  authorize("organizer", "admin"),
+  authorize("organizer", "admin", "org_admin"),
   listCoHostOrganizations
 );
+// Co-hosting is granted ONLY by the invited organization accepting an
+// invitation (see routes below + coHostInvitationController). The old
+// POST /:id/co-hosts wrote the link directly, which let one organization
+// hand another org's admins its full attendee roster with no consent from
+// — or notice to — the organization receiving that access.
 router.post(
-  "/:id/co-hosts",
+  "/:id/co-host-invitations",
   protect,
-  authorize("organizer", "admin"),
+  authorize("organizer", "admin", "org_admin"),
   [
     body("organizationId").isMongoId().withMessage("Valid organizationId is required"),
+    body("message").optional().isLength({ max: 1000 }).withMessage("Message is too long"),
   ],
   validate,
-  addCoHostOrganization
+  createInvitation
+);
+router.get(
+  "/:id/co-host-invitations",
+  protect,
+  authorize("organizer", "admin", "org_admin"),
+  listEventInvitations
+);
+router.delete(
+  "/:id/co-host-invitations/:invitationId",
+  protect,
+  authorize("organizer", "admin", "org_admin"),
+  cancelInvitation
 );
 router.delete(
   "/:id/co-hosts/:orgId",
   protect,
-  authorize("organizer", "admin"),
+  authorize("organizer", "admin", "org_admin"),
   removeCoHostOrganization
 );
 
@@ -124,6 +146,6 @@ router.post(
   submitFeedback
 );
 
-router.get("/:id/feedback", protect, requireRole("organizer", "admin"), getEventFeedback);
+router.get("/:id/feedback", protect, requireRole("organizer", "admin", "org_admin"), getEventFeedback);
 
 module.exports = router;

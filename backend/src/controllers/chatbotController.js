@@ -279,7 +279,7 @@ const buildGroundedReply = async (req, intent, eventId, message, slots) => {
 
   if (intent === "create_event") {
     const isOrganizer =
-      req.user && ["organizer", "admin"].includes(req.user.role);
+      req.user && ["organizer", "admin", "org_admin"].includes(req.user.role);
     if (!isOrganizer) {
       return "Only organizers can create events on EventNexus 🎟️ — if you're an organizer, sign in with your organizer account and ask me again. Attendees can register for any event from its detail page.";
     }
@@ -539,20 +539,33 @@ const buildGroundedReply = async (req, intent, eventId, message, slots) => {
   }
 
   if (intent === "cancellation") {
-    if (!eventId) {
-      return "You can cancel any upcoming registration yourself — open My Tickets and tap Cancel on the ticket you no longer need.";
+    // Mirrors other event-scoped intents: try naming the event in the
+    // message ("cancel my Tech Conference ticket") before falling back to
+    // the generic answer — previously this intent was the only one that
+    // never attempted text resolution, so a named cancellation request
+    // always got the generic "go to My Tickets" reply instead of a
+    // specific, correct one.
+    const event = await resolveEvent(eventId, message, orgFilter);
+    if (!event) {
+      return "You can cancel any upcoming registration yourself — open My Tickets and tap Cancel on the ticket you no longer need. Name the event (e.g. \"cancel my Tech Conference ticket\") and I can check its status for you.";
     }
-    const ticket = await Ticket.findOne({ event: eventId, attendee: req.user._id });
+    const ticket = await Ticket.findOne({ event: event._id, attendee: req.user._id });
     if (!ticket) {
-      return "You are not registered for this event, so there is nothing to cancel.";
+      return `You are not registered for **${event.title}**, so there is nothing to cancel. — [view event](/event/${event._id})`;
     }
     if (ticket.status === "cancelled") {
-      return "Your registration for this event is already cancelled.";
+      return `Your registration for **${event.title}** is already cancelled.`;
     }
     if (ticket.status === "checked-in") {
-      return "This ticket is already checked in, so it can no longer be cancelled.";
+      return `This ticket for **${event.title}** is already checked in, so it can no longer be cancelled.`;
     }
-    return `You're registered for this event (status: ${ticket.status}). Go to My Tickets and tap Cancel to self-cancel — it's instant and frees your spot for someone else.`;
+    // Matches ticketController.cancelTicket's own rule exactly — the bot
+    // must never tell a paid-ticket holder "it's instant" when the actual
+    // endpoint would reject the request.
+    if (ticket.payment?.status === "paid") {
+      return `**${event.title}** was a paid registration, so it can't be self-cancelled online — contact the organizer to arrange a refund. — [view event](/event/${event._id})`;
+    }
+    return `You're registered for **${event.title}** (status: ${ticket.status}). Go to My Tickets and tap Cancel to self-cancel — it's instant and frees your spot for someone else. — [view event](/event/${event._id})`;
   }
 
   if (intent === "categories") {

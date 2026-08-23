@@ -76,11 +76,30 @@ const authorize = (...roles) => {
 // more resilient to a role gaining/losing a capability without touching every route.
 const ROLE_PERMISSIONS = {
   // "admin" is the OVERALL system administrator (PDF: controls all tenant
-  // companies). An admin WITHOUT an organization is platform-level (approves
-  // org registrations, sees every tenant); an admin WITH an organization is
-  // that tenant's org admin (scoped to their org by every route).
+  // companies) — platform-wide, never carries an organization. Tenant
+  // admins are the separate "org_admin" role below; they used to be
+  // "admin" + organization set, which meant this exact permission list
+  // (including org:approve and iam:manage) was granted to org admins too.
   admin: [
     "org:approve",
+    "org:manage",
+    "user:manage",
+    "security:view",
+    "event:manage",
+    "analytics:view",
+    "ticket:verify",
+    "audit:view",
+    "iam:manage",
+    "ai:manage",
+    "collaboration:invite",
+    "session:manage",
+  ],
+  // A tenant's admin, scoped to their own organization by every route
+  // (listOrgUsers, getOrgEvents, buildUserEventFilter, etc. all filter on
+  // req.user.organization). Deliberately excludes "org:approve" (approving
+  // OTHER tenants) and "ai:manage" (retrains platform-wide shared models
+  // and reads cross-tenant chat data) — those stay system-admin-only.
+  org_admin: [
     "org:manage",
     "user:manage",
     "security:view",
@@ -134,9 +153,12 @@ const invalidateRoleCache = () => {
 
 const requireRole = (...roles) => authorize(...roles);
 
-// Platform-level guard: the OVERALL system admin — an "admin" user with no
-// organization attached (org admins carry an organization and are scoped to
-// their tenant). Used by the org-approval console and platform functions.
+// Platform-level guard: the OVERALL system admin — role "admin" (tenant
+// admins are the distinct "org_admin" role and never reach here). The
+// `req.user.organization` check is redundant now that the roles are
+// explicit, kept as defense-in-depth in case that invariant is ever
+// violated. Used by the org-approval console and platform-wide functions
+// (AI training) that operate across every tenant at once.
 const requireSystemAdmin = (req, res, next) => {
   if (req.user?.role !== "admin" || req.user.organization) {
     return res.status(403).json({ message: "System admin privileges required" });

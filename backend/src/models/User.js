@@ -33,9 +33,15 @@ const userSchema = new mongoose.Schema(
       // Sparse: only Google-linked accounts carry this field.
       index: { unique: true, sparse: true },
     },
+    // "admin" is the platform-wide System Administrator and MUST NEVER carry
+    // an organization (requireSystemAdmin enforces this). A tenant's admin
+    // is the distinct "org_admin" role — previously this was inferred as
+    // "admin" + organization set, which was ambiguous enough that a
+    // permission check (the AI console) accidentally treated org admins as
+    // full system admins. Explicit role values close that class of bug.
     role: {
       type: String,
-      enum: ["admin", "organizer", "attendee"],
+      enum: ["admin", "org_admin", "organizer", "attendee"],
       default: "attendee",
     },
     // Bumped whenever the account's privileges change (role change, password

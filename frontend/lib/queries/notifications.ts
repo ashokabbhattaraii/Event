@@ -72,7 +72,7 @@ export function useMarkAllNotificationsRead() {
 
 // Role → notifications section base path for deep links and detail pages.
 export function notificationsSectionForRole(role?: string | null): string {
-  if (role === "admin") return "/admin/notifications";
+  if (role === "admin" || role === "org_admin") return "/admin/notifications";
   if (role === "organizer") return "/organizer/notifications";
   return "/notifications";
 }

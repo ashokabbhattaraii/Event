@@ -15,14 +15,14 @@ const validate = require("../middleware/validate");
 const router = express.Router();
 
 router.get("/", listOrganizations);
-router.get("/me", protect, requireRole("admin"), getMyOrganization);
-router.put("/me", protect, requireRole("admin"), updateMyOrganization);
+router.get("/me", protect, requireRole("admin", "org_admin"), getMyOrganization);
+router.put("/me", protect, requireRole("admin", "org_admin"), updateMyOrganization);
 
 // --- Membership (org-level roles) — tenant admins only --------------------
 router.get(
   "/members",
   protect,
-  requireRole("admin", "organizer"),
+  requireRole("admin", "org_admin", "organizer"),
   requireOrgAdmin,
   listMembers
 );
@@ -30,7 +30,7 @@ router.get(
 router.post(
   "/members",
   protect,
-  requireRole("admin", "organizer"),
+  requireRole("admin", "org_admin", "organizer"),
   requireOrgAdmin,
   [
     body("email").isEmail().withMessage("Valid email is required"),
@@ -46,7 +46,7 @@ router.post(
 router.patch(
   "/members/:userId",
   protect,
-  requireRole("admin"),
+  requireRole("admin", "org_admin"),
   requireOrgAdmin,
   [
     param("userId").isMongoId().withMessage("Invalid user id"),
@@ -61,7 +61,7 @@ router.patch(
 router.delete(
   "/members/:userId",
   protect,
-  requireRole("admin", "organizer"),
+  requireRole("admin", "org_admin", "organizer"),
   requireOrgAdmin,
   [param("userId").isMongoId().withMessage("Invalid user id")],
   validate,

@@ -6,12 +6,15 @@ const predictAttendance = require("../utils/predictAttendance");
 // Build event filter for the current user: events they created + events
 // where their organization is a co-host.
 const buildUserEventFilter = async (user) => {
-  const baseFilter = user.role === "admin"
+  // A system admin (role "admin", no organization) gets organization:
+  // undefined here, which Mongoose strips — matching every event platform-
+  // wide, which is the intended "sees every tenant" behavior.
+  const baseFilter = ["admin", "org_admin"].includes(user.role)
     ? { organization: user.organization }
     : { organizer: user._id };
 
   // If user is an org admin, also include events where their org is a co-host.
-  if (user.role === "admin" && user.organization) {
+  if (user.role === "org_admin" && user.organization) {
     const coHostedEvents = await Event.find({ coHostOrganizations: user.organization })
       .select("_id")
       .lean();

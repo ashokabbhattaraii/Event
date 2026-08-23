@@ -56,7 +56,7 @@ const updateRolePermissions = async (req, res) => {
     if (role.scope === "system" && req.user.organization) {
       return res.status(403).json({ message: "Only the system admin can edit system roles" });
     }
-    if (role.scope === "organization" && req.user.role !== "admin") {
+    if (role.scope === "organization" && !["admin", "org_admin"].includes(req.user.role)) {
       return res.status(403).json({ message: "Only admins may edit organization roles" });
     }
 

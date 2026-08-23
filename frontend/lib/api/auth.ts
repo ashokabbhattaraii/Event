@@ -4,7 +4,7 @@ export interface User {
   _id: string;
   name: string;
   email: string;
-  role: "admin" | "organizer" | "attendee";
+  role: "admin" | "org_admin" | "organizer" | "attendee";
   organization?: string;
   location?: {
     lat: number;

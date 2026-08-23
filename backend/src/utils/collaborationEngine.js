@@ -76,7 +76,16 @@ const eventContentTokens = (event) => {
 // Each dimension returns { score: 0..1, detail: string, weight } so the UI
 // can show exactly why the pair matched.
 
+// Every scorer carries a stable machine-readable `factor` key alongside its
+// human `detail`. The key is what gets persisted on the suggestion
+// (matchedFactors[].factor, which the schema marks required) so the UI can
+// group/icon/filter by dimension instead of pattern-matching prose. It was
+// previously never set — `evaluatePair` read `d.factor` which no scorer
+// returned, so every stored factor had factor: "". That went unnoticed
+// because the engine writes via findOneAndUpdate, which skips validators by
+// default, so the required-field violation never raised.
 const scoreCategory = (a, b) => ({
+  factor: "category",
   score: a.category?.trim().toLowerCase() === b.category?.trim().toLowerCase() ? 1 : 0,
   detail: a.category
     ? `${a.category}${a.category === b.category ? "" : ` vs ${b.category}`}`
@@ -85,15 +94,19 @@ const scoreCategory = (a, b) => ({
 });
 
 const scoreType = (a, b) => ({
+  factor: "format",
   score: a.type === b.type ? 1 : 0,
   detail: `${a.type}${a.type === b.type ? "" : ` vs ${b.type}`}`,
   weight: 0.1,
 });
 
-// Closer dates = stronger: 0..1, halves every 30 days apart.
+// Closer dates = stronger. Linear decay: same day scores 1, 60+ days apart
+// scores 0. (The comment here used to claim it halved every 30 days, which
+// described neither this formula nor the intended behaviour.)
 const scoreDateProximity = (a, b) => {
   const diff = Math.abs(new Date(a.date) - new Date(b.date)) / (1000 * 60 * 60 * 24);
   return {
+    factor: "date",
     score: Math.max(0, 1 - diff / 60),
     detail: diff < 1
       ? "Same day"
@@ -102,25 +115,38 @@ const scoreDateProximity = (a, b) => {
   };
 };
 
-// Same city → 1; same region (geo within 100 km) → 0.7; same country → 0.35.
+// Same venue → 1; same city → 1; same region (geo within 100 km) → 0.7;
+// same country → 0.35.
+//
+// Venue and city are compared as separate signals. They used to be collapsed
+// into `orgA?.city || a.venue`, which compared one org's CITY against the
+// other's VENUE whenever either lacked a city — an apples-to-oranges match
+// that could only ever produce a false negative, and mislabelled a genuine
+// same-venue pair as "Same city: <venue string>".
 const scoreVenueProximity = (a, b, orgA, orgB) => {
-  const cityA = (orgA?.city || a.venue || "").toLowerCase().trim();
-  const cityB = (orgB?.city || b.venue || "").toLowerCase().trim();
+  const base = { factor: "location", weight: 0.18 };
+  const venueA = (a.venue || "").toLowerCase().trim();
+  const venueB = (b.venue || "").toLowerCase().trim();
+  if (venueA && venueA === venueB) {
+    return { ...base, score: 1, detail: `Same venue: ${a.venue}` };
+  }
+  const cityA = (orgA?.city || "").toLowerCase().trim();
+  const cityB = (orgB?.city || "").toLowerCase().trim();
   if (cityA && cityB && cityA === cityB) {
-    return { score: 1, detail: `Same city: ${cityA}`, weight: 0.18 };
+    return { ...base, score: 1, detail: `Same city: ${orgA.city}` };
   }
   if (hasValidCoords(a.coordinates) && hasValidCoords(b.coordinates)) {
     const km = haversineKm(a.coordinates, b.coordinates);
     if (km != null && km <= 100) {
-      return { score: 0.7, detail: `${Math.round(km)} km apart`, weight: 0.18 };
+      return { ...base, score: 0.7, detail: `${Math.round(km)} km apart` };
     }
   }
   const countryA = (orgA?.country || "").toLowerCase().trim();
   const countryB = (orgB?.country || "").toLowerCase().trim();
   if (countryA && countryB && countryA === countryB) {
-    return { score: 0.35, detail: `Same country: ${countryA}`, weight: 0.18 };
+    return { ...base, score: 0.35, detail: `Same country: ${orgA.country}` };
   }
-  return { score: 0.1, detail: "Different locations", weight: 0.18 };
+  return { ...base, score: 0.1, detail: "Different locations" };
 };
 
 // Similar event scale → better co-branding fit. Log-scale ratio so a 500 vs
@@ -128,6 +154,7 @@ const scoreVenueProximity = (a, b, orgA, orgB) => {
 const scoreAudienceSize = (a, b) => {
   const ratio = Math.log2(Math.max(1, a.capacity) / Math.max(1, b.capacity));
   return {
+    factor: "audience",
     score: Math.max(0, 1 - Math.abs(ratio) / 3),
     detail: `${a.capacity} vs ${b.capacity} capacity`,
     weight: 0.12,
@@ -137,6 +164,7 @@ const scoreAudienceSize = (a, b) => {
 const scoreContent = (a, b) => {
   const overlap = jaccard(eventContentTokens(a), eventContentTokens(b));
   return {
+    factor: "content",
     score: overlap,
     detail: overlap > 0 ? `Content overlap: ${Math.round(overlap * 100)}%` : "Unrelated content",
     weight: 0.17,
@@ -148,6 +176,7 @@ const scoreTags = (a, b) => {
   const tagsB = new Set((b.tags || []).map((t) => t.toLowerCase()));
   const overlap = jaccard(tagsA, tagsB);
   return {
+    factor: "tags",
     score: overlap,
     detail: overlap > 0 ? `${Math.round(overlap * 100)}% tag overlap` : "No shared tags",
     weight: 0.1,
@@ -170,9 +199,21 @@ const evaluatePair = (eventA, eventB, orgA, orgB) => {
   const score = Math.round(
     (dimensions.reduce((sum, d) => sum + d.score * d.weight, 0) / totalWeight) * 100
   );
+  // Strongest contributor first, so the UI's truncated factor list ("show
+  // the top 3") shows the reasons that actually drove the score rather than
+  // whichever dimensions happen to be declared first.
   const matchedFactors = dimensions
     .filter((d) => d.score > 0.2)
-    .map((d) => ({ factor: d.factor || "", detail: d.detail, weight: d.weight }));
+    .sort((x, y) => y.score * y.weight - x.score * x.weight)
+    .map((d) => ({
+      factor: d.factor,
+      detail: d.detail,
+      weight: d.weight,
+      // Normalised 0-100 contribution of this dimension to the final score,
+      // so the UI can show *how much* each reason mattered instead of
+      // implying every listed factor weighed the same.
+      contribution: Math.round(((d.score * d.weight) / totalWeight) * 100),
+    }));
   return { score, matchedFactors };
 };
 

@@ -7,7 +7,15 @@ import type { Pagination } from "./list";
 export interface CollaborationSuggestion {
   _id: string;
   score: number;
-  matchedFactors: { factor: string; detail: string; weight: number }[];
+  // `factor` is a stable dimension key (category | format | date | location |
+  // audience | content | tags); `contribution` is how many of the final
+  // 0-100 points that dimension actually supplied, sorted strongest first.
+  matchedFactors: {
+    factor: string
+    detail: string
+    weight: number
+    contribution?: number
+  }[];
   rationale: string;
   rationaleSource: "ai" | "heuristic";
   statusA: "suggested" | "accepted" | "declined";

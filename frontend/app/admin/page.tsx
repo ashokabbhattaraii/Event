@@ -41,7 +41,7 @@ export default function AdminDashboardPage() {
     ? [
         { name: "Attendees", value: stats.roleCounts.attendee, fill: "#ff6b35" },
         { name: "Organizers", value: stats.roleCounts.organizer, fill: "#00c9a7" },
-        { name: "Admins", value: stats.roleCounts.admin, fill: "#5b4cf5" },
+        { name: "Admins", value: stats.roleCounts.admin + stats.roleCounts.org_admin, fill: "#5b4cf5" },
       ].filter((r) => r.value > 0)
     : undefined
 

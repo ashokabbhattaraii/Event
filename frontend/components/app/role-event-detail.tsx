@@ -175,6 +175,27 @@ export function RoleEventDetail({
   const isPast = new Date(event.date) <= new Date()
   const free = isFreeEvent(event.price)
 
+  // Mirrors the backend's canManageEvent exactly (eventController.js) so
+  // the management tabs (Attendees & Payments, Schedule, Reminders, AI
+  // Insights) are simply never shown to a non-attendee viewer who can't
+  // actually use them — an organizer/org admin/system admin browsing an
+  // event outside their own scope used to see the tab, click it, and get
+  // a raw 403 error box instead of the tab not being there at all.
+  const organizerId = typeof event.organizer === "object" ? event.organizer._id : event.organizer
+  const eventOrgId = typeof event.organization === "object" ? event.organization._id : event.organization
+  const coHostIds = (event.coHostOrganizations ?? []).map((o) => (typeof o === "object" ? o._id : o))
+  const isOwner = !!currentUser && organizerId === currentUser._id
+  const isSystemAdmin = currentUser?.role === "admin" && !currentUser.organization
+  const isOrgAdmin =
+    currentUser?.role === "org_admin" && !!currentUser.organization && eventOrgId === currentUser.organization
+  const isCoHostAdmin =
+    currentUser?.role === "org_admin" && !!currentUser.organization && coHostIds.includes(currentUser.organization)
+  const canManage = isOwner || isSystemAdmin || isOrgAdmin || isCoHostAdmin
+  // Mirrors the backend's separate, stricter isOwningOrgManager — co-host
+  // admins can manage everything else about an event but must never delete
+  // it (deletion is an ownership action).
+  const canDelete = isOwner || isSystemAdmin || isOrgAdmin
+
   const userHasLocation = currentUser?.location?.lat != null
   const distance =
     userHasLocation && event.coordinates?.lat != null
@@ -186,10 +207,15 @@ export function RoleEventDetail({
       // The workspace primary action opens the operational tab in place —
       // jumping to the roster + check-in shortcut rather than leaving the
       // event hub. The QR-scan hub stays reachable from the roster card.
-      setWsTab("Attendees & Payments")
-      requestAnimationFrame(() =>
-        rosterSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
-      )
+      // Only when the viewer can actually manage THIS event — otherwise
+      // this used to unconditionally jump to a tab that isn't even in the
+      // now-filtered tab bar and would just 403 on fetch.
+      if (canManage) {
+        setWsTab("Attendees & Payments")
+        requestAnimationFrame(() =>
+          rosterSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+        )
+      }
       return
     }
     if (isRegistered) {
@@ -291,7 +317,9 @@ export function RoleEventDetail({
   })()
 
   const primaryPending = isAttendee && (registerMutation.isPending || checkoutMutation.isPending)
-  const primaryDisabled = isAttendee ? primaryPending || isPast || (isFull && !isRegistered) : false
+  // For a non-attendee, this button jumps to the roster tab — disabled when
+  // they can't manage this event, since there's now nowhere for it to go.
+  const primaryDisabled = isAttendee ? primaryPending || isPast || (isFull && !isRegistered) : !canManage
 
   // Paid events offer a choice of rail instead of a single generic "Buy
   // ticket" button: eSewa settles natively in NPR (works out of the box —
@@ -356,7 +384,11 @@ export function RoleEventDetail({
 
         {!isAttendee && (
           <Reveal y={12} className="flex gap-1 overflow-x-auto rounded-xl border border-border bg-card p-1">
-            {workspaceTabs.map((t) => {
+            {/* Only "Overview" is shown to a non-attendee who can't manage
+                THIS specific event (e.g. a system admin/org admin browsing
+                an event outside their own scope) — the other tabs all fetch
+                management-only data server-side and would just 403. */}
+            {workspaceTabs.filter((t) => t.id === "Overview" || canManage).map((t) => {
               const active = wsTab === t.id
               const Icon = t.icon
               return (
@@ -374,8 +406,11 @@ export function RoleEventDetail({
           </Reveal>
         )}
 
-        {/* Event management: edit the listing or delete it (organizer/admin). */}
-        {!isAttendee && (
+        {/* Event management: edit the listing or delete it. Only shown to a
+            viewer who can actually act on THIS event — matches the backend's
+            canManageEvent/isOwningOrgManager exactly, so this never renders
+            a button that's guaranteed to 403 on click. */}
+        {canManage && (
           <Reveal y={12} className="flex flex-wrap items-center gap-2">
             <Link
               href={`/organizer/events/${eventId}/edit`}
@@ -383,32 +418,33 @@ export function RoleEventDetail({
             >
               <Edit className="size-3.5" /> Edit event
             </Link>
-            {confirmingDelete ? (
-              <div className="flex items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2">
-                <span className="text-xs font-medium text-ink">Delete this event permanently?</span>
+            {canDelete &&
+              (confirmingDelete ? (
+                <div className="flex items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2">
+                  <span className="text-xs font-medium text-ink">Delete this event permanently?</span>
+                  <button
+                    onClick={handleDelete}
+                    disabled={deleteEvent.isPending}
+                    className="flex items-center gap-1 rounded-lg bg-destructive px-2.5 py-1 text-xs font-semibold text-destructive-foreground disabled:opacity-60"
+                  >
+                    {deleteEvent.isPending && <Loader2 className="size-3 animate-spin" />}
+                    Yes, delete
+                  </button>
+                  <button
+                    onClick={() => setConfirmingDelete(false)}
+                    className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-ink hover:bg-muted"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
                 <button
-                  onClick={handleDelete}
-                  disabled={deleteEvent.isPending}
-                  className="flex items-center gap-1 rounded-lg bg-destructive px-2.5 py-1 text-xs font-semibold text-destructive-foreground disabled:opacity-60"
+                  onClick={() => setConfirmingDelete(true)}
+                  className="flex items-center gap-1.5 rounded-xl border border-border bg-card px-3.5 py-2 text-sm font-medium text-ink transition-colors hover:border-destructive/40 hover:text-destructive"
                 >
-                  {deleteEvent.isPending && <Loader2 className="size-3 animate-spin" />}
-                  Yes, delete
+                  <Trash2 className="size-3.5" /> Delete
                 </button>
-                <button
-                  onClick={() => setConfirmingDelete(false)}
-                  className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-ink hover:bg-muted"
-                >
-                  Cancel
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => setConfirmingDelete(true)}
-                className="flex items-center gap-1.5 rounded-xl border border-border bg-card px-3.5 py-2 text-sm font-medium text-ink transition-colors hover:border-destructive/40 hover:text-destructive"
-              >
-                <Trash2 className="size-3.5" /> Delete
-              </button>
-            )}
+              ))}
             {deleteEvent.isError && (
               <span className="text-xs text-destructive">
                 {(deleteEvent.error as any)?.response?.data?.message || "Couldn't delete the event."}

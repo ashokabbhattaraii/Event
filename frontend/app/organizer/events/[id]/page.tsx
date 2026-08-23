@@ -1,29 +1,33 @@
 "use client"
 
 import { use } from "react"
-import { notFound } from "next/navigation"
-import { CalendarDays } from "lucide-react"
+import { CalendarDays, Loader2 } from "lucide-react"
 import { RoleEventDetail } from "@/components/app/role-event-detail"
-import { useCurrentUser } from "@/lib/queries/auth"
+import { useRequireRole } from "@/lib/hooks/use-require-role"
 
 export default function OrganizerEventDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
-  const { data: userData } = useCurrentUser()
-  const user = userData?.user
+  // Attendees must never reach an organizer workspace. The gate waits for
+  // the session to resolve before deciding, and redirects a denied user
+  // home instead of rendering someone else's workspace.
+  const { gate, user } = useRequireRole(["organizer", "admin", "org_admin"])
 
-  // Only organizers and admins can access this page
-  if (!user || (user.role !== "organizer" && user.role !== "admin")) {
-    notFound()
+  if (gate !== "allowed" || !user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="size-6 animate-spin text-primary" />
+      </div>
+    )
   }
 
   // Use actual user role from server
-  const role = user.role === "admin" ? "Administrator" : "Organizer"
+  const role = user.role === "admin" || user.role === "org_admin" ? "Administrator" : "Organizer"
 
   return (
     <RoleEventDetail
       eventId={id}
       role={role}
-      userName={user?.name || "Organizer"}
+      userName={user.name || "Organizer"}
       title="Event Workspace"
       backHref="/organizer/events"
       backLabel="Back to my events"

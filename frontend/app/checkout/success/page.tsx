@@ -84,11 +84,25 @@ function EsewaResult({
     )
   }
 
+  // Keys mirror the backend's failure reasons. Several come straight from
+  // eSewa's own status API (lower-cased), so the attendee is told what
+  // actually happened instead of a blanket "cancelled" — which used to be
+  // reported even when eSewa had said something entirely different.
   const reasons: Record<string, string> = {
-    cancelled: "The eSewa payment was cancelled.",
-    signature: "eSewa's response couldn't be verified.",
+    cancelled: "The eSewa payment was cancelled before it went through.",
+    canceled: "The eSewa payment was cancelled before it went through.",
+    pending: "eSewa says this payment is still processing. It can take a few minutes — check My Tickets shortly before paying again.",
+    ambiguous: "eSewa couldn't give a final answer on this payment yet. Check My Tickets in a few minutes before retrying.",
+    full_refund: "This payment was refunded, so no ticket was issued.",
+    partial_refund: "This payment was partially refunded, so no ticket was issued.",
+    not_found: "eSewa has no record of this transaction.",
+    signature: "eSewa's response couldn't be verified, so no ticket was issued.",
     not_complete: "eSewa reported the payment as incomplete.",
-    unconfirmed: "eSewa couldn't confirm the payment status.",
+    unconfirmed: "We couldn't reach eSewa to confirm this payment. If you were charged, your ticket will not be lost — contact support with your eSewa receipt.",
+    missing_data: "eSewa didn't send any payment details back.",
+    invalid_data: "eSewa's response couldn't be read.",
+    bad_transaction: "This payment reference wasn't recognised.",
+    server: "Something went wrong on our side while confirming the payment.",
   }
 
   return (

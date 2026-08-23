@@ -20,7 +20,20 @@ const sign = (message) =>
 
 // eSewa's total_amount must be formatted exactly as sent in the signed
 // message and the form field, comma-free, matching what it echoes back.
-const formatAmount = (amount) => Number(amount).toFixed(2);
+//
+// The comma strip is load-bearing, not defensive tidying: eSewa echoes the
+// amount back on its success callback WITH a thousands separator once it
+// reaches four figures ("1,792.0"). Feeding that straight to Number() yields
+// NaN, which then propagated two ways — the server-to-server status check
+// was built with `total_amount=NaN` (eSewa answers NOT_FOUND, so the
+// callback bailed out as "unconfirmed" and no ticket was ever issued for a
+// payment the attendee had actually completed), and the ticket's stored
+// payment.amount became NaN. Every event priced at 1000 NPR or more was
+// affected; cheaper ones slipped through, which is why it looked intermittent.
+const toAmountNumber = (amount) =>
+  typeof amount === "number" ? amount : Number(String(amount ?? "").replace(/,/g, "").trim());
+
+const formatAmount = (amount) => toAmountNumber(amount).toFixed(2);
 
 // Encodes eventId + attendeeId directly into the transaction UUID instead of
 // tracking a separate "pending payment" row — the UUID round-trips through
@@ -90,4 +103,7 @@ module.exports = {
   parseTransactionUuid,
   verifyResponse,
   checkStatus,
+  // Exported so the payment controller records the same normalized number on
+  // the ticket that the status check was performed with.
+  toAmountNumber,
 };

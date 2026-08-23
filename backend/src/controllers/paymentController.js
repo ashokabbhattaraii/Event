@@ -343,65 +343,101 @@ const initiateEsewaPayment = async (req, res) => {
 // signature and (b) an independent server-to-server status check against
 // eSewa's API — never from the redirect alone — the same "redirect is not
 // proof of payment" principle the Stripe webhook above is built on.
-const handleEsewaSuccess = async (req, res) => {
-  const eventIdParam = req.params.eventId ? `&eventId=${req.params.eventId}` : "";
-  const fail = (reason) =>
-    res.redirect(`${FRONTEND_URL}/checkout/success?provider=esewa&error=${reason}${eventIdParam}`);
+// Confirms an eSewa callback payload and issues the ticket if — and only if
+// — eSewa's own status API says the money was actually taken.
+//
+// Shared by BOTH the success and failure callbacks. eSewa does not reliably
+// send a completed payment to success_url: a redirect can land on
+// failure_url after the charge has already been captured (network hiccup,
+// the user backing out of the final screen, or eSewa's own routing). The
+// failure handler used to discard the payload and hard-code
+// "cancelled", so in that case the attendee was charged and silently got
+// nothing — the worst possible outcome in a payment flow. Running the same
+// verification on both paths means a real payment can never be thrown away,
+// whichever URL eSewa happens to choose.
+//
+// Returns { ok: true, ticket } or { ok: false, reason }.
+const confirmEsewaPayment = async (raw, source) => {
+  if (!raw) return { ok: false, reason: "missing_data" };
 
+  let decoded;
   try {
-    const raw = req.query.data;
-    if (!raw) return fail("missing_data");
+    decoded = JSON.parse(Buffer.from(String(raw), "base64").toString("utf-8"));
+  } catch {
+    return { ok: false, reason: "invalid_data" };
+  }
 
-    let decoded;
-    try {
-      decoded = JSON.parse(Buffer.from(String(raw), "base64").toString("utf-8"));
-    } catch {
-      return fail("invalid_data");
-    }
+  console.log(
+    `[esewa:${source}] uuid=${decoded.transaction_uuid} status=${decoded.status} amount=${decoded.total_amount}`
+  );
 
-    if (!esewa.verifyResponse(decoded)) return fail("signature");
-    if (decoded.status !== "COMPLETE") return fail("not_complete");
+  // Signature proves the payload came from eSewa untampered.
+  if (!esewa.verifyResponse(decoded)) {
+    console.error(`[esewa:${source}] signature verification FAILED`);
+    return { ok: false, reason: "signature" };
+  }
 
-    const { eventId, attendeeId } = esewa.parseTransactionUuid(decoded.transaction_uuid);
-    if (!eventId || !attendeeId) return fail("bad_transaction");
+  const { eventId, attendeeId } = esewa.parseTransactionUuid(decoded.transaction_uuid);
+  if (!eventId || !attendeeId) return { ok: false, reason: "bad_transaction" };
 
-    const statusCheck = await esewa.checkStatus({
+  // Source of truth: ask eSewa directly. The redirect itself is never proof
+  // of payment (same principle as the Stripe webhook above), and it's what
+  // lets the failure path still recognise a genuinely completed payment.
+  let statusCheck;
+  try {
+    statusCheck = await esewa.checkStatus({
       transactionUuid: decoded.transaction_uuid,
       totalAmount: decoded.total_amount,
     });
-    if (statusCheck.status !== "COMPLETE") return fail("unconfirmed");
+  } catch (error) {
+    console.error(`[esewa:${source}] status check errored:`, error.message);
+    return { ok: false, reason: "unconfirmed" };
+  }
 
-    const [eventDoc, attendee] = await Promise.all([
-      Event.findById(eventId),
-      User.findById(attendeeId),
-    ]);
-    if (!eventDoc || !attendee) return fail("not_found");
+  console.log(`[esewa:${source}] status API says: ${statusCheck?.status}`);
+  if (statusCheck?.status !== "COMPLETE") {
+    // Surface eSewa's own wording rather than inventing one, so the UI can
+    // tell "you cancelled" apart from "it's still pending".
+    const real = String(statusCheck?.status || decoded.status || "unconfirmed").toLowerCase();
+    return { ok: false, reason: real };
+  }
 
-    let ticket = await Ticket.findOne({
-      event: eventId,
-      attendee: attendeeId,
-      status: { $ne: "cancelled" },
+  const [eventDoc, attendee] = await Promise.all([
+    Event.findById(eventId),
+    User.findById(attendeeId),
+  ]);
+  if (!eventDoc || !attendee) return { ok: false, reason: "not_found" };
+
+  let ticket = await Ticket.findOne({
+    event: eventId,
+    attendee: attendeeId,
+    status: { $ne: "cancelled" },
+  });
+
+  if (!ticket) {
+    // Idempotent: a duplicated eSewa callback (or the same payment arriving
+    // on both callbacks) returns the already-issued ticket instead of
+    // erroring on the unique index.
+    ticket = await issueTicketOnce({
+      event: eventDoc,
+      attendeeId,
+      attendeeName: attendee.name,
+      payment: {
+        status: "paid",
+        provider: "esewa",
+        // Normalized via the same helper the status check uses — eSewa
+        // echoes four-figure amounts with a thousands separator, and a raw
+        // Number("1,792.0") would store NaN on the ticket.
+        amount: esewa.toAmountNumber(decoded.total_amount),
+        currency: "NPR",
+        esewaTransactionUuid: decoded.transaction_uuid,
+        esewaRefId: statusCheck.ref_id || decoded.transaction_code,
+      },
     });
+    console.log(`[esewa:${source}] ticket issued: ${ticket._id}`);
 
-    if (!ticket) {
-      // Idempotent: a duplicated eSewa callback returns the already-issued
-      // ticket instead of erroring on the unique index.
-      ticket = await issueTicketOnce({
-        event: eventDoc,
-        attendeeId,
-        attendeeName: attendee.name,
-        payment: {
-          status: "paid",
-          provider: "esewa",
-          amount: Number(decoded.total_amount),
-          currency: "NPR",
-          esewaTransactionUuid: decoded.transaction_uuid,
-          esewaRefId: statusCheck.ref_id || decoded.transaction_code,
-        },
-      });
-    }
-
-    // Send confirmation email with QR code
+    // Confirmation email with QR — only on first issue, so a duplicate
+    // callback doesn't email the attendee twice.
     try {
       const qrCodeDataUri = await generateQRCodeDataURI(ticket.qrToken);
       await sendMail({
@@ -426,17 +462,63 @@ const handleEsewaSuccess = async (req, res) => {
     } catch (mailErr) {
       console.error("[esewa] Failed to send confirmation email:", mailErr.message);
     }
+  } else {
+    console.log(`[esewa:${source}] ticket already existed: ${ticket._id}`);
+  }
 
-    res.redirect(`${FRONTEND_URL}/checkout/success?provider=esewa&ticketId=${ticket._id}`);
+  return { ok: true, ticket };
+};
+
+const handleEsewaSuccess = async (req, res) => {
+  const eventIdParam = req.params.eventId ? `&eventId=${req.params.eventId}` : "";
+  try {
+    const result = await confirmEsewaPayment(req.query.data, "success");
+    if (result.ok) {
+      return res.redirect(
+        `${FRONTEND_URL}/checkout/success?provider=esewa&ticketId=${result.ticket._id}`
+      );
+    }
+    res.redirect(
+      `${FRONTEND_URL}/checkout/success?provider=esewa&error=${result.reason}${eventIdParam}`
+    );
   } catch (error) {
     console.error("[esewa] success handling failed:", error.message);
-    fail("server");
+    res.redirect(`${FRONTEND_URL}/checkout/success?provider=esewa&error=server${eventIdParam}`);
   }
 };
 
-const handleEsewaFailure = (req, res) => {
+// eSewa redirects here when it considers the payment unsuccessful — but it
+// is NOT taken at its word. The payload is verified and the status API
+// queried exactly as on the success path, because a captured payment can
+// still land here; if the money really was taken, the ticket is issued and
+// the attendee is sent to the success screen. Only a genuinely unpaid
+// transaction reports a failure, and it reports eSewa's actual reason rather
+// than always claiming the user cancelled.
+const handleEsewaFailure = async (req, res) => {
   const eventIdParam = req.params.eventId ? `&eventId=${req.params.eventId}` : "";
-  res.redirect(`${FRONTEND_URL}/checkout/success?provider=esewa&error=cancelled${eventIdParam}`);
+  try {
+    if (req.query.data) {
+      const result = await confirmEsewaPayment(req.query.data, "failure");
+      if (result.ok) {
+        console.warn(
+          "[esewa:failure] eSewa sent a COMPLETED payment to failure_url — ticket issued anyway"
+        );
+        return res.redirect(
+          `${FRONTEND_URL}/checkout/success?provider=esewa&ticketId=${result.ticket._id}`
+        );
+      }
+      return res.redirect(
+        `${FRONTEND_URL}/checkout/success?provider=esewa&error=${result.reason}${eventIdParam}`
+      );
+    }
+    // No payload at all — genuinely nothing to verify (the user backed out
+    // before eSewa produced a transaction).
+    console.log("[esewa:failure] no data payload — treating as cancelled");
+    res.redirect(`${FRONTEND_URL}/checkout/success?provider=esewa&error=cancelled${eventIdParam}`);
+  } catch (error) {
+    console.error("[esewa] failure handling failed:", error.message);
+    res.redirect(`${FRONTEND_URL}/checkout/success?provider=esewa&error=server${eventIdParam}`);
+  }
 };
 
 module.exports = {

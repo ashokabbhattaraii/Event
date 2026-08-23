@@ -504,11 +504,9 @@ const googleLogin = async (req, res) => {
         user.adminGrantedAt = new Date();
         changed = true;
       }
-      // Admins must have an organization for tenant-scoped routes to work.
-      if (user.role === "admin" && !user.organization) {
-        await assignDefaultOrg(user);
-        changed = true;
-      }
+      // Do NOT auto-assign an org to a system admin (admin without org).
+      // System admins (role=admin, organization=null) must stay org-less so
+      // requireSystemAdmin passes and they can approve tenants.
       if (changed) await user.save();
     } else {
       user = new User({
@@ -521,7 +519,8 @@ const googleLogin = async (req, res) => {
         // above) — brand-new Google sign-ups are verified on creation.
         emailVerifiedAt: new Date(),
       });
-      if (admin) await assignDefaultOrg(user);
+      // Do NOT auto-assign org to new system admins — they must remain
+      // organization-less to retain system-admin privileges.
       await user.save();
     }
 

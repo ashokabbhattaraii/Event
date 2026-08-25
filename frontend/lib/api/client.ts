@@ -82,11 +82,48 @@ apiClient.interceptors.request.use((config) => {
 
 let redirectingToLogin = false;
 
+// Endpoints where a 401 means "these credentials are wrong", NOT "your
+// session expired".
+//
+// Without this distinction the interceptor treated a failed sign-in exactly
+// like an expired session: a wrong password returns 401, the interceptor
+// tried to refresh (which cannot succeed — you are not logged in yet, so
+// there is no valid refresh token), and then ran
+// `window.location.href = "/login"`. That is a HARD navigation, so the whole
+// page reloaded: the "Invalid email or password" message the form had just
+// rendered was wiped, along with the email the user had typed. It looked
+// like the page randomly refreshed instead of reporting the error.
+//
+// These responses must flow back to the caller untouched so the form can
+// display them.
+const AUTH_ENDPOINTS = [
+  "/auth/login",
+  "/auth/register",
+  "/auth/org-register",
+  "/auth/google",
+  "/auth/refresh",
+  "/auth/forgot-password",
+  "/auth/reset-password",
+  "/auth/verify-email",
+];
+
+const isAuthEndpoint = (url?: string) => {
+  if (!url) return false;
+  // Compare on the path only — `url` may be absolute or relative depending
+  // on how the request was made.
+  const path = url.startsWith("http") ? new URL(url).pathname : url;
+  return AUTH_ENDPOINTS.some((endpoint) => path.includes(endpoint));
+};
+
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
     const { config, response } = error;
     if (!response || response.status !== 401 || !config || config._retried) {
+      return Promise.reject(error);
+    }
+    // A rejected credential is the caller's to handle and display.
+    if (isAuthEndpoint(config.url)) {
       return Promise.reject(error);
     }
     if (typeof window === "undefined") {

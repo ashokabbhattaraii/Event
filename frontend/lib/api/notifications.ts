@@ -7,7 +7,9 @@ export type NotificationType =
   | "event-update"
   | "system"
   | "nearby-event"
-  | "check-in";
+  | "check-in"
+  // Cross-organization co-hosting: invitations, responses, AI matches.
+  | "collaboration";
 
 export interface Notification {
   _id: string;

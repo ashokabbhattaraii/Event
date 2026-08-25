@@ -21,6 +21,30 @@ export const locationApi = {
 };
 
 /**
+ * Current geolocation permission, WITHOUT triggering a prompt.
+ *
+ * This is what lets the app avoid asking a user who has already decided:
+ * "granted" means we can read the position silently, "denied" means asking
+ * again is pointless (the browser suppresses repeat prompts anyway), and only
+ * "prompt" warrants showing our own explanation first.
+ *
+ * Returns "unsupported" where the Permissions API isn't available (older
+ * Safari), so callers can fall back to asking rather than assuming.
+ */
+export async function getGeolocationPermission(): Promise<
+  "granted" | "denied" | "prompt" | "unsupported"
+> {
+  if (typeof navigator === "undefined" || !navigator.geolocation) return "unsupported";
+  if (!navigator.permissions?.query) return "unsupported";
+  try {
+    const status = await navigator.permissions.query({ name: "geolocation" as PermissionName });
+    return status.state as "granted" | "denied" | "prompt";
+  } catch {
+    return "unsupported";
+  }
+}
+
+/**
  * Ask the browser for the user's coordinates. Resolves to null (instead of
  * throwing) if geolocation is unsupported, denied, or times out — location is
  * always an enhancement, never a blocker for logging in.

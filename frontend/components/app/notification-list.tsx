@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { Bell, CalendarCheck2, ChevronRight, Info, Loader2, MapPin, Sparkles, UserCheck } from "lucide-react"
+import { Bell, CalendarCheck2, ChevronRight, Info, Loader2, MapPin, Network, Sparkles, UserCheck } from "lucide-react"
 import { Reveal } from "@/components/anim/reveal"
 import { useMarkAllNotificationsRead, useMarkNotificationRead, useNotifications } from "@/lib/queries/notifications"
 import type { Notification } from "@/lib/api/notifications"
@@ -17,6 +17,7 @@ const iconForType: Record<Notification["type"], typeof Bell> = {
   system: Sparkles,
   "nearby-event": MapPin,
   "check-in": UserCheck,
+  collaboration: Network,
 }
 
 const toneForType: Record<Notification["type"], string> = {
@@ -26,6 +27,7 @@ const toneForType: Record<Notification["type"], string> = {
   system: "text-primary bg-primary/12",
   "nearby-event": "text-flame bg-flame/12",
   "check-in": "text-secondary bg-secondary/15",
+  collaboration: "text-primary bg-primary/12",
 }
 
 const typeFilterOptions = [
@@ -36,6 +38,7 @@ const typeFilterOptions = [
   { label: "Check-ins", value: "check-in" },
   { label: "System", value: "system" },
   { label: "Nearby events", value: "nearby-event" },
+  { label: "Collaboration", value: "collaboration" },
 ]
 
 const readFilterOptions = [

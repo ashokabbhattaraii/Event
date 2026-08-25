@@ -22,6 +22,7 @@ import { useUnreadCount } from "@/lib/queries/notifications"
 import { useCurrentUser, useLogout } from "@/lib/queries/auth"
 import { canAccessPath } from "@/lib/route-access"
 import { NotFoundScreen } from "@/components/app/not-found-screen"
+import { LocationPrompt } from "@/components/app/location-prompt"
 import { useChatbotStore } from "@/lib/stores/chatbot-store"
 
 export type NavItem = { label: string; href: string; icon: LucideIcon; badge?: number }
@@ -418,6 +419,9 @@ export function AppShell({ children, role, userName, title = "Welcome back" }: A
       </div>
 
       {!blocked && <EventBot eventId={currentEventId} />}
+      {/* Asks for location once, after the post-login redirect has settled —
+          see the component for why it can't live on the login page. */}
+      {!blocked && <LocationPrompt />}
 
       <HelpDialog
         open={helpOpen}

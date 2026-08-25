@@ -582,10 +582,25 @@ async function seed() {
   ];
 
   const additionalEvents = generateEvents({ organizer, org, count: 100 });
-  const events = await Event.insertMany([
-    ...authoredEventDefs.map((def) => enrichedBase(def)),
-    ...additionalEvents,
-  ]);
+  // insertMany does NOT run pre('save') hooks, so the hook that mirrors
+  // lat/lng into the GeoJSON point (coordinates.geo) never fires here. Every
+  // seeded event was therefore invisible to the 2dsphere proximity query,
+  // and "new event near you" alerts silently never went out. Build the point
+  // explicitly rather than switching to per-document saves.
+  const withGeoPoint = (e) =>
+    e.coordinates?.lat != null && e.coordinates?.lng != null
+      ? {
+          ...e,
+          coordinates: {
+            ...e.coordinates,
+            geo: { type: "Point", coordinates: [e.coordinates.lng, e.coordinates.lat] },
+          },
+        }
+      : e;
+
+  const events = await Event.insertMany(
+    [...authoredEventDefs.map((def) => enrichedBase(def)), ...additionalEvents].map(withGeoPoint)
+  );
   // genEvents[i] === events[9 + i] (first nine slots are the authored ones).
   console.log(`✓ Created ${events.length} events`);
 

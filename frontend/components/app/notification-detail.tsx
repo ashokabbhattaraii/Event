@@ -4,6 +4,7 @@ import { useEffect } from "react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
 import {
+  Network,
   ArrowLeft,
   Bell,
   CalendarCheck2,
@@ -27,6 +28,7 @@ const iconForType: Record<NotificationType["type"], typeof Bell> = {
   system: Sparkles,
   "nearby-event": MapPin,
   "check-in": UserCheck,
+  collaboration: Network,
 }
 
 const toneForType: Record<NotificationType["type"], string> = {
@@ -36,6 +38,7 @@ const toneForType: Record<NotificationType["type"], string> = {
   system: "text-primary bg-primary/12",
   "nearby-event": "text-flame bg-flame/12",
   "check-in": "text-secondary bg-secondary/15",
+  collaboration: "text-primary bg-primary/12",
 }
 
 const labelForType: Record<NotificationType["type"], string> = {
@@ -45,6 +48,7 @@ const labelForType: Record<NotificationType["type"], string> = {
   system: "System",
   "nearby-event": "Nearby event",
   "check-in": "Check-in",
+  collaboration: "Collaboration",
 }
 
 export function NotificationDetail({ basePath }: { basePath: string }) {

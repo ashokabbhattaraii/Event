@@ -9,6 +9,7 @@ import {
   Image as ImageIcon,
   Loader2,
   Mail,
+  MapPin,
   Mic,
   Phone,
   Plus,
@@ -20,12 +21,18 @@ import {
 import { EVENT_CATEGORIES, EVENT_STATUSES, EVENT_TYPES, SUGGESTED_TAGS } from "@/lib/constants/event-options"
 import { eventDateError, maxFutureEventDate, MAX_FUTURE_EVENT_YEARS, toDatetimeLocal } from "@/lib/event-date"
 import type { CreateEventPayload, EventAgendaItem, EventData, EventSpeaker } from "@/lib/api/events"
+import { geocodeVenue, type GeocodeHit } from "@/lib/geocode"
 
 type FormState = {
   title: string
   description: string
   date: string
   venue: string
+  // Resolved from the venue via geocoding. Optional by design — a venue that
+  // isn't in any map database must still be publishable — but when present it
+  // is what powers "new event near you" alerts, distance ranking and the
+  // venue map. Without it those features silently do nothing for this event.
+  coordinates: { lat: number; lng: number } | null
   type: (typeof EVENT_TYPES)[number]
   category: string
   tags: string[]
@@ -51,6 +58,7 @@ const emptyForm: FormState = {
   description: "",
   date: "",
   venue: "",
+  coordinates: null,
   type: "In-person",
   category: "Technology",
   tags: [],
@@ -134,13 +142,22 @@ export function EventWizard({
       description: e.description || "",
       date: e.date ? toDatetimeLocal(e.date) : "",
       venue: e.venue || "",
+      coordinates:
+        e.coordinates?.lat != null && e.coordinates?.lng != null
+          ? { lat: e.coordinates.lat, lng: e.coordinates.lng }
+          : null,
       type: e.type,
       category: e.category || "Technology",
       tags: e.tags ?? [],
       imageUrl: e.imageUrl ?? "",
       capacity: String(e.capacity),
       price: String(e.price?.amount ?? 0),
-      status: e.status === "Past" ? "Past" : e.status === "Live" ? "Live" : "Draft",
+      // Carry the event's ACTUAL status through. This used to collapse
+      // anything that wasn't Past or Live down to "Draft" — so opening a
+      // published *Upcoming* event to fix a typo and pressing Save silently
+      // unpublished it: gone from Discover, from recommendations, and from
+      // registration, with nothing to tell the organizer it had happened.
+      status: e.status,
       agenda: e.agenda ?? [],
       speakers: e.speakers ?? [],
       highlights: e.highlights ?? [],
@@ -155,6 +172,9 @@ export function EventWizard({
   const [highlightInput, setHighlightInput] = useState("")
   const [imageError, setImageError] = useState("")
   const [imageBusy, setImageBusy] = useState(false)
+  const [geoBusy, setGeoBusy] = useState(false)
+  const [geoError, setGeoError] = useState("")
+  const [geoHits, setGeoHits] = useState<GeocodeHit[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const update = <K extends keyof FormState>(field: K, value: FormState[K]) => {
@@ -198,6 +218,28 @@ export function EventWizard({
     }
   }
 
+  // Best-effort: geocoding never blocks publishing, because plenty of real
+  // venues ("Our office, 3rd floor") aren't in any map database.
+  const handleGeocode = async () => {
+    setGeoBusy(true)
+    setGeoError("")
+    setGeoHits([])
+    try {
+      const hits = await geocodeVenue(form.venue)
+      if (hits.length === 0) {
+        setGeoError("Couldn't find that venue. Try adding a city, or publish without a pin.")
+      } else if (hits.length === 1) {
+        update("coordinates", { lat: hits[0].lat, lng: hits[0].lng })
+      } else {
+        setGeoHits(hits)
+      }
+    } catch {
+      setGeoError("Location lookup is unavailable right now — you can still publish without a pin.")
+    } finally {
+      setGeoBusy(false)
+    }
+  }
+
   const addTag = (raw: string) => {
     const value = raw.trim()
     if (!value || form.tags.includes(value)) return
@@ -235,6 +277,7 @@ export function EventWizard({
       ...form,
       capacity: Number(form.capacity),
       price: Number(form.price) || 0,
+      coordinates: form.coordinates ?? undefined,
       agenda: form.agenda.filter((a) => a.time.trim() || a.title.trim()),
       speakers: form.speakers.filter((s) => s.name.trim()),
       tags: form.tags,
@@ -448,13 +491,70 @@ export function EventWizard({
               </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium text-ink">Venue</label>
-                <input
-                  required
-                  value={form.venue}
-                  onChange={(e) => update("venue", e.target.value)}
-                  placeholder="Venue name or URL"
-                  className={inputClass}
-                />
+                <div className="flex gap-2">
+                  <input
+                    required
+                    value={form.venue}
+                    onChange={(e) => {
+                      update("venue", e.target.value)
+                      // Editing the venue invalidates a previously pinned
+                      // location — keeping the old point would silently
+                      // advertise the event at the wrong address.
+                      if (form.coordinates) update("coordinates", null)
+                      setGeoHits([])
+                      setGeoError("")
+                    }}
+                    placeholder="Venue name or address"
+                    className={inputClass}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleGeocode}
+                    disabled={geoBusy || form.venue.trim().length < 3}
+                    title="Find this venue on the map"
+                    className="flex shrink-0 items-center gap-1.5 rounded-xl border border-border px-3.5 text-sm font-medium text-ink transition-colors hover:border-primary/40 hover:text-primary disabled:opacity-50"
+                  >
+                    {geoBusy ? <Loader2 className="size-4 animate-spin" /> : <MapPin className="size-4" />}
+                    Locate
+                  </button>
+                </div>
+
+                {/* Pinning a location is what makes "new event near you"
+                    alerts, distance ranking and the venue map work for this
+                    event — so the state is shown explicitly rather than left
+                    as an invisible detail. */}
+                {form.coordinates ? (
+                  <p className="flex items-center gap-1.5 text-xs font-medium text-secondary">
+                    <Check className="size-3.5" />
+                    Location pinned — nearby attendees will be alerted when you publish
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Optional: tap <span className="font-medium text-ink">Locate</span> to pin this venue on
+                    the map. Without it, attendees near the venue won&apos;t get a &ldquo;new event near
+                    you&rdquo; alert.
+                  </p>
+                )}
+                {geoError && <p className="text-xs font-medium text-red-600">{geoError}</p>}
+
+                {geoHits.length > 0 && (
+                  <div className="mt-1 overflow-hidden rounded-xl border border-border">
+                    {geoHits.map((hit) => (
+                      <button
+                        key={`${hit.lat},${hit.lng}`}
+                        type="button"
+                        onClick={() => {
+                          update("coordinates", { lat: hit.lat, lng: hit.lng })
+                          setGeoHits([])
+                        }}
+                        className="flex w-full items-start gap-2 border-b border-border/60 px-3 py-2 text-left text-xs transition-colors last:border-b-0 hover:bg-muted/50"
+                      >
+                        <MapPin className="mt-0.5 size-3.5 shrink-0 text-primary" />
+                        <span className="text-muted-foreground">{hit.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 

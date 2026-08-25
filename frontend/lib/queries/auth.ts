@@ -46,14 +46,13 @@ function useAuthSuccess() {
     // showing whichever user's chat history loaded first (see chatbot-store.ts).
     resetChatbotForUserChange();
 
-    // Capture location (with permission) in the background — the token is now
-    // stored, so the authenticated PATCH will carry it. Never blocks redirect.
-    captureAndSaveLocation()
-      .then((loc) => {
-        if (loc) queryClient.invalidateQueries({ queryKey: ["recommendations"] });
-      })
-      .catch(() => {});
-
+    // Location is deliberately NOT captured here. Calling getCurrentPosition()
+    // on this line raised the browser's native permission prompt immediately
+    // before the router.push() below, and navigating away dismisses a pending
+    // prompt — so the popup appeared and vanished on every single login, and
+    // permission could never actually be granted. It's now requested from
+    // <LocationPrompt> once the user has landed, from a real click, and only
+    // when they haven't already decided (see components/app/location-prompt).
     router.push(roleRoutes[data.user.role] || "/dashboard");
   };
 }

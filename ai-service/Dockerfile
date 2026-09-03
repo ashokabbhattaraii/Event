@@ -1,10 +1,11 @@
 # syntax=docker/dockerfile:1.7
 # ──────────────────────────────────────────────────────────────
 # EventNexus AI Service — Optimized multi-stage Dockerfile
-# Python 3.11 slim • FastAPI + scikit-learn • non-root • cached layers
+# Python 3.12 slim • FastAPI + scikit-learn • non-root • cached layers
+# Requires Python 3.12 for numpy==2.5.2 / pandas 3.0.5
 # ──────────────────────────────────────────────────────────────
 
-FROM python:3.11-slim AS base
+FROM python:3.12-slim AS base
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -28,7 +29,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
  && pip install -r requirements.txt
 
 # ── runner: minimal runtime ─────────────────────────────────
-FROM python:3.11-slim AS runner
+FROM python:3.12-slim AS runner
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH" \

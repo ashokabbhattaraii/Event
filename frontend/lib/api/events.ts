@@ -128,6 +128,22 @@ export const eventsApi = {
     return res.data;
   },
 
+  // AI-assisted draft: generate description/highlights/tags/agenda from minimal title
+  aiDraft: async (payload: { title: string; category?: string; type?: string; venue?: string; capacity?: number }): Promise<{
+    draft: {
+      description: string;
+      highlights: string[];
+      tags: string[];
+      agenda: EventAgendaItem[];
+      requirements: string;
+      refundPolicy: string;
+    };
+    source: string;
+  }> => {
+    const res = await apiClient.post("/events/ai-draft", payload);
+    return res.data;
+  },
+
   create: async (data: CreateEventPayload): Promise<{ event: EventData }> => {
     const res = await apiClient.post("/events", data);
     return res.data;

@@ -1,30 +1,46 @@
 "use client"
 
-import { useState } from "react"
+import { Suspense, useState } from "react"
 import Link from "next/link"
-import { Eye, EyeOff, ShieldCheck, Loader2, Navigation, X } from "lucide-react"
+import { useSearchParams } from "next/navigation"
+import { Eye, EyeOff, Loader2, Ticket } from "lucide-react"
 import { GoogleLogin } from "@react-oauth/google"
 import { AuthShell } from "@/components/auth/auth-shell"
 import { useLogin, useGoogleLogin } from "@/lib/queries/auth"
+import { useEvent } from "@/lib/queries/events"
+import { sanitizeEventRedirect } from "@/lib/event-redirect"
 
 const googleEnabled = !!process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID
 
-function detectRole(email: string) {
-  if (!email.includes("@")) return null
-  if (email.startsWith("admin")) return { label: "Admin", color: "bg-primary/12 text-primary" }
-  if (email.startsWith("organizer") || email.startsWith("org"))
-    return { label: "Organizer", color: "bg-secondary/15 text-secondary" }
-  return { label: "Attendee", color: "bg-flame/12 text-flame" }
+// Reads ?redirect=/event/<id> — set when the visitor arrived from
+// PublicEventLanding's Join button (a signed-out QR/link scan) — and shows
+// which event they're about to be sent back to, so "Log In" doesn't feel
+// like a detour away from what they actually came here to do.
+function JoiningEventBanner({ eventId }: { eventId: string }) {
+  const { data, isLoading } = useEvent(eventId)
+  const event = data?.event
+  if (isLoading || !event) return null
+  return (
+    <div className="auth-field flex items-center gap-2.5 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-ink">
+      <Ticket className="size-4 shrink-0 text-primary" />
+      <span>
+        Log in to join <span className="font-semibold">{event.title}</span>
+      </span>
+    </div>
+  )
 }
 
-export default function LoginPage() {
+function LoginContent() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [show, setShow] = useState(false)
-  const role = detectRole(email)
 
-  const loginMutation = useLogin()
-  const googleMutation = useGoogleLogin()
+  const redirectTo = sanitizeEventRedirect(useSearchParams().get("redirect"))
+  const eventIdFromRedirect = redirectTo?.split("/event/")[1]
+  const registerHref = redirectTo ? `/register?redirect=${encodeURIComponent(redirectTo)}` : "/register"
+
+  const loginMutation = useLogin(redirectTo)
+  const googleMutation = useGoogleLogin(redirectTo)
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -46,6 +62,7 @@ export default function LoginPage() {
     <>
       <AuthShell heading="Welcome back" sub="Log in to your EventNexus workspace.">
         <form className="space-y-5" onSubmit={handleLogin}>
+          {eventIdFromRedirect && <JoiningEventBanner eventId={eventIdFromRedirect} />}
           {errorMessage && (
             <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
               {errorMessage}
@@ -56,24 +73,14 @@ export default function LoginPage() {
             <label htmlFor="email" className="text-sm font-medium text-ink">
               Email
             </label>
-            <div className="mt-1.5 flex items-center gap-2">
-              <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@organization.com"
-                className="w-full rounded-xl border border-border bg-card px-4 py-3 text-sm text-ink outline-none transition-all focus:border-primary focus:ring-4 focus:ring-primary/10"
-              />
-              {role && (
-                <span
-                  className={`flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold ${role.color}`}
-                >
-                  <ShieldCheck className="size-3.5" />
-                  {role.label}
-                </span>
-              )}
-            </div>
+            <input
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@organization.com"
+              className="mt-1.5 w-full rounded-xl border border-border bg-card px-4 py-3 text-sm text-ink outline-none transition-all focus:border-primary focus:ring-4 focus:ring-primary/10"
+            />
           </div>
 
           <div className="auth-field">
@@ -140,12 +147,22 @@ export default function LoginPage() {
 
           <p className="auth-field text-center text-sm text-muted-foreground">
             {"Don't have an account? "}
-            <Link href="/register" className="font-semibold text-primary hover:underline">
+            <Link href={registerHref} className="font-semibold text-primary hover:underline">
               Sign Up
             </Link>
           </p>
         </form>
       </AuthShell>
     </>
+  )
+}
+
+export default function LoginPage() {
+  // useSearchParams() requires a Suspense boundary in the App Router — the
+  // surrounding shell renders instantly while the search params resolve.
+  return (
+    <Suspense fallback={null}>
+      <LoginContent />
+    </Suspense>
   )
 }

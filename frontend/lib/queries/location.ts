@@ -1,6 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { captureAndSaveLocation, locationApi } from "../api/location";
 import { recommendationKeys } from "./recommendations";
+import { getErrorMessage } from "../errors";
 
 /**
  * Captures the browser location and saves it, then refreshes anything that
@@ -17,7 +19,9 @@ export function useUpdateLocation() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: recommendationKeys.list });
+      toast.success("Location updated! Recommendations refreshed.");
     },
+    onError: (error: unknown) => toast.error(getErrorMessage(error, "Failed to get location. Please allow location access.")),
   });
 }
 
@@ -29,6 +33,8 @@ export function useSaveLocationCoords() {
       locationApi.update(coords),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: recommendationKeys.list });
+      toast.success("Location saved.");
     },
+    onError: (error: unknown) => toast.error(getErrorMessage(error)),
   });
 }

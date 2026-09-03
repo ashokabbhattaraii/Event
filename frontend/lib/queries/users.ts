@@ -1,3 +1,5 @@
+import { toast } from "sonner";
+import { getErrorMessage } from "../errors";
 import {
   keepPreviousData,
   useMutation,
@@ -68,7 +70,11 @@ export function useUpdateUserRole() {
   return useMutation({
     mutationFn: ({ id, role }: { id: string; role: string }) =>
       usersApi.updateRole(id, role),
-    onSuccess: () => invalidateUserState(queryClient),
+    onSuccess: () => {
+      invalidateUserState(queryClient);
+      toast.success("Role updated successfully.");
+    },
+    onError: (error: unknown) => toast.error(getErrorMessage(error, "Failed to update role.")),
   });
 }
 
@@ -77,7 +83,11 @@ export function useUpdateUserStatus() {
   return useMutation({
     mutationFn: ({ id, active }: { id: string; active: boolean }) =>
       usersApi.updateStatus(id, active),
-    onSuccess: () => invalidateUserState(queryClient),
+    onSuccess: (_, vars) => {
+      invalidateUserState(queryClient);
+      toast.success(vars.active ? "User activated." : "User deactivated.");
+    },
+    onError: (error: unknown) => toast.error(getErrorMessage(error, "Failed to update status.")),
   });
 }
 
@@ -85,7 +95,11 @@ export function useRevokeUserSessions() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => usersApi.revokeSessions(id),
-    onSuccess: () => invalidateUserState(queryClient),
+    onSuccess: () => {
+      invalidateUserState(queryClient);
+      toast.success("All sessions revoked.");
+    },
+    onError: (error: unknown) => toast.error(getErrorMessage(error)),
   });
 }
 
@@ -93,7 +107,11 @@ export function useAdminResetPassword() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => usersApi.resetPassword(id),
-    onSuccess: () => invalidateUserState(queryClient),
+    onSuccess: () => {
+      invalidateUserState(queryClient);
+      toast.success("Password reset email sent.");
+    },
+    onError: (error: unknown) => toast.error(getErrorMessage(error)),
   });
 }
 
@@ -101,7 +119,11 @@ export function useRemoveUser() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => usersApi.remove(id),
-    onSuccess: () => invalidateUserState(queryClient),
+    onSuccess: () => {
+      invalidateUserState(queryClient);
+      toast.success("User removed.");
+    },
+    onError: (error: unknown) => toast.error(getErrorMessage(error, "Failed to remove user.")),
   });
 }
 
@@ -109,7 +131,11 @@ export function useCreateUser() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: CreateUserPayload) => usersApi.create(data),
-    onSuccess: () => invalidateUserState(queryClient),
+    onSuccess: () => {
+      invalidateUserState(queryClient);
+      toast.success("User created successfully.");
+    },
+    onError: (error: unknown) => toast.error(getErrorMessage(error, "Failed to create user.")),
   });
 }
 
@@ -129,7 +155,9 @@ export function useUpdateMyProfile() {
           JSON.stringify({ ...JSON.parse(stored), name: data.user.name })
         );
       }
+      toast.success("Profile updated.");
     },
+    onError: (error: unknown) => toast.error(getErrorMessage(error, "Failed to update profile.")),
   });
 }
 
@@ -137,6 +165,8 @@ export function useUpdateMyPassword() {
   return useMutation({
     mutationFn: (payload: { currentPassword: string; newPassword: string }) =>
       usersApi.updateMyPassword(payload),
+    onSuccess: () => toast.success("Password updated. Please log in again if required."),
+    onError: (error: unknown) => toast.error(getErrorMessage(error, "Failed to update password.")),
   });
 }
 
@@ -155,6 +185,8 @@ export function useUpdateReminderPreference() {
           JSON.stringify({ ...JSON.parse(stored), reminderEmail: data.reminderEmail })
         );
       }
+      toast.success(data.reminderEmail ? "Email reminders enabled." : "Email reminders disabled.");
     },
+    onError: (error: unknown) => toast.error(getErrorMessage(error)),
   });
 }

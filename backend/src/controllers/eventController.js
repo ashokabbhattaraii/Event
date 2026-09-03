@@ -24,13 +24,16 @@ const EVENT_SORT_FIELDS = ["date", "title", "createdAt", "registered"];
 const canManageEvent = (event, user) => {
   const isOwner = event.organizer?.toString() === user._id.toString();
   const isSystemAdmin = user.role === "admin" && !user.organization;
+  // Legacy tenant admins (admin+org) are treated as org_admin for management until migration;
+  // they never get system-admin scope (isSystemAdmin above), only tenant-scoped org management.
+  const isTenantAdmin = user.role === "org_admin" || (user.role === "admin" && !!user.organization);
   const isOrgAdmin =
-    user.role === "org_admin" &&
+    isTenantAdmin &&
     event.organization &&
     user.organization &&
     event.organization.toString() === user.organization.toString();
   const isCoHostAdmin =
-    user.role === "org_admin" &&
+    isTenantAdmin &&
     event.coHostOrganizations &&
     user.organization &&
     event.coHostOrganizations.some((oid) => oid.toString() === user.organization.toString());
@@ -107,6 +110,12 @@ const createEvent = async (req, res) => {
     if (normalizedPrice.amount < 0) {
       return res.status(400).json({ message: "Price can't be negative" });
     }
+    // System admin (admin without organization) must not create organization-less
+    // events — every event belongs to a tenant. They manage tenants via the
+    // system console, not by owning events. Require an explicit organization.
+    if (!req.user.organization) {
+      return res.status(403).json({ message: "System admins cannot create events — assign an organization or use an org_admin/organizer account" });
+    }
 
     const event = await Event.create({
       title,
@@ -137,6 +146,13 @@ const createEvent = async (req, res) => {
       notifyNearbyUsers(event).catch((err) =>
         console.error("[proximity-notify] failed:", err.message)
       );
+      // Real-time attendee display: broadcast new event to all connected clients so
+      // Discover / Just-adadded strips update instantly without refresh. Fire-and-forget.
+      try {
+        const { getIo } = require("../utils/socket");
+        const io = getIo();
+        if (io) io.emit("event:created", { event: { _id: event._id, title: event.title, category: event.category, type: event.type, status: event.status, price: event.price, capacity: event.capacity, registered: event.registered, date: event.date, venue: event.venue, imageUrl: event.imageUrl, organization: event.organization } });
+      } catch {}
     }
 
     // Fire-and-forget: a new published event is immediately matched against
@@ -160,8 +176,9 @@ const createEvent = async (req, res) => {
 
     res.status(201).json({ event });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 const getMyEvents = async (req, res) => {
@@ -184,8 +201,9 @@ const getMyEvents = async (req, res) => {
     });
     res.json({ events: data, pagination });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Draft events are only visible to members of the owning organization
@@ -212,13 +230,18 @@ const getEventById = async (req, res) => {
 
     res.json({ event });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Only these fields may be changed by an update — anything else in req.body
 // (organization, organizer, registered, etc.) is silently ignored rather
 // than blindly passed to findByIdAndUpdate.
+// coHostOrganizations is INTENTIONALLY excluded: co-hosting is granted ONLY
+// by the invited organization accepting an invitation (coHostInvitationController).
+// Allowing it here lets any event manager PATCH { coHostOrganizations: [otherOrg] }
+// and grant full attendee roster access to another org without consent or notice.
 const UPDATABLE_EVENT_FIELDS = [
   "title",
   "description",
@@ -241,7 +264,6 @@ const UPDATABLE_EVENT_FIELDS = [
   "contactPhone",
   "website",
   "reminderSettings",
-  "coHostOrganizations",
 ];
 
 const updateEvent = async (req, res) => {
@@ -314,6 +336,11 @@ const updateEvent = async (req, res) => {
       notifyNearbyUsers(event).catch((err) =>
         console.error("[proximity-notify] failed:", err.message)
       );
+      try {
+        const { getIo } = require("../utils/socket");
+        const io = getIo();
+        if (io) io.emit("event:created", { event: { _id: event._id, title: event.title, category: event.category, type: event.type, status: event.status, price: event.price, capacity: event.capacity, registered: event.registered, date: event.date, venue: event.venue, imageUrl: event.imageUrl, organization: event.organization } });
+      } catch {}
     }
 
     audit({
@@ -326,8 +353,9 @@ const updateEvent = async (req, res) => {
 
     res.json({ event });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Returns true only for the event owner, the platform system admin, or the
@@ -342,8 +370,9 @@ const updateEvent = async (req, res) => {
 const isOwningOrgManager = (event, user) => {
   const isOwner = event.organizer?.toString() === user._id.toString();
   const isSystemAdmin = user.role === "admin" && !user.organization;
+  const isTenantAdmin = user.role === "org_admin" || (user.role === "admin" && !!user.organization);
   const isOrgAdmin =
-    user.role === "org_admin" &&
+    isTenantAdmin &&
     event.organization &&
     user.organization &&
     event.organization.toString() === user.organization.toString();
@@ -379,8 +408,9 @@ const deleteEvent = async (req, res) => {
 
     res.json({ message: "Event deleted" });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 const getAllEvents = async (req, res) => {
@@ -415,8 +445,9 @@ const getAllEvents = async (req, res) => {
     });
     res.json({ events: data, pagination });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Admin's own-tenant event listing. The public getAllEvents is intentionally
@@ -433,8 +464,13 @@ const getOrgEvents = async (req, res) => {
   try {
     const { page, limit, skip } = parsePagination(req.query, { defaultLimit: 9 });
 
-    let scope = { organization: req.user.organization };
-    if (req.user.organization) {
+    // System admin (admin without org) sees every tenant — explicit, not relying
+    // on Mongoose stripping { organization: undefined } which is fragile across versions.
+    const isSystemAdmin = req.user.role === "admin" && !req.user.organization;
+    let scope = {};
+    if (isSystemAdmin) {
+      scope = {};
+    } else if (req.user.organization) {
       const coHosted = await Event.find({ coHostOrganizations: req.user.organization })
         .select("_id")
         .lean();
@@ -445,7 +481,13 @@ const getOrgEvents = async (req, res) => {
             { _id: { $in: coHosted.map((e) => e._id) } },
           ],
         };
+      } else {
+        scope = { organization: req.user.organization };
       }
+    } else {
+      // Non-system user without organization (e.g. attendee via Google with no org)
+      // has no tenant scope — return empty rather than leaking all events.
+      scope = { organization: null };
     }
 
     const filter = {
@@ -475,8 +517,9 @@ const getOrgEvents = async (req, res) => {
     });
     res.json({ events: data, pagination });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // List co-host organizations for an event.
@@ -493,8 +536,9 @@ const listCoHostOrganizations = async (req, res) => {
     }
     res.json({ coHostOrganizations: event.coHostOrganizations || [] });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Remove a co-host organization from an event.
@@ -539,8 +583,9 @@ const removeCoHostOrganization = async (req, res) => {
     await event.populate("coHostOrganizations", "name email phone city country status");
     res.json({ coHostOrganizations: event.coHostOrganizations });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Real AI-powered insight for the organizer's event workspace. Asks the LLM
@@ -609,8 +654,47 @@ const getEventAiInsight = async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
+};
+
+const generateEventDraft = async (req, res) => {
+  try {
+    const { title, category, type, venue, capacity } = req.body;
+    if (!title || title.trim().length < 3) {
+      return res.status(400).json({ message: "Title is required (min 3 chars) to generate draft" });
+    }
+    const { generateEventDraft: aiDraft } = require("../utils/aiProvider");
+    let draft = await Promise.race([
+      aiDraft({ title: title.trim(), category: category || "Technology", type: type || "In-person", venue, capacity }),
+      new Promise((resolve) => setTimeout(() => resolve(null), 8000)),
+    ]);
+    if (!draft) {
+      // Deterministic fallback — always returns usable content so the wizard never stalls
+      const cat = (category || "Technology").toLowerCase();
+      draft = {
+        description: `Join us for ${title.trim()} — an engaging ${cat} ${type || "In-person"} experience at ${venue || "our venue"}. Connect with peers, learn from experts, and be part of something memorable. Perfect for anyone passionate about ${cat}.`,
+        highlights: [
+          `Expert-led sessions in ${category || "Technology"}`,
+          "Networking with peers and industry leaders",
+          "Hands-on activities and takeaways",
+        ],
+        tags: [cat.replace(/\s+/g, "-"), (type || "in-person").toLowerCase(), "networking"],
+        agenda: [
+          { time: "10:00 AM", title: "Opening & Welcome", description: "Kick-off and introductions" },
+          { time: "11:00 AM", title: "Main Session", description: `Deep dive into ${category || "the topic"}` },
+          { time: "02:00 PM", title: "Networking & Closing", description: "Connect and wrap up" },
+        ],
+        requirements: "Bring enthusiasm and an open mind — materials will be provided.",
+        refundPolicy: "Full refund up to 48 hours before the event.",
+      };
+    }
+    res.json({ draft, source: draft ? "ai" : "heuristic" });
+  } catch (error) {
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 module.exports = {
@@ -622,6 +706,7 @@ module.exports = {
   getAllEvents,
   getOrgEvents,
   getEventAiInsight,
+  generateEventDraft,
   removeCoHostOrganization,
   listCoHostOrganizations,
   canManageEvent,

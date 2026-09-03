@@ -1,5 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Optimized for Docker: standalone output creates a self-contained .next/standalone
+  // folder with traced deps (~80% smaller image). Keep for EC2 prod; local dev unaffected.
+  output: "standalone",
   typescript: {
     ignoreBuildErrors: true,
   },

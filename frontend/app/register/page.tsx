@@ -2,11 +2,31 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { Building2, Loader2, MailCheck, UserRound } from "lucide-react"
+import { Building2, Loader2, MailCheck, Ticket, UserRound } from "lucide-react"
 import { AuthShell } from "@/components/auth/auth-shell"
 import { useRegister } from "@/lib/queries/auth"
 import { useOrganizations } from "@/lib/queries/organizations"
 import { useOrgRegister } from "@/lib/queries/system"
+import { useEvent } from "@/lib/queries/events"
+import { sanitizeEventRedirect } from "@/lib/event-redirect"
+
+// Mirrors the same banner on the login page: shown when this signup was
+// reached via PublicEventLanding's Join button (a signed-out QR/link scan),
+// so creating an account doesn't feel disconnected from the event just
+// scanned.
+function JoiningEventBanner({ eventId }: { eventId: string }) {
+  const { data, isLoading } = useEvent(eventId)
+  const event = data?.event
+  if (isLoading || !event) return null
+  return (
+    <div className="auth-field flex items-center gap-2.5 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-ink">
+      <Ticket className="size-4 shrink-0 text-primary" />
+      <span>
+        Create an account to join <span className="font-semibold">{event.title}</span>
+      </span>
+    </div>
+  )
+}
 
 function Field({ label, ...props }: { label: string } & React.InputHTMLAttributes<HTMLInputElement>) {
   return (
@@ -27,6 +47,7 @@ export default function RegisterPage() {
   // not a state initializer, so the client render stays identical to the
   // server render (hydration-safe; same pattern as /admin/events).
   const [mode, setMode] = useState<RegisterMode>("attendee")
+  const [redirectTo, setRedirectTo] = useState<string | null>(null)
 
   // --- Attendee account ------------------------------------------------------
   const [name, setName] = useState("")
@@ -54,11 +75,15 @@ export default function RegisterPage() {
   const [adminConfirmPassword, setAdminConfirmPassword] = useState("")
 
   useEffect(() => {
-    const type = new URLSearchParams(window.location.search).get("type")
-    if (type === "organization") setMode("organization")
+    const params = new URLSearchParams(window.location.search)
+    if (params.get("type") === "organization") setMode("organization")
+    setRedirectTo(sanitizeEventRedirect(params.get("redirect")))
   }, [])
 
-  const registerMutation = useRegister()
+  const eventIdFromRedirect = redirectTo?.split("/event/")[1]
+  const loginHref = redirectTo ? `/login?redirect=${encodeURIComponent(redirectTo)}` : "/login"
+
+  const registerMutation = useRegister(redirectTo)
   const orgRegister = useOrgRegister()
   const { data: orgData, isLoading: orgsLoading } = useOrganizations()
   const organizations = orgData?.organizations ?? []
@@ -137,6 +162,7 @@ export default function RegisterPage() {
 
       {mode === "attendee" ? (
         <form className="mt-6 space-y-5" onSubmit={handleAttendeeSubmit}>
+          {eventIdFromRedirect && <JoiningEventBanner eventId={eventIdFromRedirect} />}
           {errorMessage(registerMutation) && (
             <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
               {errorMessage(registerMutation)}
@@ -301,7 +327,7 @@ export default function RegisterPage() {
       {!orgSuccess && (
         <p className="auth-field mt-8 text-center text-sm text-muted-foreground">
           Already have an account?{" "}
-          <Link href="/login" className="font-semibold text-primary hover:underline">
+          <Link href={loginHref} className="font-semibold text-primary hover:underline">
             Log In
           </Link>
         </p>

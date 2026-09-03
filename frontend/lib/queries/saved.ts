@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { savedApi } from "../api/saved";
 import { useHasToken } from "../hooks/use-has-token";
+import { getErrorMessage } from "../errors";
 
 export const savedKeys = {
   list: ["savedEvents"] as const,
@@ -23,7 +25,9 @@ export function useAddSavedEvent() {
     mutationFn: (eventId: string) => savedApi.add(eventId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: savedKeys.list });
+      toast.success("Event saved.");
     },
+    onError: (error: unknown) => toast.error(getErrorMessage(error, "Failed to save event.")),
   });
 }
 
@@ -33,6 +37,8 @@ export function useRemoveSavedEvent() {
     mutationFn: (eventId: string) => savedApi.remove(eventId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: savedKeys.list });
+      toast.success("Removed from saved.");
     },
+    onError: (error: unknown) => toast.error(getErrorMessage(error, "Failed to remove saved event.")),
   });
 }

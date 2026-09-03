@@ -21,3 +21,4 @@ ai-service/models/
 ai-service/.env
 __pycache__/
 *.pyc
+infra/eventnexus-key-2026.pem

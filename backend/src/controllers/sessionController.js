@@ -76,8 +76,9 @@ const createSession = async (req, res) => {
     await session.populate("speakers", "name title company photoUrl");
     res.status(201).json({ session });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 const getEventSessions = async (req, res) => {
@@ -115,8 +116,9 @@ const getEventSessions = async (req, res) => {
 
     res.json({ sessions, byTrack, canManage: isManager });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 const getSessionById = async (req, res) => {
@@ -132,8 +134,9 @@ const getSessionById = async (req, res) => {
     }
     res.json({ session, canManage });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 const updateSession = async (req, res) => {
@@ -191,8 +194,9 @@ const updateSession = async (req, res) => {
     await session.populate("speakers", "name title company photoUrl");
     res.json({ session });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 const deleteSession = async (req, res) => {
@@ -208,8 +212,9 @@ const deleteSession = async (req, res) => {
     await session.deleteOne();
     res.json({ message: "Session deleted" });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 module.exports = {

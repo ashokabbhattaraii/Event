@@ -164,8 +164,9 @@ const createInvitation = async (req, res) => {
     if (error?.code === 11000) {
       return res.status(409).json({ message: "An invitation is already pending with that organization" });
     }
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Invitations this event has sent (any status), for the inviter's view.
@@ -181,8 +182,9 @@ const listEventInvitations = async (req, res) => {
       .populate(POPULATE);
     res.json({ invitations });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Withdraw a still-pending invitation.
@@ -212,8 +214,9 @@ const cancelInvitation = async (req, res) => {
     });
     res.json({ invitation: await CoHostInvitation.findById(claimed._id).populate(POPULATE) });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // --- Invited side ------------------------------------------------------------
@@ -238,8 +241,9 @@ const listMyInvitations = async (req, res) => {
     });
     res.json({ invitations: data, pagination });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Accept or decline. Accepting here is the ONLY place a manual co-host link
@@ -325,8 +329,9 @@ const respondToInvitation = async (req, res) => {
 
     res.json({ invitation: await CoHostInvitation.findById(claimed._id).populate(POPULATE) });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 module.exports = {

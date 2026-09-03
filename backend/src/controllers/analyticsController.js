@@ -6,15 +6,20 @@ const predictAttendance = require("../utils/predictAttendance");
 // Build event filter for the current user: events they created + events
 // where their organization is a co-host.
 const buildUserEventFilter = async (user) => {
-  // A system admin (role "admin", no organization) gets organization:
-  // undefined here, which Mongoose strips — matching every event platform-
-  // wide, which is the intended "sees every tenant" behavior.
-  const baseFilter = ["admin", "org_admin"].includes(user.role)
+  const isSystemAdmin = user.role === "admin" && !user.organization;
+  // System admin sees every tenant — explicit empty filter, not relying on
+  // Mongoose stripping { organization: undefined } which is version-fragile.
+  if (isSystemAdmin) {
+    return {};
+  }
+  const isTenantAdmin = user.role === "org_admin" || (user.role === "admin" && user.organization);
+  const baseFilter = isTenantAdmin
     ? { organization: user.organization }
     : { organizer: user._id };
 
-  // If user is an org admin, also include events where their org is a co-host.
-  if (user.role === "org_admin" && user.organization) {
+  // Tenant admins (org_admin and legacy admin-with-org) also include events
+  // where their org is a co-host.
+  if (isTenantAdmin && user.organization) {
     const coHostedEvents = await Event.find({ coHostOrganizations: user.organization })
       .select("_id")
       .lean();
@@ -77,8 +82,9 @@ const getOrganizerAnalytics = async (req, res) => {
 
     res.json({ trend, categories, events: eventStats });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Admin: scoped to the caller's own organization + co-hosted events.
@@ -104,8 +110,9 @@ const getAdminAnalytics = async (req, res) => {
       categories,
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Segments the caller's attendee base by interest category (drawn from real
@@ -155,8 +162,9 @@ const getAudienceSegments = async (req, res) => {
       checkInRate: tickets.length > 0 ? Math.round((checkedIn / tickets.length) * 100) : 0,
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Suggests a send-time window from when past registrations actually
@@ -200,8 +208,9 @@ const getMarketingInsight = async (req, res) => {
         : "Not enough registration history yet to recommend a send window. Suggestions appear once your events collect more registrations.",
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 module.exports = {

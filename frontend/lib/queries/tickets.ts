@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { ticketsApi, type AttendeeListParams } from "../api/tickets";
 import type { ListParams } from "../api/list";
 import { useHasToken } from "../hooks/use-has-token";
+import { getErrorMessage } from "../errors";
 
 export const ticketKeys = {
   mine: ["tickets", "mine"] as const,
@@ -23,13 +25,17 @@ export function useRegisterForEvent() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ticketKeys.mine });
       queryClient.invalidateQueries({ queryKey: ["events"] });
+      toast.success("Registered! Your ticket and QR are ready.");
     },
+    onError: (error: unknown) => toast.error(getErrorMessage(error, "Registration failed.")),
   });
 }
 
 export function useVerifyTicket() {
   return useMutation({
     mutationFn: (qrToken: string) => ticketsApi.verify(qrToken),
+    onSuccess: () => toast.success("Ticket verified — checked in!"),
+    onError: (error: unknown) => toast.error(getErrorMessage(error, "Verification failed. Invalid or already used ticket.")),
   });
 }
 
@@ -40,7 +46,9 @@ export function useCancelTicket() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ticketKeys.mine });
       queryClient.invalidateQueries({ queryKey: ["events"] });
+      toast.success("Registration cancelled. Your spot is freed.");
     },
+    onError: (error: unknown) => toast.error(getErrorMessage(error, "Couldn't cancel registration.")),
   });
 }
 

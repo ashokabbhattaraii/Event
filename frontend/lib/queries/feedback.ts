@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { feedbackApi } from "../api/feedback";
 import { useHasToken } from "../hooks/use-has-token";
+import { getErrorMessage } from "../errors";
 
 export function useMyFeedback(eventId: string) {
   return useQuery({
@@ -25,6 +27,8 @@ export function useSubmitFeedback(eventId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["feedback", "mine", eventId] });
       queryClient.invalidateQueries({ queryKey: ["feedback", "event", eventId] });
+      toast.success("Feedback submitted. Thank you!");
     },
+    onError: (error: unknown) => toast.error(getErrorMessage(error, "Failed to submit feedback.")),
   });
 }

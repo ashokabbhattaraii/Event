@@ -5,12 +5,14 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   eventsApi,
   type CreateEventPayload,
   type EventListParams,
 } from "../api/events";
 import { useHasToken } from "../hooks/use-has-token";
+import { getErrorMessage } from "../errors";
 import type { AdvancedFilterParams, SortState, PaginationState } from "../api/list";
 
 export const eventKeys = {
@@ -111,38 +113,41 @@ export function useEventListState(initialState = {}) {
 // Mutation hooks
 export function useCreateEvent() {
   const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: (data: CreateEventPayload) => eventsApi.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: eventKeys.my });
       queryClient.invalidateQueries({ queryKey: eventKeys.all });
+      toast.success("Event created successfully!");
     },
+    onError: (error: unknown) => toast.error(getErrorMessage(error, "Failed to create event.")),
   });
 }
 
 export function useUpdateEvent() {
   const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<CreateEventPayload> }) =>
       eventsApi.update(id, data),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: eventKeys.my });
       queryClient.invalidateQueries({ queryKey: eventKeys.detail(variables.id) });
+      toast.success("Event updated!");
     },
+    onError: (error: unknown) => toast.error(getErrorMessage(error, "Failed to update event.")),
   });
 }
 
 export function useDeleteEvent() {
   const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: (id: string) => eventsApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: eventKeys.my });
       queryClient.invalidateQueries({ queryKey: eventKeys.all });
+      toast.success("Event deleted.");
     },
+    onError: (error: unknown) => toast.error(getErrorMessage(error, "Failed to delete event.")),
   });
 }
 

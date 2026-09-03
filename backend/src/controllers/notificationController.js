@@ -76,8 +76,9 @@ const getMyNotifications = async (req, res) => {
     });
     res.json({ notifications: data, pagination });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 const getNotification = async (req, res) => {
@@ -91,8 +92,9 @@ const getNotification = async (req, res) => {
     }
     res.json({ notification });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 const getUnreadCount = async (req, res) => {
@@ -103,8 +105,9 @@ const getUnreadCount = async (req, res) => {
     });
     res.json({ count });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 const markAsRead = async (req, res) => {
@@ -125,8 +128,9 @@ const markAsRead = async (req, res) => {
 
     res.json({ notification });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 const markAllAsRead = async (req, res) => {
@@ -139,8 +143,9 @@ const markAllAsRead = async (req, res) => {
 
     res.json({ message: "All notifications marked as read" });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 module.exports = {

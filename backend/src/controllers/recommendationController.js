@@ -62,8 +62,9 @@ const getRecommendations = async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 module.exports = { getRecommendations };

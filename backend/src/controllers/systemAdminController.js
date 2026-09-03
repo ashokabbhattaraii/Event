@@ -54,8 +54,9 @@ const listPendingOrgs = async (req, res) => {
       pagination,
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 const approveOrg = async (req, res) => {
@@ -102,8 +103,9 @@ const approveOrg = async (req, res) => {
 
     res.json({ message: "Organization approved", organization: org });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 const rejectOrg = async (req, res) => {
@@ -148,8 +150,9 @@ const rejectOrg = async (req, res) => {
 
     res.json({ message: "Organization rejected", organization: org });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // --- System-admin org lifecycle: rename / suspend / reactivate ----------------
@@ -176,19 +179,26 @@ const updateOrganization = async (req, res) => {
     }
     await org.save();
 
-    // If a tenant is being suspended, revoke every active session for its
-    // members so they're logged out immediately (the tokenVersion bump on
-    // the users would handle this too, but this catches all of them at once
-    // from the org level).
+    // If a tenant is being suspended, revoke every active session AND bump
+    // tokenVersion for its members so outstanding JWTs are invalidated immediately.
+    // Revoking sessions alone leaves valid access tokens usable until expiry;
+    // bumping tokenVersion makes protect() reject them on next use (same as
+    // deactivation / role change hardening).
     if (org.status === "suspended") {
       const Session = require("../models/Session");
       const User = require("../models/User");
       const members = await User.find({ organization: org._id }).select("_id");
       const ids = members.map((m) => m._id);
-      await Session.updateMany(
-        { user: { $in: ids }, revokedAt: null },
-        { revokedAt: new Date() }
-      );
+      await Promise.all([
+        Session.updateMany(
+          { user: { $in: ids }, revokedAt: null },
+          { revokedAt: new Date() }
+        ),
+        User.updateMany(
+          { _id: { $in: ids } },
+          { $inc: { tokenVersion: 1 } }
+        ),
+      ]);
     }
 
     audit({
@@ -201,8 +211,9 @@ const updateOrganization = async (req, res) => {
 
     res.json({ organization: org });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 module.exports = { listPendingOrgs, approveOrg, rejectOrg, updateOrganization };

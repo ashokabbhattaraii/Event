@@ -58,7 +58,7 @@ KNOWN_INTENTS = {
     "recommend", "near_me", "my_tickets", "pricing", "organizer",
     "upcoming_events", "venue", "schedule", "registration_status",
     "popular_events", "capacity", "cancellation", "greeting", "categories",
-    "event_count", "create_event", "fallback",
+    "event_count", "create_event", "join_event", "fallback",
 }
 
 
@@ -437,13 +437,15 @@ def understand(req: UnderstandRequest):
         '"count": an integer if they asked for a specific number of results (e.g. "10 events"), else null\n\n'
         "Resolve short follow-ups using the history — e.g. after the bot lists upcoming events, a reply of "
         '"just 1" means quantity="one"; "how about paid ones" means price_pref="paid" for the same time_scope '
-        "as before. Use intent 'greeting' ONLY for an actual greeting or small talk with recognizable words "
+         "as before. Use intent 'greeting' ONLY for an actual greeting or small talk with recognizable words "
         "('hi', 'hello', 'thanks', 'how are you', 'what can you do'). Use intent 'create_event' for any request to "
         "CREATE, HOST, PLAN, ORGANIZE, or PUBLISH a new event ('I want to host a workshop', 'how do I create an "
         "event', 'set up a new meetup') — but NOT a request to browse/list/recommend/count existing events, which "
         "belong to their own intents even if the word 'event' appears alongside a similar verb. Use intent "
-        "'fallback' for EVERYTHING else that isn't genuinely one of the other labels — meta questions about the "
-        "bot itself ('are you an AI?'), requests to DO something the bot can't do here that ISN'T event creation "
+        "'join_event' for any request to JOIN, REGISTER, SIGN UP, ENROLL, or BOOK an existing event "
+        "('join Tech Conference', 'register me for the AI workshop', 'sign up for that event', 'I want to attend'). "
+        "Use intent 'fallback' for EVERYTHING else that isn't genuinely one of the other labels — meta questions about the "
+        "bot itself ('are you an AI?'), requests to DO something the bot can't do here that ISN'T event creation/joining "
         "(edit/delete an existing event, change account settings, issue refunds), AND unclear/nonsensical/"
         "unparseable text (random characters, gibberish, a message with no discernible words or intent). Never "
         "default confusing input to 'greeting' just because nothing else fits — 'fallback' triggers a real, "

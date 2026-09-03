@@ -93,8 +93,9 @@ const listSuggestions = async (req, res) => {
 
     res.json({ suggestions: data, pagination });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Manually re-run the match scan for the caller's organization (also runs
@@ -139,8 +140,9 @@ const generateSuggestions = async (req, res) => {
     });
     res.json({ created, skipped, message: `Found ${created.length} new collaboration matches.` });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Accept the suggestion for the caller's organization side. When BOTH sides
@@ -249,8 +251,9 @@ const acceptSuggestion = async (req, res) => {
     const populated = await CollaborationSuggestion.findById(suggestion._id).populate(POPULATE);
     res.json({ suggestion: populated });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Decline the suggestion for the caller's side. Closes it for good — a
@@ -318,8 +321,9 @@ const declineSuggestion = async (req, res) => {
     const populated = await CollaborationSuggestion.findById(suggestion._id).populate(POPULATE);
     res.json({ suggestion: populated });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 module.exports = {

@@ -39,8 +39,10 @@ router.get("/", protect, authorize("organizer", "admin", "org_admin"), listSugge
 // Re-run the match scan for the caller's organizations's events.
 router.post("/generate", protect, authorize("organizer", "admin", "org_admin"), generateSuggestions);
 
-// Admin decisions on their organization's side of a suggestion.
-router.post("/:id/accept", protect, authorize("organizer", "admin", "org_admin"), acceptSuggestion);
-router.post("/:id/decline", protect, authorize("organizer", "admin", "org_admin"), declineSuggestion);
+// Admin decisions on their organization's side of a suggestion — only org_admin
+// (tenants' admins) may bind the organization; organizers may view but not decide
+// (enforced at route level, not just controller, to avoid relying on controller checks).
+router.post("/:id/accept", protect, authorize("admin", "org_admin"), acceptSuggestion);
+router.post("/:id/decline", protect, authorize("admin", "org_admin"), declineSuggestion);
 
 module.exports = router;

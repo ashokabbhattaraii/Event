@@ -93,7 +93,14 @@ const registerForEvent = async (req, res) => {
 
     res.status(201).json({ ticket });
   } catch (error) {
-    res.status(error.status || 500).json({ message: error.message });
+    const status = error.status || 500;
+    const isOperational = status < 500;
+    if (!isOperational) console.error("[error]", error);
+    res.status(status).json({
+      success: false,
+      message: isOperational ? error.message : "Something went wrong. Please try again.",
+      code: isOperational ? "OPERATIONAL_ERROR" : "INTERNAL_ERROR",
+    });
   }
 };
 
@@ -127,8 +134,9 @@ const getMyTickets = async (req, res) => {
     });
     res.json({ tickets: data, pagination });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Attendee self-service cancellation: only their own ticket, only before the
@@ -181,8 +189,9 @@ const cancelTicket = async (req, res) => {
 
     res.json({ ticket });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Organizer/admin-only: validates the signed QR payload, confirms the ticket's
@@ -201,15 +210,29 @@ const verifyTicket = async (req, res) => {
       return res.status(404).json({ message: "Ticket not found" });
     }
 
-    // Defensive: a caller (or ticket) without an organization used to crash
-    // on .toString() of undefined → 500, revealing internals. It's a
-    // legitimate "not set up for check-in" condition, so it gets a clean 403.
-    if (!req.user.organization || !ticket.organization) {
+    // System admin (admin without org) may check in any ticket platform-wide,
+    // mirroring their event-management scope (canManageEvent). Co-host organization
+    // admins may also check in tickets for events they co-host — ticket.organization
+    // is the owning org, so a strict equality check would incorrectly deny co-hosts
+    // who have legitimate attendee-list access (getEventAttendees uses canManageEvent).
+    const isSystemAdmin = req.user.role === "admin" && !req.user.organization;
+    if (isSystemAdmin) {
+      // allowed — fall through
+    } else if (!req.user.organization || !ticket.organization) {
       return res.status(403).json({ message: "Check-in requires an organization on both ends" });
-    }
-
-    if (ticket.organization.toString() !== req.user.organization.toString()) {
-      return res.status(403).json({ message: "Ticket belongs to a different organization" });
+    } else if (ticket.organization.toString() !== req.user.organization.toString()) {
+      // Check co-host relationship: if event's coHostOrganizations includes caller's org,
+      // the caller is a managing party and may check in.
+      if (ticket.event) {
+        const callerOrg = req.user.organization.toString();
+        const isCoHost = Array.isArray(ticket.event.coHostOrganizations) &&
+          ticket.event.coHostOrganizations.some((oid) => oid.toString() === callerOrg);
+        if (!isCoHost) {
+          return res.status(403).json({ message: "Ticket belongs to a different organization" });
+        }
+      } else {
+        return res.status(403).json({ message: "Ticket belongs to a different organization" });
+      }
     }
 
     if (ticket.event && ticket.event.status === "Draft") {
@@ -245,8 +268,9 @@ const verifyTicket = async (req, res) => {
 
     res.json({ ticket });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Organizer/admin: full attendee roster for one of their own events, with
@@ -374,8 +398,9 @@ const getEventAttendees = async (req, res) => {
       pagination,
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 module.exports = { registerForEvent, getMyTickets, cancelTicket, verifyTicket, getEventAttendees };

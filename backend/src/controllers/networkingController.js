@@ -65,8 +65,9 @@ const getEventNetworking = async (req, res) => {
 
     res.json({ suggestions });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 module.exports = { getEventNetworking };

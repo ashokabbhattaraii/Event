@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { iamApi } from "../api/iam";
 import { useHasToken } from "../hooks/use-has-token";
+import { getErrorMessage } from "../errors";
 
 export const iamKeys = {
   roles: ["iam", "roles"] as const,
@@ -33,6 +35,8 @@ export function useUpdateRolePermissions() {
       iamApi.updateRole(id, permissions),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: iamKeys.roles });
+      toast.success("Permissions updated.");
     },
+    onError: (error: unknown) => toast.error(getErrorMessage(error, "Failed to update permissions.")),
   });
 }

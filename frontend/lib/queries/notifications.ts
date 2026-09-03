@@ -55,6 +55,11 @@ export function useMarkNotificationRead() {
       queryClient.invalidateQueries({ queryKey: notificationKeys.list });
       queryClient.setQueryData(notificationKeys.detail(notification._id), { notification });
       queryClient.invalidateQueries({ queryKey: notificationKeys.unreadCount });
+      toast.success("Marked as read.");
+    },
+    onError: (error: unknown) => {
+      const msg = (error as { response?: { data?: { message?: string } } })?.response?.data?.message || "Failed to mark as read.";
+      toast.error(msg);
     },
   });
 }
@@ -66,6 +71,11 @@ export function useMarkAllNotificationsRead() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: notificationKeys.list });
       queryClient.setQueryData(notificationKeys.unreadCount, { count: 0 });
+      toast.success("All notifications marked as read.");
+    },
+    onError: (error: unknown) => {
+      const msg = (error as { response?: { data?: { message?: string } } })?.response?.data?.message || "Failed to mark all as read.";
+      toast.error(msg);
     },
   });
 }

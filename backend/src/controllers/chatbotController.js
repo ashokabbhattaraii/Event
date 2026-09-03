@@ -22,6 +22,7 @@ const INTENTS = [
   "categories",
   "event_count",
   "create_event",
+  "join_event",
   "fallback",
 ];
 
@@ -32,6 +33,13 @@ const eventLink = (event) => `[${event.title}](/event/${event._id})`;
 
 const matchIntent = (message) => {
   const m = message.toLowerCase().trim();
+  // Join / register intent must be checked very early: "join this event",
+  // "register me for Tech Conference", "sign me up" — attendee's primary
+  // action. Must not be swallowed by upcoming_events or capacity regexes.
+  if (/\b(join|register|sign\s*up|enroll|attend|book)(\s+(me|for|this|the|an))?.{0,20}\bevents?\b/i.test(m) ||
+      /\bjoin\b/i.test(m) && /\bevent\b/i.test(m)) {
+    return "join_event";
+  }
   // Creation must be checked early: "new event", "host an event", "plan a
   // session" all collide with upcoming_events/categories regexes below, and
   // the action (open the guided creation flow) is very different from a
@@ -568,6 +576,37 @@ const buildGroundedReply = async (req, intent, eventId, message, slots) => {
     return `You're registered for **${event.title}** (status: ${ticket.status}). Go to My Tickets and tap Cancel to self-cancel — it's instant and frees your spot for someone else. — [view event](/event/${event._id})`;
   }
 
+  if (intent === "join_event") {
+    // Attendee wants to join/register — guide them with precise, actionable next step.
+    // Never auto-register via bot without explicit event context; always require confirmation or link.
+    const event = await resolveEvent(eventId, message, orgFilter);
+    if (!event) {
+      return (
+        'Which event would you like to join? Try `Join Tech Conference` or open the event page first, ' +
+        'then say `join this event`. You can also browse at [Discover](/events) — open any event and tap **Join Event**.'
+      );
+    }
+    // Check current registration
+    const existing = await Ticket.findOne({ event: event._id, attendee: req.user._id, status: { $ne: "cancelled" } });
+    if (existing) {
+      return `You're already registered for **${event.title}** (status: ${existing.status}) — [view ticket](/my-tickets) or [event](/event/${event._id}).`;
+    }
+    if (event.status === "Draft") {
+      return `**${event.title}** isn't open for registration yet — it's still in draft. Check back once it's published. — [view event](/event/${event._id})`;
+    }
+    if (new Date(event.date) <= new Date()) {
+      return `**${event.title}** has already started and registration is closed. — [view event](/event/${event._id})`;
+    }
+    if (event.registered >= event.capacity) {
+      return `**${event.title}** is fully booked (${event.registered}/${event.capacity}). You can check back for cancellations. — [view event](/event/${event._id})`;
+    }
+    const priceLabel = formatEventPrice(event.price);
+    if (event.price?.amount > 0) {
+      return `Great — to join **${event.title}** (${priceLabel}) open the event page and choose your payment: eSewa (NPR) or card. [Join now](/event/${event._id}) — it takes 30 seconds and your QR ticket is instant.`;
+    }
+    return `You're one tap away from joining **${event.title}** (Free). Open [the event page](/event/${event._id}) and tap **Join Event** — I'll be here if you need help!`;
+  }
+
   if (intent === "categories") {
     const categories = await Event.distinct("category", { ...orgFilter, status: { $in: ["Upcoming", "Live"] } });
     if (!categories.length) return "No categories found.";
@@ -629,6 +668,7 @@ const FOLLOW_UP_SUGGESTIONS = {
   categories: ["📅 What events are coming up?", "💰 Any free events?"],
   create_event: ["📅 What events are coming up?", "🎯 Recommend events for me"],
   greeting: ["📅 What events are coming up?", "💰 Any free events?", "🔥 What's trending?"],
+  join_event: ["🎫 Show my tickets", "📅 What events are coming up?", "💰 Any free events?"],
   fallback: ["📅 What events are coming up?", "🎯 Recommend events for me", "💰 Any free events?"],
 };
 
@@ -690,8 +730,9 @@ const query = async (req, res) => {
 
     res.json({ intent, reply, quickReplies });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Suggested prompt chips shown when the chat opens — dynamic where possible
@@ -718,8 +759,9 @@ const getSuggestions = async (req, res) => {
 
     res.json({ suggestions: suggestions.slice(0, 8) });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 module.exports = { query, getSuggestions };

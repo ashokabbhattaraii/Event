@@ -39,8 +39,9 @@ const createSpeaker = async (req, res) => {
 
     res.status(201).json({ speaker });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 const getOrganizationSpeakers = async (req, res) => {
@@ -70,8 +71,9 @@ const getOrganizationSpeakers = async (req, res) => {
     });
     res.json({ speakers: data, pagination });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 const getSpeakerById = async (req, res) => {
@@ -85,8 +87,9 @@ const getSpeakerById = async (req, res) => {
     }
     res.json({ speaker });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 const updateSpeaker = async (req, res) => {
@@ -112,8 +115,9 @@ const updateSpeaker = async (req, res) => {
     await speaker.save();
     res.json({ speaker });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 const deleteSpeaker = async (req, res) => {
@@ -128,8 +132,9 @@ const deleteSpeaker = async (req, res) => {
     await speaker.deleteOne();
     res.json({ message: "Speaker deleted" });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 module.exports = {

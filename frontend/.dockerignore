@@ -1,0 +1,17 @@
+node_modules
+.next
+out
+dist
+.env
+.env.local
+.env*.local
+.git
+.gitignore
+coverage
+.DS_Store
+*.log
+README.md
+.vscode
+.idea
+.vercel
+.snowflake

@@ -140,8 +140,9 @@ const listOrgUsers = async (req, res) => {
     }));
     res.json({ users, pagination });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Org admin creates user credentials for their own tenant (name/email/
@@ -168,12 +169,13 @@ const createUser = async (req, res) => {
       return res.status(400).json({ message: "User already exists" });
     }
 
-    const isSystemAdmin = req.user.role === "admin";
+    const isSystemAdmin = req.user.role === "admin" && !req.user.organization;
 
     // RBAC: only the system admin may grant the org_admin role — an org
     // admin creating more org admins is privilege escalation (it bypasses
     // the system admin's org-approval authority). Org admins provision
-    // organizer/attendee accounts for their own tenant.
+    // organizer/attendee accounts for their own tenant. Legacy "admin" with
+    // an organization must not pass this check.
     if (role === "org_admin" && !isSystemAdmin) {
       return res
         .status(403)
@@ -232,8 +234,9 @@ const createUser = async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 const updateUserRole = async (req, res) => {
@@ -269,7 +272,8 @@ const updateUserRole = async (req, res) => {
     }
     // No privilege escalation: granting the org_admin role is the system
     // admin's call (org admins may still manage organizer/attendee roles).
-    if (role === "org_admin" && req.user.role !== "admin") {
+    // Must be system admin (admin without org), not just any admin role.
+    if (role === "org_admin" && (req.user.role !== "admin" || req.user.organization)) {
       return res
         .status(403)
         .json({ message: "Only the system admin can grant the org_admin role" });
@@ -315,8 +319,9 @@ const updateUserRole = async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Any authenticated user can save their own location (captured from the
@@ -341,8 +346,9 @@ const updateMyLocation = async (req, res) => {
     await req.user.save();
     res.json({ location: req.user.location });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Any authenticated user (attendee, organizer, admin) can update their own
@@ -370,8 +376,9 @@ const updateMyProfile = async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Password change for local accounts. Google-linked accounts have no
@@ -413,8 +420,9 @@ const updateMyPassword = async (req, res) => {
     );
     res.json({ message: "Password updated. Please log in again." });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 const getOrgStats = async (req, res) => {
@@ -446,8 +454,9 @@ const getOrgStats = async (req, res) => {
       newThisMonth,
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Update the current user's reminder email preference.
@@ -461,8 +470,9 @@ const updateReminderPreference = async (req, res) => {
     await req.user.save();
     res.json({ reminderEmail: req.user.reminderEmail });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Server-side saved events (the heart bookmark) — follows the account
@@ -476,8 +486,9 @@ const getMySavedEvents = async (req, res) => {
     });
     res.json({ savedEvents: req.user.savedEvents });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 const addSavedEvent = async (req, res) => {
@@ -493,8 +504,9 @@ const addSavedEvent = async (req, res) => {
     }
     res.json({ saved: true, savedCount: req.user.savedEvents.length });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 const removeSavedEvent = async (req, res) => {
@@ -505,8 +517,9 @@ const removeSavedEvent = async (req, res) => {
     await req.user.save();
     res.json({ saved: false, savedCount: req.user.savedEvents.length });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Full administrative profile of one user: identity + verification status,
@@ -550,8 +563,9 @@ const getUserDetail = async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Admin view of a user's refresh sessions (devices): which are live, when
@@ -568,8 +582,9 @@ const listUserSessions = async (req, res) => {
       .lean();
     res.json({ sessions });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Deactivate (active=false) or reactivate an account. Deactivation is the
@@ -622,8 +637,9 @@ const updateUserStatus = async (req, res) => {
     }
     res.json({ user: { _id: user._id, active: user.active !== false }, message: "No change needed" });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Log a user out of every device (refresh sessions revoked + JWT version
@@ -645,8 +661,9 @@ const revokeUserSessions = async (req, res) => {
     });
     res.json({ message: `${n.modifiedCount} session(s) revoked — the user must log in again` });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Admin-initiated password reset: mints the same single-use, 24h, hashed
@@ -684,8 +701,9 @@ const adminResetPassword = async (req, res) => {
     });
     res.json({ message: `Password reset link sent to ${user.email}` });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Permanent removal. Deliberately the LEAST convenient option: deactivation
@@ -728,8 +746,9 @@ const removeUser = async (req, res) => {
     });
     res.json({ message: `${user.name} was removed permanently.` });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 module.exports = {

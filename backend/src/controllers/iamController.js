@@ -23,8 +23,9 @@ const listRoles = async (req, res) => {
       })),
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 const listPermissions = async (req, res) => {
@@ -32,8 +33,9 @@ const listPermissions = async (req, res) => {
     const permissions = await Permission.find({}).sort({ code: 1 }).lean();
     res.json({ permissions });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Update a system role's permission list (admin). Caches are invalidated so
@@ -48,16 +50,13 @@ const updateRolePermissions = async (req, res) => {
     if (!role) {
       return res.status(404).json({ message: "Role not found" });
     }
-    // Only the system admin (admin role WITHOUT an organization) may edit
-    // system-scope roles. A tenant admin (admin WITH an org) must not be able
-    // to widen the platform-wide capabilities of any role — that's the
-    // privilege-escalation surface the previous `!["admin","organizer"]`
-    // check accidentally opened to tenant admins.
-    if (role.scope === "system" && req.user.organization) {
-      return res.status(403).json({ message: "Only the system admin can edit system roles" });
-    }
-    if (role.scope === "organization" && !["admin", "org_admin"].includes(req.user.role)) {
-      return res.status(403).json({ message: "Only admins may edit organization roles" });
+    // System and organization roles are stored as global documents (no tenant id).
+    // Until per-tenant role isolation is implemented, only the system admin
+    // (admin without organization) may mutate any role — otherwise an org_admin
+    // of tenant A could widen permissions for tenant B via the shared Role doc
+    // (cross-tenant privilege escalation). System-scope check is explicit defense.
+    if (req.user.organization || req.user.role !== "admin") {
+      return res.status(403).json({ message: "Only the system admin can edit roles" });
     }
 
     role.permissions = [...new Set(permissions)];
@@ -74,8 +73,9 @@ const updateRolePermissions = async (req, res) => {
 
     res.json({ role });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 module.exports = { listRoles, listPermissions, updateRolePermissions };

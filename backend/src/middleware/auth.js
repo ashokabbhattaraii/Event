@@ -24,6 +24,12 @@ const protect = async (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({ message: "User not found" });
     }
+    // Immediate deactivation check — do not rely solely on tokenVersion bump which
+    // may be delayed or missed in a race; active=false must be enforced on every
+    // authenticated request.
+    if (req.user.active === false) {
+      return res.status(403).json({ message: "Your account has been disabled by an administrator" });
+    }
     // Token-version check: a role/password change bumps tokenVersion, which
     // invalidates every JWT minted before it — the user must re-authenticate
     // instead of continuing on the old session. (?? 0 keeps pre-version
@@ -51,7 +57,9 @@ const optionalAuth = async (req, res, next) => {
     const user = await User.findById(decoded.id);
     // Stale-version tokens (role/password changed) are treated as anonymous
     // — an old JWT must not unlock privileged views on optional routes.
-    if (user && (decoded.ver ?? 0) === (user.tokenVersion ?? 0)) {
+    // Also enforce immediate deactivation: disabled accounts must not get
+    // privileged optional views either.
+    if (user && user.active !== false && (decoded.ver ?? 0) === (user.tokenVersion ?? 0)) {
       req.user = user;
     }
   } catch (error) {

@@ -104,14 +104,10 @@ const deviceFingerprintFor = (req) => {
 const createSession = async (user, req) => {
   const refreshToken = generateRefreshToken();
   const fingerprint = deviceFingerprintFor(req);
-  await Session.create({
-    user: user._id,
-    refreshTokenHash: hashToken(refreshToken),
-    ip: req.ip,
-    userAgent: req.get("user-agent")?.slice(0, 300),
-    deviceFingerprint: fingerprint,
-    expiresAt: new Date(Date.now() + REFRESH_TTL_MS),
-  });
+  // Revoke previous sessions on this device BEFORE creating the new one — otherwise
+  // the updateMany would match the just-created row (or race with a concurrent login
+  // and revoke the sibling's new session). One active session per device invariant
+  // is enforced by clearing old ones first, then inserting.
   await Session.updateMany(
     {
       user: user._id,
@@ -121,6 +117,14 @@ const createSession = async (user, req) => {
     },
     { $set: { revokedAt: new Date() } }
   );
+  const session = await Session.create({
+    user: user._id,
+    refreshTokenHash: hashToken(refreshToken),
+    ip: req.ip,
+    userAgent: req.get("user-agent")?.slice(0, 300),
+    deviceFingerprint: fingerprint,
+    expiresAt: new Date(Date.now() + REFRESH_TTL_MS),
+  });
   return refreshToken;
 };
 
@@ -227,12 +231,48 @@ const register = async (req, res) => {
       organization: organization._id,
     });
 
-    if (resolvedRole === "admin") {
+    // For org_admin self-registration, fix the placeholder owner now that user exists.
+    if (resolvedRole === "org_admin") {
       organization.owner = user._id;
       await organization.save();
+      await OrganizationMember.create({
+        user: user._id,
+        organization: organization._id,
+        roleInOrg: "owner",
+        status: "active",
+      });
+      // Pending tenant — do not issue a session yet (mirrors orgRegister flow).
+      // The org admin can log in only after a system admin approves the tenant;
+      // issuing a token here would bypass the approval gate entirely.
+      await sendVerificationEmail(user).catch((err) =>
+        console.error("[verify-email] failed to send:", err.message)
+      );
+      audit({
+        req,
+        user,
+        organization,
+        action: "register",
+        resourceType: "User",
+        resourceId: user._id,
+        metadata: { role: resolvedRole, via: "email" },
+      });
+      audit({
+        req,
+        user,
+        organization,
+        action: "organization_created",
+        resourceType: "Organization",
+        resourceId: organization._id,
+        metadata: { name: organization.name },
+      });
+      return res.status(201).json({
+        message:
+          "Organization registration submitted. A system admin will review and approve it — you'll be able to log in once approved.",
+        user: serializeUser(user),
+      });
     }
 
-    const token = generateToken(user._id);
+    const token = generateToken(user._id, user.tokenVersion ?? 0);
     const refreshToken = await createSession(user, req);
 
     // A fresh local account must confirm its email before the platform is
@@ -251,7 +291,7 @@ const register = async (req, res) => {
       resourceId: user._id,
       metadata: { role: resolvedRole, via: "email" },
     });
-    if (resolvedRole === "admin") {
+    if (resolvedRole === "org_admin") {
       audit({
         req,
         user,
@@ -265,8 +305,9 @@ const register = async (req, res) => {
 
     res.status(201).json({ user: serializeUser(user), token, refreshToken });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // --- Organization self-registration (approval workflow) ----------------------
@@ -369,8 +410,9 @@ const orgRegister = async (req, res) => {
         "Organization registration submitted. A system admin will review and approve it — you'll be able to log in once approved.",
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Block logins while the user's org hasn't been approved. The org admin can
@@ -448,8 +490,9 @@ const login = async (req, res) => {
 
     res.json({ user: serializeUser(user), token, refreshToken });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 const googleLogin = async (req, res) => {
@@ -497,10 +540,12 @@ const googleLogin = async (req, res) => {
         user.emailVerifiedAt = new Date();
         changed = true;
       }
-      // Promote allowlisted emails to admin — but only ONCE (adminGrantedAt).
-      // A deliberate demotion by another admin sticks; without this guard,
-      // every Google sign-in would silently re-promote the demoted user.
-      if (admin && !user.adminGrantedAt && user.role !== "admin") {
+      // Promote allowlisted emails to system admin — but only ONCE (adminGrantedAt)
+      // and only for org-less accounts. Without the org check a tenant member
+      // (org_admin/organizer/attendee with an organization) whose email happens
+      // to be in ADMIN_EMAILS would be silently escalated to platform admin.
+      // System admins must remain organization-less (requireSystemAdmin).
+      if (admin && !user.adminGrantedAt && user.role !== "admin" && !user.organization) {
         user.role = "admin";
         user.adminGrantedAt = new Date();
         changed = true;
@@ -618,6 +663,12 @@ const refresh = async (req, res) => {
       await Session.updateMany({ user: user._id, revokedAt: null }, { revokedAt: new Date() });
       return res.status(disabled.status).json({ message: disabled.message });
     }
+    // Block refresh for pending/suspended/rejected tenants — same gate as login.
+    const gate = await assertOrgApproved(user);
+    if (gate) {
+      await Session.updateMany({ user: user._id, revokedAt: null }, { revokedAt: new Date() });
+      return res.status(gate.status).json({ message: gate.message, code: gate.code });
+    }
 
     // Rotation: mint a new token, swap the stored hash (the old token is
     // now dead on the server side, even though the client still holds it).
@@ -640,8 +691,9 @@ const refresh = async (req, res) => {
 
     res.json({ token: generateToken(user._id, user.tokenVersion ?? 0), refreshToken: newRefreshToken, user: serializeUser(user) });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 const logout = async (req, res) => {
@@ -658,8 +710,9 @@ const logout = async (req, res) => {
     // Idempotent: logging out with an already-revoked token still succeeds.
     res.json({ message: "Logged out" });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // List the user's own active sessions (device/ip/browser) so they can see
@@ -695,8 +748,9 @@ const listSessions = async (req, res) => {
       pagination,
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 const revokeSession = async (req, res) => {
@@ -716,8 +770,9 @@ const revokeSession = async (req, res) => {
     });
     res.json({ message: "Session revoked" });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // --- Email verification (report §7) ----------------------------------------
@@ -749,8 +804,9 @@ const verifyEmail = async (req, res) => {
 
     res.json({ message: "Email verified successfully" });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 const resendVerification = async (req, res) => {
@@ -761,8 +817,9 @@ const resendVerification = async (req, res) => {
     await sendVerificationEmail(req.user);
     res.json({ message: "Verification email sent" });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // --- Password reset (report §7) --------------------------------------------
@@ -802,8 +859,9 @@ const forgotPassword = async (req, res) => {
 
     res.json({ message: "If an account exists, a reset link has been sent" });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 const resetPassword = async (req, res) => {
@@ -842,8 +900,9 @@ const resetPassword = async (req, res) => {
 
     res.json({ message: "Password has been reset. Please log in again." });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // GDPR: Export all personal data associated with the current user.
@@ -915,8 +974,9 @@ const exportMyData = async (req, res) => {
     );
     res.send(JSON.stringify(exportData, null, 2));
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // GDPR: Delete the current user's account (right to erasure).
@@ -977,8 +1037,9 @@ const deleteMyAccount = async (req, res) => {
 
     res.json({ message: "Your account has been permanently deleted. You will be logged out." });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 module.exports = {

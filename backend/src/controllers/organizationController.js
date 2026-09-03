@@ -39,8 +39,9 @@ const listOrganizations = async (req, res) => {
     });
     res.json({ organizations: data, pagination });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 const getMyOrganization = async (req, res) => {
@@ -56,20 +57,31 @@ const getMyOrganization = async (req, res) => {
     }
     res.json({ organization });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 const updateMyOrganization = async (req, res) => {
   try {
-    const { name, status } = req.body;
+    const { name } = req.body;
+    // status is system-admin only (system.js). Tenant admins must not self-approve,
+    // suspend or reactivate their own organization — that would bypass the approval gate.
+    if (req.body.status !== undefined) {
+      return res.status(403).json({ message: "Organization status can only be changed by a system admin" });
+    }
+    if (!name || !name.trim()) {
+      return res.status(400).json({ message: "Organization name is required" });
+    }
+    if (name.trim().length > 100) {
+      return res.status(400).json({ message: "Organization name is too long (max 100 characters)" });
+    }
     const organization = await Organization.findById(req.user.organization);
     if (!organization) {
       return res.status(404).json({ message: "Organization not found" });
     }
 
-    if (name) organization.name = name;
-    if (status) organization.status = status;
+    organization.name = name.trim();
     await organization.save();
 
     audit({
@@ -77,13 +89,14 @@ const updateMyOrganization = async (req, res) => {
       action: "organization_updated",
       resourceType: "Organization",
       resourceId: organization._id,
-      metadata: { name, status },
+      metadata: { name: name.trim() },
     });
 
     res.json({ organization });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // --- Organization membership (tenant-level roles, report §15) -------------
@@ -140,8 +153,9 @@ const listMembers = async (req, res) => {
       pagination,
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Add an existing platform user to the organization (by email) and grant an
@@ -154,6 +168,11 @@ const addMember = async (req, res) => {
     }
     if (!["owner", "admin", "manager", "member"].includes(roleInOrg)) {
       return res.status(400).json({ message: "Invalid roleInOrg" });
+    }
+    // Only the organization owner may create another owner — manager/admin
+    // granting owner is privilege escalation to tenant root.
+    if (roleInOrg === "owner" && req.orgAdminRole !== "owner") {
+      return res.status(403).json({ message: "Only the organization owner can add another owner" });
     }
 
     const user = await User.findOne({ email: email.toLowerCase() });
@@ -195,8 +214,9 @@ const addMember = async (req, res) => {
 
     res.status(201).json({ member });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 const updateMemberRole = async (req, res) => {
@@ -217,6 +237,11 @@ const updateMemberRole = async (req, res) => {
     if (member.roleInOrg === "owner" && req.user._id.toString() !== member.user.toString()) {
       return res.status(403).json({ message: "Only the owner can change the owner role" });
     }
+    // Promoting anyone TO owner requires being the owner — admin/manager cannot
+    // escalate a member to owner.
+    if (roleInOrg === "owner" && req.orgAdminRole !== "owner") {
+      return res.status(403).json({ message: "Only the organization owner can promote to owner" });
+    }
 
     member.roleInOrg = roleInOrg;
     await member.save();
@@ -231,8 +256,9 @@ const updateMemberRole = async (req, res) => {
 
     res.json({ member });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 const removeMember = async (req, res) => {
@@ -266,8 +292,9 @@ const removeMember = async (req, res) => {
 
     res.json({ ok: true });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 module.exports = {

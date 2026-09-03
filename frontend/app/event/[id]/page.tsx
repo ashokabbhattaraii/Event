@@ -1,17 +1,37 @@
 "use client"
 
 import { use } from "react"
-import { notFound } from "next/navigation"
 import { RoleEventDetail } from "@/components/app/role-event-detail"
+import { PublicEventLanding } from "@/components/app/public-event-landing"
 import { useCurrentUser } from "@/lib/queries/auth"
+import { useHasToken } from "@/lib/hooks/use-has-token"
 
+// This is the URL the event's public QR/poster (event-qr-poster.tsx) and
+// every "share this event" link point at, so it's the page a first-time,
+// signed-out visitor actually lands on.
+//
+// `useHasToken()` intentionally starts `false` on every render — including
+// the server's, where there is no localStorage to read — and only flips
+// after mount (see the hook for why: reading the token synchronously would
+// make the client's first paint diverge from the server HTML and force a
+// hydration error). That means PublicEventLanding, not RoleEventDetail, is
+// always what a signed-out visitor AND the very first frame of every visit
+// render — exactly the safe default: a focused description + Join button,
+// no app chrome assuming an account that may not exist yet.
+//
+// Once a token is confirmed present, this swaps to RoleEventDetail, which
+// already renders the description and the real Register/ticket flow for an
+// authenticated attendee — that logic isn't duplicated here.
 export default function EventDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
+  const hasToken = useHasToken()
   const { data: userData } = useCurrentUser()
   const user = userData?.user
-  const displayName = user?.name || "Attendee"
 
-  // Use actual user role from server, not hardcoded
+  if (!hasToken) {
+    return <PublicEventLanding eventId={id} />
+  }
+
   const role =
     user?.role === "admin" || user?.role === "org_admin"
       ? "Administrator"

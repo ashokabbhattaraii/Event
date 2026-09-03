@@ -135,7 +135,10 @@ router.post(
     body("password")
       .isLength({ min: 6 })
       .withMessage("Password must be at least 6 characters"),
-    body("role").optional().isIn(["admin", "org_admin", "organizer", "attendee"]).withMessage("Invalid role"),
+    // "admin" (system admin) is never provisioned here — it is org-less and
+    // only granted via ADMIN_EMAILS allowlist. Listing it here would imply
+    // an org admin could create a platform admin inside a tenant.
+    body("role").optional().isIn(["org_admin", "organizer", "attendee"]).withMessage("Invalid role"),
     body("organizationId")
       .optional()
       .isMongoId()
@@ -150,7 +153,7 @@ router.put(
   requireRole("admin", "org_admin"),
   [
     body("role")
-      .isIn(["admin", "org_admin", "organizer", "attendee"])
+      .isIn(["org_admin", "organizer", "attendee"])
       .withMessage("Invalid role"),
   ],
   validate,

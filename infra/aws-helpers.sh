@@ -1,0 +1,16 @@
+set -euo pipefail
+REGION="ap-southeast-2"
+VPC_CIDR="10.0.0.0/16"
+SUBNET_A_CIDR="10.0.1.0/24"
+SUBNET_B_CIDR="10.0.2.0/24"
+AZ_A="ap-southeast-2a"
+AZ_B="ap-southeast-2b"
+TAG_PREFIX="eventnexus"
+AMI_ID="ami-0d30e783ca50bc3e0" # AL2023 2023.12 in ap-southeast-2
+INSTANCE_TYPE="t3.micro"
+KEY_NAME="eventnexus-key-2026"
+SG_ALB="eventnexus-alb-sg"
+SG_EC2="eventnexus-ec2-sg"
+ALB_NAME="eventnexus-alb"
+TG_FRONTEND="eventnexus-frontend-tg"
+TG_BACKEND="eventnexus-backend-tg"

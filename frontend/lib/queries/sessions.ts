@@ -4,9 +4,11 @@ import {
   useQueryClient,
   keepPreviousData,
 } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { sessionsApi, type CreateSessionPayload, type SessionData } from "../api/sessions";
 import { speakersApi, type CreateSpeakerPayload, type SpeakerData } from "../api/sessions";
 import { useHasToken } from "../hooks/use-has-token";
+import { getErrorMessage } from "../errors";
 
 export const sessionKeys = {
   byEvent: (eventId: string) => ["sessions", "byEvent", eventId] as const,
@@ -41,7 +43,9 @@ export function useCreateSession(eventId: string) {
     mutationFn: (data: CreateSessionPayload) => sessionsApi.create(eventId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: sessionKeys.byEvent(eventId) });
+      toast.success("Session created.");
     },
+    onError: (error: unknown) => toast.error(getErrorMessage(error, "Failed to create session.")),
   });
 }
 
@@ -58,7 +62,9 @@ export function useUpdateSession(eventId: string) {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: sessionKeys.byEvent(eventId) });
       queryClient.invalidateQueries({ queryKey: sessionKeys.detail(variables.id) });
+      toast.success("Session updated.");
     },
+    onError: (error: unknown) => toast.error(getErrorMessage(error, "Failed to update session.")),
   });
 }
 
@@ -68,7 +74,9 @@ export function useDeleteSession(eventId: string) {
     mutationFn: (id: string) => sessionsApi.delete(eventId, id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: sessionKeys.byEvent(eventId) });
+      toast.success("Session deleted.");
     },
+    onError: (error: unknown) => toast.error(getErrorMessage(error, "Failed to delete session.")),
   });
 }
 
@@ -94,7 +102,9 @@ export function useCreateSpeaker() {
     mutationFn: (data: CreateSpeakerPayload) => speakersApi.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: speakerKeys.list });
+      toast.success("Speaker added.");
     },
+    onError: (error: unknown) => toast.error(getErrorMessage(error, "Failed to add speaker.")),
   });
 }
 
@@ -106,7 +116,9 @@ export function useUpdateSpeaker() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: speakerKeys.list });
       queryClient.invalidateQueries({ queryKey: speakerKeys.detail(variables.id) });
+      toast.success("Speaker updated.");
     },
+    onError: (error: unknown) => toast.error(getErrorMessage(error, "Failed to update speaker.")),
   });
 }
 
@@ -116,6 +128,8 @@ export function useDeleteSpeaker() {
     mutationFn: (id: string) => speakersApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: speakerKeys.list });
+      toast.success("Speaker deleted.");
     },
+    onError: (error: unknown) => toast.error(getErrorMessage(error, "Failed to delete speaker.")),
   });
 }

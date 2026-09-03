@@ -121,4 +121,45 @@ const generateEventInsight = async (event) => {
   return generateReply(systemPrompt, userPrompt);
 };
 
-module.exports = { generateReply, generateEventInsight };
+// AI-assisted event draft generation for organizers — creates compelling
+// description, highlights, tags, and suggested agenda from minimal input.
+// Falls back to heuristic template if LLM unavailable; never blocks creation.
+const generateEventDraft = async ({ title, category, type, venue, capacity }) => {
+  const systemPrompt =
+    "You are EventNexus AI, an expert event copywriter. Given minimal event info, " +
+    "generate engaging, attendee-focused content in STRICT JSON only. Respond with ONLY a JSON object " +
+    "with keys: description (2-3 sentences, 40-60 words, compelling), highlights (array of 3 short bullet strings), " +
+    "tags (array of 3 relevant lowercase tags), agenda (array of 2-3 objects with time,title,description), " +
+    "requirements (one short sentence), refundPolicy (one sentence). Never add extra keys or markdown.";
+
+  const userPrompt = [
+    `Title: ${title}`,
+    `Category: ${category}`,
+    `Type: ${type}`,
+    `Venue: ${venue || "TBA"}`,
+    `Capacity: ${capacity || 100}`,
+  ].join("\n");
+
+  const raw = await generateReply(systemPrompt, userPrompt);
+  if (!raw) return null;
+  // Extract JSON block if LLM wrapped in fences
+  const match = raw.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try {
+    const parsed = JSON.parse(match[0]);
+    // Validate shape
+    if (!parsed.description || !Array.isArray(parsed.highlights)) return null;
+    return {
+      description: String(parsed.description).slice(0, 600),
+      highlights: parsed.highlights.slice(0, 5).map(String),
+      tags: parsed.tags ? parsed.tags.slice(0, 5).map((t) => String(t).toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 20)).filter(Boolean) : [],
+      agenda: Array.isArray(parsed.agenda) ? parsed.agenda.slice(0, 4) : [],
+      requirements: parsed.requirements ? String(parsed.requirements).slice(0, 200) : "",
+      refundPolicy: parsed.refundPolicy ? String(parsed.refundPolicy).slice(0, 200) : "",
+    };
+  } catch {
+    return null;
+  }
+};
+
+module.exports = { generateReply, generateEventInsight, generateEventDraft };

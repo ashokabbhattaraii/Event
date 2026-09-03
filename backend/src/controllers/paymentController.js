@@ -101,8 +101,9 @@ const createCheckoutSession = async (req, res) => {
 
     res.json({ url: session.url, chargeAmount, chargeCurrency: chargeCurrency.toUpperCase() });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Confirms a completed Checkout Session for the frontend's success page —
@@ -120,8 +121,9 @@ const getCheckoutStatus = async (req, res) => {
     const ticket = await Ticket.findOne({ "payment.stripeSessionId": session.id }).populate("event");
     res.json({ paid: session.payment_status === "paid", ticket: ticket || null });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Mounted with express.raw() (see server.js) so req.body is the raw buffer
@@ -333,8 +335,9 @@ const initiateEsewaPayment = async (req, res) => {
 
     res.json({ action, fields });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // eSewa redirects the browser here (GET, unauthenticated — the user's

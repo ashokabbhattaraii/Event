@@ -1,7 +1,9 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { paymentsApi } from "../api/payments";
 import type { CheckoutStatus } from "../api/payments";
 import { useHasToken } from "../hooks/use-has-token";
+import { getErrorMessage } from "../errors";
 
 export function usePaymentConfig() {
   return useQuery({
@@ -14,12 +16,14 @@ export function usePaymentConfig() {
 export function useCreateCheckoutSession() {
   return useMutation({
     mutationFn: (eventId: string) => paymentsApi.createCheckoutSession(eventId),
+    onError: (error: unknown) => toast.error(getErrorMessage(error, "Failed to create checkout session.")),
   });
 }
 
 export function useInitiateEsewaPayment() {
   return useMutation({
     mutationFn: (eventId: string) => paymentsApi.initiateEsewa(eventId),
+    onError: (error: unknown) => toast.error(getErrorMessage(error, "Failed to start eSewa payment.")),
   });
 }
 

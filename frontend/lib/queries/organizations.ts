@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   organizationsApi,
   coHostInvitationsApi,
@@ -6,6 +7,7 @@ import {
   type CoHostOrganization,
 } from "../api/organizations";
 import { useHasToken } from "../hooks/use-has-token";
+import { getErrorMessage } from "../errors";
 
 export const organizationKeys = {
   list: ["organizations", "list"] as const,
@@ -36,7 +38,9 @@ export function useUpdateMyOrganization() {
       organizationsApi.updateMine(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: organizationKeys.mine });
+      toast.success("Organization updated.");
     },
+    onError: (error: unknown) => toast.error(getErrorMessage(error, "Failed to update organization.")),
   });
 }
 
@@ -56,7 +60,9 @@ export function useRemoveCoHostOrganization(eventId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: organizationKeys.coHosts(eventId) });
       queryClient.invalidateQueries({ queryKey: invitationKeys.forEvent(eventId) });
+      toast.success("Co-host removed.");
     },
+    onError: (error: unknown) => toast.error(getErrorMessage(error, "Failed to remove co-host.")),
   });
 }
 
@@ -83,7 +89,9 @@ export function useInviteCoHost(eventId: string) {
       coHostInvitationsApi.invite(eventId, organizationId, message),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: invitationKeys.forEvent(eventId) });
+      toast.success("Co-host invitation sent.");
     },
+    onError: (error: unknown) => toast.error(getErrorMessage(error, "Failed to send invitation.")),
   });
 }
 
@@ -93,7 +101,9 @@ export function useCancelInvitation(eventId: string) {
     mutationFn: (invitationId: string) => coHostInvitationsApi.cancel(eventId, invitationId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: invitationKeys.forEvent(eventId) });
+      toast.success("Invitation cancelled.");
     },
+    onError: (error: unknown) => toast.error(getErrorMessage(error, "Failed to cancel invitation.")),
   });
 }
 
@@ -118,11 +128,12 @@ export function useRespondToInvitation() {
       action: "accept" | "decline";
       message?: string;
     }) => coHostInvitationsApi.respond(invitationId, action, message),
-    onSuccess: () => {
+    onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: invitationKeys.mine });
-      // Accepting creates a co-host link, so any open co-host list is stale.
       queryClient.invalidateQueries({ queryKey: ["organizations", "co-hosts"] });
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      toast.success(vars.action === "accept" ? "Invitation accepted! You are now co-host." : "Invitation declined.");
     },
+    onError: (error: unknown) => toast.error(getErrorMessage(error, "Failed to respond to invitation.")),
   });
 }

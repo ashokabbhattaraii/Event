@@ -44,8 +44,9 @@ const submitFeedback = async (req, res) => {
 
     res.status(201).json({ feedback });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 const getMyFeedback = async (req, res) => {
@@ -56,8 +57,9 @@ const getMyFeedback = async (req, res) => {
     });
     res.json({ feedback: feedback || null });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 // Organizer/admin: full feedback list plus an aggregated sentiment breakdown
@@ -111,8 +113,9 @@ const getEventFeedback = async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("[error]", error);
+    res.status(500).json({ success: false, message: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" });
+}
 };
 
 module.exports = { submitFeedback, getMyFeedback, getEventFeedback };

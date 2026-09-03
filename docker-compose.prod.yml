@@ -1,0 +1,120 @@
+# EventNexus — Production compose for AWS EC2
+# Images are pulled from GHCR (built by GitHub Actions).
+# Env files are written on the EC2 host by the deploy workflow at:
+#   ~/eventnexus/backend.env
+#   ~/eventnexus/frontend.env  (optional — frontend bakes NEXT_PUBLIC_* at build time)
+#   ~/eventnexus/ai.env
+#
+# Usage on EC2 (handled by .github/workflows/deploy.yml):
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml up -d --remove-orphans
+#
+# Manual smoke test:
+#   curl http://localhost:5000/api/health && curl http://localhost:8000/health && curl -I http://localhost:3000/
+
+services:
+  backend:
+    image: ghcr.io/${IMAGE_PREFIX:-ashokabbhattaraii/event}-backend:${IMAGE_TAG:-latest}
+    container_name: eventnexus-backend
+    ports:
+      - "5000:5000"
+    env_file:
+      - path: ./backend.env
+        required: false
+    environment:
+      # Override to use internal DNS; .env may still have localhost for local dev
+      AI_SERVICE_URL: http://ai-service:8000
+      NODE_ENV: production
+    depends_on:
+      ai-service:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 768M
+        reservations:
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:5000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 25s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  frontend:
+    image: ghcr.io/${IMAGE_PREFIX:-ashokabbhattaraii/event}-frontend:${IMAGE_TAG:-latest}
+    container_name: eventnexus-frontend
+    ports:
+      # Host 80 -> container 3000 so http://<EC2_IP>/ works without :3000
+      # Keep 3000 also mapped for direct health checks
+      - "80:3000"
+      - "3000:3000"
+    # Frontend NEXT_PUBLIC_* are baked at build; runtime env not needed for Next standalone
+    # but keep file for future runtime config if needed
+    env_file:
+      - path: ./frontend.env
+        required: false
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.75"
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  ai-service:
+    image: ghcr.io/${IMAGE_PREFIX:-ashokabbhattaraii/event}-ai-service:${IMAGE_TAG:-latest}
+    container_name: eventnexus-ai
+    ports:
+      - "127.0.0.1:8000:8000"  # not public; only backend should call it (via ai-service:8000 DNS)
+    env_file:
+      - path: ./ai.env
+        required: false
+    volumes:
+      - ai-models:/app/models
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+        reservations:
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  ai-models:
+    name: eventnexus-ai-models
+
+networks:
+  default:
+    name: eventnexus-prod

@@ -6,12 +6,16 @@ import { EventCard } from "@/components/app/event-card"
 import { Reveal } from "@/components/anim/reveal"
 import { useAllEvents } from "@/lib/queries/events"
 import { useRecommendations } from "@/lib/queries/recommendations"
+import { useMyTickets, useRegisterForEvent } from "@/lib/queries/tickets"
 import { useCurrentUser } from "@/lib/queries/auth"
 import { toAppEvent } from "@/lib/adapters/event"
 import { useDebounce } from "@/lib/hooks/use-debounce"
 import { Pagination } from "@/components/app/pagination"
 import { EVENT_CATEGORIES, EVENT_TYPES } from "@/lib/constants/event-options"
 import { Loader2, Search, Sparkles, X } from "lucide-react"
+import { useQueryClient } from "@tanstack/react-query"
+import { getSocket } from "@/lib/socket"
+import { useRouter } from "next/navigation"
 
 const statusOptions = [
   { label: "Any status", value: "all" },
@@ -43,6 +47,11 @@ export default function AttendeeEventsPage() {
   const [showFilters, setShowFilters] = useState(false)
   const debouncedQuery = useDebounce(query, 400)
   const user = userData?.user
+  const router = useRouter()
+  const queryClient = useQueryClient()
+  const { data: ticketData } = useMyTickets({ limit: 100 })
+  const registerMut = useRegisterForEvent()
+  const [joiningId, setJoiningId] = useState<string | null>(null)
 
   // Seed search from the topbar's URL (?q=...) — done in an effect, not a
   // state initializer, so it stays hydration-safe on the server render.
@@ -50,6 +59,40 @@ export default function AttendeeEventsPage() {
     const q = new URLSearchParams(window.location.search).get("q")
     if (q) setQuery(q)
   }, [])
+
+  // Real-time: when an organizer publishes a new event, invalidate lists so
+  // Just added / Discover update instantly without manual refresh.
+  useEffect(() => {
+    const socket = getSocket()
+    if (!socket) return
+    const onNewEvent = () => {
+      queryClient.invalidateQueries({ queryKey: ["events"] })
+    }
+    socket.on("event:created", onNewEvent)
+    return () => { socket.off("event:created", onNewEvent) }
+  }, [queryClient])
+
+  // One-click join for free events — attendee stays on Discover, gets instant feedback.
+  // Paid events redirect to detail page for checkout choice (eSewa/Stripe).
+  const registeredIds = useMemo(() => {
+    const tickets = ticketData?.tickets ?? []
+    return new Set(tickets.filter((t) => t.status !== "cancelled").map((t) => typeof t.event === "string" ? t.event : (t.event as any)._id))
+  }, [ticketData])
+
+  const handleQuickJoin = (eventId: string, isFree: boolean) => {
+    if (!isFree) {
+      router.push(`/event/${eventId}`)
+      return
+    }
+    setJoiningId(eventId)
+    registerMut.mutate(eventId, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ["tickets"] })
+        queryClient.invalidateQueries({ queryKey: ["events"] })
+      },
+      onSettled: () => setJoiningId(null),
+    })
+  }
 
   const { data, isLoading, isError } = useAllEvents({
     search: debouncedQuery,
@@ -256,7 +299,13 @@ export default function AttendeeEventsPage() {
             </Reveal>
             <Reveal stagger={0.08} y={24} className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
               {newlyAdded.map((e) => (
-                <EventCard key={e.id} event={e} />
+                <EventCard 
+                  key={e.id} 
+                  event={e} 
+                  quickJoin={user?.role === "attendee" ? (id) => handleQuickJoin(id, e.price === "Free") : undefined}
+                  isRegistered={registeredIds.has(e.id)}
+                  isJoining={joiningId === e.id}
+                />
               ))}
             </Reveal>
           </div>
@@ -273,7 +322,13 @@ export default function AttendeeEventsPage() {
             </Reveal>
             <Reveal stagger={0.1} y={28} className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
               {recommended.map((e) => (
-                <EventCard key={e.id} event={e} />
+                <EventCard 
+                  key={e.id} 
+                  event={e} 
+                  quickJoin={user?.role === "attendee" ? (id) => handleQuickJoin(id, e.price === "Free") : undefined}
+                  isRegistered={registeredIds.has(e.id)}
+                  isJoining={joiningId === e.id}
+                />
               ))}
             </Reveal>
           </div>
@@ -349,7 +404,13 @@ export default function AttendeeEventsPage() {
             ) : (
               <Reveal stagger={0.07} y={28} className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
                 {events.map((e) => (
-                  <EventCard key={e.id} event={e} />
+                  <EventCard 
+                    key={e.id} 
+                    event={e} 
+                    quickJoin={user?.role === "attendee" ? (id) => handleQuickJoin(id, e.price === "Free") : undefined}
+                    isRegistered={registeredIds.has(e.id)}
+                    isJoining={joiningId === e.id}
+                  />
                 ))}
               </Reveal>
             )}

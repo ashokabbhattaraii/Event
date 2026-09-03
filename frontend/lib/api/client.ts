@@ -119,6 +119,21 @@ apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
     const { config, response } = error;
+    // Global clear toast for operational errors (4xx/5xx) except 401 handled below and validation 400 which caller handles inline
+    if (response && response.status >= 400 && response.status !== 401) {
+      // Let caller handle 400 validation inline if they want to hide toast
+      const hideToast = (config as unknown as { hideErrorToast?: boolean })?.hideErrorToast;
+      if (!hideToast && typeof window !== "undefined") {
+        // Lazy import to avoid SSR issues
+        import("sonner").then(({ toast }) => {
+          const msg = response.data?.message || response.data?.error || (response.status === 403 ? "You don't have permission to do that." : response.status === 404 ? "Not found." : response.status === 409 ? "Already exists." : response.status >= 500 ? "Something went wrong on our side. Please try again." : "Request failed.");
+          // Avoid duplicate toast for auth endpoints that show inline message
+          const url = config?.url || "";
+          const isInlineHandled = ["/auth/login", "/auth/register", "/auth/org-register", "/auth/google"].some((p) => url.includes(p));
+          if (!isInlineHandled) toast.error(msg);
+        });
+      }
+    }
     if (!response || response.status !== 401 || !config || config._retried) {
       return Promise.reject(error);
     }
@@ -141,6 +156,7 @@ apiClient.interceptors.response.use(
     }
     if (!redirectingToLogin) {
       redirectingToLogin = true;
+      import("sonner").then(({ toast }) => toast.error("Session expired. Please log in again."));
       window.location.href = "/login";
     }
     return Promise.reject(error);

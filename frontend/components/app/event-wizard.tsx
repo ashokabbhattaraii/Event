@@ -21,6 +21,7 @@ import {
 import { EVENT_CATEGORIES, EVENT_STATUSES, EVENT_TYPES, SUGGESTED_TAGS } from "@/lib/constants/event-options"
 import { eventDateError, maxFutureEventDate, MAX_FUTURE_EVENT_YEARS, toDatetimeLocal } from "@/lib/event-date"
 import type { CreateEventPayload, EventAgendaItem, EventData, EventSpeaker } from "@/lib/api/events"
+import { eventsApi } from "@/lib/api/events"
 import { geocodeVenue, type GeocodeHit } from "@/lib/geocode"
 
 type FormState = {
@@ -175,6 +176,8 @@ export function EventWizard({
   const [geoBusy, setGeoBusy] = useState(false)
   const [geoError, setGeoError] = useState("")
   const [geoHits, setGeoHits] = useState<GeocodeHit[]>([])
+  const [aiDraftBusy, setAiDraftBusy] = useState(false)
+  const [aiDraftMsg, setAiDraftMsg] = useState("")
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const update = <K extends keyof FormState>(field: K, value: FormState[K]) => {
@@ -237,6 +240,42 @@ export function EventWizard({
       setGeoError("Location lookup is unavailable right now — you can still publish without a pin.")
     } finally {
       setGeoBusy(false)
+    }
+  }
+
+  // AI-assisted draft: fills description, highlights, tags, agenda from minimal title
+  // — organizer only needs to provide title, the AI does the rest, editable afterwards.
+  const handleAiDraft = async () => {
+    if (!form.title.trim() || form.title.trim().length < 3) {
+      setAiDraftMsg("Add a title first (min 3 chars).")
+      return
+    }
+    setAiDraftBusy(true)
+    setAiDraftMsg("")
+    try {
+      const { draft } = await eventsApi.aiDraft({
+        title: form.title.trim(),
+        category: form.category,
+        type: form.type,
+        venue: form.venue,
+        capacity: Number(form.capacity) || 100,
+      })
+      // Only fill empty/placeholder fields — never overwrite organizer's manual edits
+      // unless the field is still in its empty initial state.
+      setForm((prev) => ({
+        ...prev,
+        description: prev.description.trim().length < 20 ? draft.description : prev.description,
+        highlights: prev.highlights.length === 0 ? draft.highlights : prev.highlights,
+        tags: prev.tags.length === 0 ? draft.tags : [...new Set([...prev.tags, ...draft.tags])].slice(0, 8),
+        agenda: prev.agenda.length === 0 ? draft.agenda : prev.agenda,
+        requirements: !prev.requirements.trim() ? draft.requirements : prev.requirements,
+        refundPolicy: !prev.refundPolicy.trim() ? draft.refundPolicy : prev.refundPolicy,
+      }))
+      setAiDraftMsg("AI draft filled — review and edit before publishing.")
+    } catch {
+      setAiDraftMsg("AI assist is temporarily unavailable — please fill manually.")
+    } finally {
+      setAiDraftBusy(false)
     }
   }
 
@@ -379,7 +418,19 @@ export function EventWizard({
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-sm font-medium text-ink">Event Title</label>
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-ink">Event Title</label>
+                <button
+                  type="button"
+                  onClick={handleAiDraft}
+                  disabled={aiDraftBusy || form.title.trim().length < 3}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-semibold text-primary transition hover:bg-primary/10 disabled:opacity-40"
+                  title="AI will draft description, highlights, tags & agenda from title"
+                >
+                  {aiDraftBusy ? <Loader2 className="size-3 animate-spin" /> : <Sparkles className="size-3" />}
+                  AI Draft
+                </button>
+              </div>
               <input
                 required
                 value={form.title}
@@ -387,6 +438,7 @@ export function EventWizard({
                 placeholder="DevSummit 2026"
                 className={inputClass}
               />
+              {aiDraftMsg && <p className={`text-xs ${aiDraftMsg.includes("unavailable") ? "text-amber-600" : "text-secondary"}`}>{aiDraftMsg}</p>}
             </div>
 
             <div className="grid grid-cols-2 gap-4">

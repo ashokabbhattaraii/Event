@@ -50,6 +50,21 @@ router.get("/:id/attendees", protect, authorize("organizer", "admin", "org_admin
 router.get("/:id/ai-insight", protect, authorize("organizer", "admin", "org_admin"), getEventAiInsight);
 
 router.post(
+  "/ai-draft",
+  protect,
+  authorize("organizer", "admin", "org_admin"),
+  [
+    body("title").notEmpty().withMessage("Title is required"),
+    body("category").optional().isString(),
+    body("type").optional().isIn(["In-person", "Hybrid", "Virtual"]),
+    body("venue").optional().isString(),
+    body("capacity").optional().isInt({ min: 1 }),
+  ],
+  validate,
+  require("../controllers/eventController").generateEventDraft
+);
+
+router.post(
   "/",
   protect,
   authorize("organizer", "admin", "org_admin"),
